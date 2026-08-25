@@ -1,0 +1,28 @@
+version: '3.9'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - '3001:3001'
+    volumes:
+      # IMPORTANTE: el caché histórico (SQLite) vive en ./backend/data.
+      # Este volumen es lo que hace que sobreviva a un `docker compose down`
+      # o a un redeploy. Sin él, cada reinicio perdería todo el histórico
+      # ya sincronizado y habría que volver a traerlo de VTEX.
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    restart: unless-stopped

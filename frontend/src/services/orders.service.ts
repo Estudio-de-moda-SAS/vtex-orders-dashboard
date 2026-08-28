@@ -1,4 +1,11 @@
 import { DashboardResponse, StoreInfo, SyncJob } from '@/types/dashboard';
+import {
+  CategoryBrandRankingByStore,
+  CategoryContributionResponse,
+  CategoryRankingByStore,
+  DiscountAnalyticsResponse,
+  EnrichmentStatus,
+} from '@/types/product-analytics';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
@@ -77,5 +84,45 @@ export const ordersService = {
   /** Consulta el progreso de un job de sincronización en segundo plano. */
   getSyncJobStatus(jobId: string): Promise<SyncJob> {
     return request<SyncJob>(`/api/sync/jobs/${jobId}`);
+  },
+
+  /**
+   * Estado actual del enriquecimiento (ciudad + descuento + categoría +
+   * marca — todo se calcula en la misma pasada en segundo plano) para
+   * una tienda. `startDate`/`endDate` opcionales: si se omiten, el % es
+   * sobre todo el histórico cacheado de la tienda; si se pasan, es sobre
+   * ese rango específico (lo que la persona está mirando en pantalla).
+   */
+  getEnrichmentStatus(storeId: string, startDate?: string, endDate?: string): Promise<EnrichmentStatus> {
+    const params = new URLSearchParams({ storeId });
+    if (startDate && endDate) {
+      params.set('startDate', startDate);
+      params.set('endDate', endDate);
+    }
+    return request<EnrichmentStatus>(`/api/sync/enrichment-status?${params.toString()}`);
+  },
+
+  /** Distribución de descuentos (global + por tienda) para el rango dado. */
+  getDiscountAnalytics(startDate: string, endDate: string): Promise<DiscountAnalyticsResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<DiscountAnalyticsResponse>(`/api/analytics/discounts?${params.toString()}`);
+  },
+
+  /** Ranking de categorías por tienda (todas las órdenes, sin filtrar por status) — "Categoría top" de cada `StoreCard`. */
+  getCategoryRanking(startDate: string, endDate: string): Promise<CategoryRankingByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryRankingByStore>(`/api/analytics/categories?${params.toString()}`);
+  },
+
+  /** Aporte de cada categoría sobre el total de ventas contabilizadas (general + por tienda) — para el recuadro de aporte general y su filtro. */
+  getCategoryContribution(startDate: string, endDate: string): Promise<CategoryContributionResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryContributionResponse>(`/api/analytics/category-contribution?${params.toString()}`);
+  },
+
+  /** Para cada tienda, la marca top dentro de cada categoría (solo aplica a tiendas multimarca — ver `CategoryBrandRankingResult`). */
+  getCategoryBrandRanking(startDate: string, endDate: string): Promise<CategoryBrandRankingByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryBrandRankingByStore>(`/api/analytics/category-brands?${params.toString()}`);
   },
 };

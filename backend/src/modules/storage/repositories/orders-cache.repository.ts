@@ -12,6 +12,15 @@ export interface OrderSourceRef {
   sourceKey: string;
 }
 
+/** Resultado de `findOrdersNeedingEnrichment` — ver su comentario para el significado de `sourceType`/`sourceKey`. */
+export interface OrderNeedingEnrichment {
+  storeId: string;
+  orderId: string;
+  sourceType: string;
+  sourceKey: string;
+  dayBucket: string;
+}
+
 /**
  * Repositorio de acceso a la tabla `orders` del caché histórico local.
  * Ningún otro archivo debe escribir SQL directamente sobre esta tabla —
@@ -145,11 +154,38 @@ export class OrdersCacheRepository {
   }
 
   /**
-   * Retorna hasta `limit` pares (storeId, orderId) distintos de órdenes que
-   * todavía no tienen ciudad resuelta (`city IS NULL`), de la MÁS reciente
-   * a la más antigua (`day_bucket DESC`). Se deduplica por `orderId` porque
-   * una misma orden puede aparecer cacheada varias veces (main + segmentos)
-   * y solo hace falta UNA llamada al detalle de VTEX por orden real.
+   * Marca que YA se le extrajeron (o se intentó extraer) los productos a
+   * una orden — ver el comentario junto a `items_enriched_at` en
+   * `DatabaseService.runMigrations` para por qué esto es una señal
+   * SEPARADA de `city` y no simplemente "¿ya tiene filas en
+   * `order_items`?". Se llama SIEMPRE que se procesa el detalle de una
+   * orden, incluso si terminó sin productos que guardar (una orden con 0
+   * ítems reales no debe reintentarse por siempre).
+   */
+  markItemsEnriched(storeId: string, orderId: string): void {
+    const db = this.databaseService.getConnection();
+    db.prepare(`UPDATE orders SET items_enriched_at = ? WHERE store_id = ? AND order_id = ?`).run(
+      new Date().toISOString(),
+      storeId,
+      orderId,
+    );
+  }
+
+  /**
+   * Retorna hasta `limit` órdenes distintas que todavía necesitan
+   * enriquecimiento — ciudad sin resolver (`city IS NULL`) O productos
+   * sin extraer (`items_enriched_at IS NULL`, incluye el backlog de
+   * órdenes que ya tenían `city` resuelta de ANTES de que existiera
+   * `order_items` — ver comentario de esa columna) —, de la MÁS reciente
+   * a la más antigua (`day_bucket DESC`). Se deduplica por `orderId`
+   * porque una misma orden puede aparecer cacheada varias veces (main +
+   * segmentos) y solo hace falta UNA llamada al detalle de VTEX por
+   * orden real — `sourceType`/`sourceKey` en el resultado son de UNA
+   * fila cualquiera de las que existan para esa orden (SQLite los toma
+   * de un registro arbitrario dentro del grupo; sirve porque solo se
+   * usan para tener una `OrderSourceRef` VÁLIDA al guardar
+   * `order_items`, no para identificar una fuente específica — ciudad y
+   * productos son hechos de la orden física, no de la fuente).
    *
    * El orden por recencia es deliberado: sin él, con un backlog histórico
    * de decenas de miles de órdenes, el backfill terminaría procesando
@@ -162,27 +198,71 @@ export class OrdersCacheRepository {
    * la resumibilidad del backfill: nunca hace falta un cursor ni un
    * checkpoint aparte.
    */
-  findOrdersMissingCity(limit: number): { storeId: string; orderId: string }[] {
+  findOrdersNeedingEnrichment(limit: number): OrderNeedingEnrichment[] {
     const db = this.databaseService.getConnection();
     const rows = db
       .prepare(
-        `SELECT store_id, order_id, MAX(day_bucket) AS day_bucket
+        `SELECT store_id, order_id, source_type, source_key, MAX(day_bucket) AS day_bucket
          FROM orders
-         WHERE city IS NULL
+         WHERE city IS NULL OR items_enriched_at IS NULL
          GROUP BY store_id, order_id
          ORDER BY day_bucket DESC
          LIMIT ?`,
       )
-      .all(limit) as unknown as { store_id: string; order_id: string }[];
-    return rows.map((row) => ({ storeId: row.store_id, orderId: row.order_id }));
+      .all(limit) as unknown as {
+      store_id: string;
+      order_id: string;
+      source_type: string;
+      source_key: string;
+      day_bucket: string;
+    }[];
+    return rows.map((row) => ({
+      storeId: row.store_id,
+      orderId: row.order_id,
+      sourceType: row.source_type,
+      sourceKey: row.source_key,
+      dayBucket: row.day_bucket,
+    }));
   }
 
-  /** Cuenta cuántas órdenes (deduplicadas por `orderId`) todavía no tienen ciudad resuelta. */
-  countOrdersMissingCity(): number {
+  /** Cuenta cuántas órdenes (deduplicadas por `orderId`) todavía necesitan enriquecimiento — ver `findOrdersNeedingEnrichment`. */
+  countOrdersNeedingEnrichment(): number {
     const db = this.databaseService.getConnection();
     const row = db
-      .prepare(`SELECT COUNT(DISTINCT order_id) AS total FROM orders WHERE city IS NULL`)
+      .prepare(
+        `SELECT COUNT(DISTINCT order_id) AS total FROM orders WHERE city IS NULL OR items_enriched_at IS NULL`,
+      )
       .get() as unknown as { total: number };
     return row.total;
+  }
+
+  /**
+   * Cuenta órdenes totales vs. ya COMPLETAMENTE enriquecidas (ciudad Y
+   * productos, no solo una de las dos — ver `findOrdersNeedingEnrichment`),
+   * deduplicadas por `orderId`, para una tienda, opcionalmente acotado a
+   * un rango de días. Usado por el endpoint de progreso del
+   * enriquecimiento (`GET /api/sync/enrichment-status`) — sin rango,
+   * cubre todo el histórico cacheado de esa tienda.
+   */
+  getEnrichmentStatus(
+    storeId: string,
+    startDayBucket?: string,
+    endDayBucket?: string,
+  ): { total: number; enriched: number } {
+    const db = this.databaseService.getConnection();
+    const rangeFilter = startDayBucket && endDayBucket ? 'AND day_bucket BETWEEN ? AND ?' : '';
+    const params = startDayBucket && endDayBucket ? [storeId, startDayBucket, endDayBucket] : [storeId];
+
+    const row = db
+      .prepare(
+        `SELECT
+           COUNT(DISTINCT order_id) AS total,
+           COUNT(DISTINCT CASE WHEN city IS NOT NULL AND items_enriched_at IS NOT NULL THEN order_id END) AS enriched
+         FROM orders
+         WHERE store_id = ? ${rangeFilter}`,
+      )
+      .get(...params) as unknown as { total: number; enriched: number };
+
+    return { total: row.total, enriched: row.enriched };
   }
 }

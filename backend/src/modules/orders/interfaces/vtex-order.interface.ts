@@ -33,12 +33,35 @@ export interface VtexOrder {
   city?: string;
 }
 
+/** Un producto dentro de `VtexOrderDetailResponse.items`. */
+export interface VtexOrderDetailItem {
+  id?: string;
+  ean?: string | null;
+  name?: string;
+  quantity?: number;
+  /** Precio de lista (unidad cruda de VTEX, sin normalizar — ver `VtexOrdersService.normalizeMoney`). */
+  price?: number;
+  /** Precio de venta real, ya con descuento aplicado (unidad cruda de VTEX). */
+  sellingPrice?: number;
+  additionalInfo?: {
+    brandName?: string | null;
+    /**
+     * De más específica a más general (ej. ["Gorras", "Accesorios",
+     * "Hombre"]) — el primer elemento es la categoría de más bajo nivel,
+     * la que se usa para el análisis de categorías (ver
+     * `ProductAnalyticsService`).
+     */
+    categories?: { id?: number; name?: string }[] | null;
+  } | null;
+}
+
 /**
- * Subconjunto MÍNIMO del detalle de una orden
- * (`GET /api/oms/pvt/orders/{orderId}`) que la aplicación necesita: solo la
- * ciudad de envío. Deliberadamente no se tipan `clientProfileData` ni el
- * resto de `shippingData.address` (calle, destinatario, teléfono) — esos
- * campos nunca deben leerse ni persistirse, ver `OrderCityEnrichmentService`.
+ * Subconjunto del detalle de una orden (`GET /api/oms/pvt/orders/{orderId}`)
+ * que la aplicación necesita: ciudad de envío + los datos de producto
+ * usados por `ProductAnalyticsService` (descuento, categoría, marca).
+ * Deliberadamente NO se tipan `clientProfileData` ni el resto de
+ * `shippingData.address` (calle, destinatario, teléfono) — esos campos
+ * nunca deben leerse ni persistirse, ver `OrderCityEnrichmentService`.
  */
 export interface VtexOrderDetailResponse {
   orderId?: string;
@@ -47,6 +70,7 @@ export interface VtexOrderDetailResponse {
       city?: string | null;
     } | null;
   } | null;
+  items?: VtexOrderDetailItem[] | null;
 }
 
 export interface VtexPaging {

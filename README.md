@@ -330,6 +330,48 @@ las órdenes ya cacheadas que todavía no la tengan resuelta (ver sección
 13.1). Responde `202` de inmediato con el job (o un mensaje si no había
 nada pendiente) — no espera a que termine.
 
+### `GET /api/sync/enrichment-status?storeId=pilatos&startDate=...&endDate=...`
+
+Estado actual del enriquecimiento (ciudad + descuento + categoría + marca,
+ver sección 13.2) para UNA tienda, calculado al vuelo — no reutiliza
+`sync_jobs` (ver esa sección para el porqué). `startDate`/`endDate` son
+opcionales: si se omiten, el % es sobre todo el histórico cacheado de la
+tienda; si se pasan, es sobre ese rango específico.
+
+```json
+{
+  "storeId": "pilatos",
+  "totalOrders": 450,
+  "enrichedOrders": 392,
+  "percentage": 87.1,
+  "isComplete": false
+}
+```
+
+### Endpoints de analítica de producto (`/api/analytics/*`)
+
+Los cuatro reciben solo `startDate`/`endDate` — ninguno recibe `storeId`:
+todos retornan el desglose de TODAS las tiendas de una sola vez (global +
+por tienda), para que el frontend no tenga que hacer una llamada HTTP por
+cada una de las 6 tiendas en cada carga de página. Ver sección 13.2 para
+de dónde sale cada dato.
+
+- **`GET /api/analytics/discounts`** → `{ global: DiscountDistribution, byStore: Record<storeId, DiscountDistribution> }`.
+  Distribución de descuentos por bucket de 5 puntos (0%, 5%, 10%...), a
+  nivel de ÍTEM (no de orden), sobre todos los ítems del rango.
+- **`GET /api/analytics/categories`** → `Record<storeId, { categories: CategoryRanking[] }>`.
+  Ranking de categorías por tienda (cantidad y valor vendido), sobre
+  todos los ítems del rango. Usado por `StoreCard` para "Categoría top".
+- **`GET /api/analytics/category-contribution`** → `{ general: Record<categoría, CategoryBreakdown>, byStore: Record<storeId, Record<categoría, CategoryBreakdown>> }`.
+  Aporte de cada categoría sobre el total de ventas **contabilizadas**
+  (distinto del endpoint anterior: aquí solo cuentan las órdenes
+  contabilizadas, para que la suma coincida con "valor contabilizado" —
+  mismo criterio que `cityRevenueBreakdown`).
+- **`GET /api/analytics/category-brands`** → `Record<storeId, CategoryBrandRankingResult>`.
+  Para cada tienda, si es multimarca (`isMultiBrand`): la marca que más
+  vendió DENTRO de cada categoría. Si no lo es:
+  `{ applicable: false, reason: "..." }` explícito, nunca una lista vacía.
+
 ## 8. Cómo funciona la paginación
 
 Hay dos problemas distintos que pueden hacer que falten órdenes, y cada uno
@@ -692,6 +734,9 @@ nos dio antes.
   completos y pueden leerse del caché sin volver a VTEX.
 - `sync_jobs`: progreso de los backfills en segundo plano, persistido para
   sobrevivir un reinicio del backend a medio camino.
+- `order_items`: detalle a nivel de PRODUCTO (descuento, categoría,
+  marca), poblado por el mismo enriquecimiento que la columna `city` —
+  ver sección 13.2.
 
 ### Requisito de despliegue: disco persistente
 
@@ -795,6 +840,69 @@ reinicio del backend a medio camino no repite trabajo ya hecho — al
 arrancar, cualquier job huérfano (`pending`/`running` de un proceso
 anterior) se marca `failed` y, si aún queda algo pendiente, se lanza uno
 nuevo que retoma exactamente donde el archivo SQLite haya quedado.
+
+## 13.2. Enriquecimiento de producto (descuento, categoría, marca)
+
+Extiende el MISMO mecanismo de la sección 13.1 — no es un proceso nuevo
+ni una llamada adicional a VTEX. El detalle de una orden
+(`GET /api/oms/pvt/orders/{orderId}`) que ya se consulta para resolver la
+ciudad trae también, en la misma respuesta, `items[]` con el detalle de
+cada producto (`price`, `sellingPrice`, `additionalInfo.categories`,
+`additionalInfo.brandName`) — `OrderCityEnrichmentService.enrichOne`
+extrae ambas cosas en la misma pasada y guarda el producto en una tabla
+nueva, `order_items`, separada de `orders` (una orden con 3 productos
+genera 3 filas). La señal de "esta orden ya quedó completamente
+procesada" sigue siendo `city` (no NULL): si guardar los productos
+fallara, la ciudad no se escribe, y la orden se reintenta completa en la
+próxima pasada — nunca queda "a medias" (ciudad guardada pero sin
+productos, o viceversa).
+
+**De dónde sale cada dato:**
+- **Descuento por ítem**: `(price - sellingPrice) / price * 100`, con
+  `price`/`sellingPrice` normalizados con el mismo divisor que
+  `totalValue` (`VtexOrdersService.normalizeMoney`, único punto de
+  verdad para esa conversión). El resultado se redondea al múltiplo de 5
+  más cercano (0%, 5%, 10%...) — ver `computeDiscountPercentage` en
+  `common/utils/discount.util.ts` — para que "cuál fue el descuento más
+  aplicado" tenga una moda clara en vez de decenas de porcentajes
+  ligeramente distintos.
+- **Categoría**: el primer elemento de `additionalInfo.categories` (el de
+  más bajo nivel, ej. "Gorras" antes que "Accesorios" o "Hombre"). Vacío
+  → `"Sin categoría"`.
+- **Marca**: `additionalInfo.brandName`. Vacío → `"Sin marca"`.
+
+**Mono-marca vs. multimarca:** Kipling, Diesel, Superdry, Girbaud y
+Replay son monomarca — cada una vende solo su propia marca, así que
+"¿cuál marca vendió más?" no tiene sentido para ellas. Solo Pilatos
+(marketplace multimarca) tiene `isMultiBrand: true` en
+`stores.config.ts`; `ProductAnalyticsService.getTopBrandByCategory` usa
+ese flag para retornar `{ applicable: false, reason: "..." }` en vez de
+una lista vacía sin explicación para el resto.
+
+**Modelo de datos:** `order_items` (`store_id, source_type, source_key,
+order_id, ean, sku_id, product_name, category, brand, quantity,
+list_price, selling_price, discount_percentage, day_bucket`), PK sobre
+las primeras 6 columnas. A diferencia de `orders`, cada orden física
+tiene UNA sola fila de productos (sin duplicar por segmento/fuente) —
+`OrdersCacheRepository.findOrdersMissingCity` retorna, junto con cada
+orden pendiente, un `source_type`/`source_key` cualquiera de los que ya
+existan para ella en `orders` (da igual cuál, solo se usa para tener una
+referencia válida al guardar).
+
+**Analítica:** `ProductAnalyticsService` (ver sección 7 para los
+endpoints) tiene dos criterios distintos a propósito: `getTopCategory`/
+`getMostAppliedDiscount` usan TODOS los ítems del rango (sin filtrar por
+status — misma decisión que `cityBreakdown`, para no dejar sin dato
+rangos con muchas órdenes recientes todavía no contabilizadas);
+`getCategoryRevenueBreakdown` usa SOLO órdenes contabilizadas (misma
+decisión que `cityRevenueBreakdown`), para que el aporte de cada
+categoría sea comparable contra "valor contabilizado".
+
+**Progreso en el frontend:** mientras `GET /api/sync/enrichment-status`
+reporta `isComplete: false` para una tienda, el frontend muestra
+"Pendiente de identificar" en vez de "Sin ciudad"/"Sin categoría"/"Sin
+marca" — para no confundir "todavía no se revisó" con "se revisó y no
+hay dato" (ver `frontend/src/lib/enrichment.ts`).
 
 ## 14. Scripts
 

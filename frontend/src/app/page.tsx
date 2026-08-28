@@ -2,10 +2,14 @@
 
 import { useCallback, useMemo, useState } from 'react';
 
+import { BrandDiscountBreakdown } from '@/components/BrandDiscountBreakdown';
+import { CategoriesSection } from '@/components/CategoriesSection';
+import { CategoryBrandRankingTable } from '@/components/CategoryBrandRankingTable';
 import { CitiesSection } from '@/components/CitiesSection';
 import { CityChart } from '@/components/CityChart';
 import { DashboardHeader } from '@/components/DashboardHeader';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
+import { DiscountDistributionChart } from '@/components/DiscountDistributionChart';
 import { ErrorState } from '@/components/ErrorState';
 import { GlobalSummary } from '@/components/GlobalSummary';
 import { RevenueValueChart } from '@/components/RevenueValueChart';
@@ -15,11 +19,19 @@ import { SegmentComparisonTable } from '@/components/SegmentComparisonTable';
 import { StatusChart } from '@/components/StatusChart';
 import { StoreCard } from '@/components/StoreCard';
 import { StoreComparisonTable } from '@/components/StoreComparisonTable';
+import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
 import { SyncProgressBanner } from '@/components/SyncProgressBanner';
+import { useEnrichmentStatusPolling } from '@/hooks/useEnrichmentStatusPolling';
 import { useSyncJobsPolling } from '@/hooks/useSyncJobsPolling';
 import { getDefaultDateRange } from '@/lib/date';
 import { ordersService } from '@/services/orders.service';
 import { DashboardRequestState } from '@/types/dashboard';
+import {
+  CategoryBrandRankingByStore,
+  CategoryContributionResponse,
+  CategoryRankingByStore,
+  DiscountAnalyticsResponse,
+} from '@/types/product-analytics';
 
 const STORE_NAMES = ['Pilatos', 'Kipling', 'Diesel', 'Superdry', 'Girbaud', 'Replay'];
 
@@ -29,12 +41,31 @@ export default function DashboardPage() {
   const [endDate, setEndDate] = useState(defaultRange.endDate);
   const [requestState, setRequestState] = useState<DashboardRequestState>({ status: 'idle' });
 
+  // Analítica de producto (descuentos, categorías, marca) — se consulta en
+  // paralelo al dashboard principal, pero es supletoria: no tiene su propia
+  // máquina de estados idle/loading/error, simplemente se renderiza en
+  // cuanto llega y se ignora mientras tanto (`null`).
+  const [discountAnalytics, setDiscountAnalytics] = useState<DiscountAnalyticsResponse | null>(null);
+  const [categoryRanking, setCategoryRanking] = useState<CategoryRankingByStore | null>(null);
+  const [categoryContribution, setCategoryContribution] = useState<CategoryContributionResponse | null>(null);
+  const [categoryBrandRanking, setCategoryBrandRanking] = useState<CategoryBrandRankingByStore | null>(null);
+
   const runQuery = useCallback(
     async (forceRefresh = false) => {
       setRequestState({ status: 'loading' });
       try {
-        const data = await ordersService.getDashboardData(startDate, endDate, forceRefresh);
+        const [data, discount, catRanking, catContribution, catBrandRanking] = await Promise.all([
+          ordersService.getDashboardData(startDate, endDate, forceRefresh),
+          ordersService.getDiscountAnalytics(startDate, endDate),
+          ordersService.getCategoryRanking(startDate, endDate),
+          ordersService.getCategoryContribution(startDate, endDate),
+          ordersService.getCategoryBrandRanking(startDate, endDate),
+        ]);
         setRequestState({ status: 'success', data });
+        setDiscountAnalytics(discount);
+        setCategoryRanking(catRanking);
+        setCategoryContribution(catContribution);
+        setCategoryBrandRanking(catBrandRanking);
       } catch (error) {
         setRequestState({
           status: 'error',
@@ -62,6 +93,20 @@ export default function DashboardPage() {
   }, [runQuery]);
 
   const { jobs: syncJobs } = useSyncJobsPolling(activeJobIds, handleBackfillComplete);
+
+  // Ids de las tiendas con datos exitosos, para sondear su enriquecimiento
+  // de producto (ciudad, descuento, categoría, marca) — vacío mientras no
+  // haya un dashboard cargado, lo que detiene el sondeo automáticamente.
+  const enrichmentStoreIds = useMemo(() => {
+    if (requestState.status !== 'success') return [];
+    return requestState.data.stores.filter((s) => s.success).map((s) => s.id);
+  }, [requestState]);
+
+  const { statusByStore: enrichmentStatusByStore } = useEnrichmentStatusPolling(
+    enrichmentStoreIds,
+    startDate,
+    endDate,
+  );
 
   const isLoading = requestState.status === 'loading';
 
@@ -95,13 +140,20 @@ export default function DashboardPage() {
 
       {requestState.status === 'success' && (
         <>
-          <SyncProgressBanner jobs={syncJobs} />
+          <SyncProgressBanner jobs={syncJobs} enrichmentStatusByStore={enrichmentStatusByStore} />
 
           <GlobalSummary summary={requestState.data.summary} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {requestState.data.stores.map((store) => (
-              <StoreCard key={store.id} store={store} generatedAt={requestState.data.generatedAt} />
+              <StoreCard
+                key={store.id}
+                store={store}
+                generatedAt={requestState.data.generatedAt}
+                enrichmentComplete={enrichmentStatusByStore[store.id]?.isComplete ?? false}
+                categoryRanking={categoryRanking?.[store.id]?.categories}
+                brandRanking={categoryBrandRanking?.[store.id]}
+              />
             ))}
           </div>
 
@@ -110,9 +162,25 @@ export default function DashboardPage() {
             <RevenueValueChart stores={requestState.data.stores} />
             <StatusChart stores={requestState.data.stores} />
             <CityChart stores={requestState.data.stores} />
+            {discountAnalytics && (
+              <DiscountDistributionChart stores={requestState.data.stores} discountAnalytics={discountAnalytics} />
+            )}
           </div>
 
+          {discountAnalytics && (
+            <StoreDiscountBreakdown stores={requestState.data.stores} discountAnalytics={discountAnalytics} />
+          )}
+          {discountAnalytics && <BrandDiscountBreakdown discountAnalytics={discountAnalytics} />}
+
           <StoreComparisonTable stores={requestState.data.stores} />
+
+          {categoryRanking && categoryBrandRanking && (
+            <CategoryBrandRankingTable
+              stores={requestState.data.stores}
+              categoryRanking={categoryRanking}
+              categoryBrandRanking={categoryBrandRanking}
+            />
+          )}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SegmentComparisonTable
@@ -128,6 +196,14 @@ export default function DashboardPage() {
           </div>
 
           <CitiesSection stores={requestState.data.stores} />
+
+          {categoryContribution && categoryRanking && (
+            <CategoriesSection
+              stores={requestState.data.stores}
+              contribution={categoryContribution}
+              categoryRanking={categoryRanking}
+            />
+          )}
         </>
       )}
     </main>

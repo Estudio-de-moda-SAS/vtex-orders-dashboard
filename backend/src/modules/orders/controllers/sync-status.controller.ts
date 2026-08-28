@@ -1,7 +1,8 @@
-import { Controller, Get, HttpCode, NotFoundException, Param, Post } from '@nestjs/common';
+import { Controller, Get, HttpCode, NotFoundException, Param, Post, Query, ValidationPipe } from '@nestjs/common';
 
 import { HistoricalSyncService } from '../../sync/services/historical-sync.service';
 import { OrderCityEnrichmentService } from '../../sync/services/order-city-enrichment.service';
+import { EnrichmentStatusQueryDto } from '../dto/enrichment-status-query.dto';
 
 /**
  * GET /api/sync/jobs/:id
@@ -42,5 +43,23 @@ export class SyncStatusController {
   enrichCities() {
     const job = this.orderCityEnrichmentService.triggerEnrichment();
     return job ?? { message: 'No hay órdenes pendientes de enriquecer con ciudad.' };
+  }
+
+  /**
+   * GET /api/sync/enrichment-status?storeId=pilatos&startDate=...&endDate=...
+   *
+   * Estado actual del enriquecimiento (ciudad + descuento + categoría +
+   * marca, todo se calcula en la misma pasada) para una tienda —
+   * calculado al vuelo, no vía un job de `sync_jobs` (ver
+   * `OrderCityEnrichmentService.getEnrichmentStatus` para el porqué).
+   * `startDate`/`endDate` son opcionales: si se omiten, el % es sobre
+   * todo el histórico cacheado de la tienda.
+   */
+  @Get('enrichment-status')
+  getEnrichmentStatus(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: EnrichmentStatusQueryDto,
+  ) {
+    return this.orderCityEnrichmentService.getEnrichmentStatus(query.storeId, query.startDate, query.endDate);
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { DatabaseService } from './database.service';
+import { OrderItemsRepository } from './repositories/order-items.repository';
 import { OrdersCacheRepository } from './repositories/orders-cache.repository';
 import { SyncJobsRepository } from './repositories/sync-jobs.repository';
 import { SyncWatermarkRepository } from './repositories/sync-watermark.repository';
@@ -14,7 +15,19 @@ import { SyncWatermarkRepository } from './repositories/sync-watermark.repositor
  * sincronización en segundo plano).
  */
 @Module({
-  providers: [DatabaseService, OrdersCacheRepository, SyncWatermarkRepository, SyncJobsRepository],
-  exports: [DatabaseService, OrdersCacheRepository, SyncWatermarkRepository, SyncJobsRepository],
+  providers: [
+    DatabaseService,
+    OrdersCacheRepository,
+    OrderItemsRepository,
+    SyncWatermarkRepository,
+    SyncJobsRepository,
+  ],
+  exports: [
+    DatabaseService,
+    OrdersCacheRepository,
+    OrderItemsRepository,
+    SyncWatermarkRepository,
+    SyncJobsRepository,
+  ],
 })
 export class StorageModule {}

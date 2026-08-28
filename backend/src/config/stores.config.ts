@@ -39,6 +39,17 @@ export interface StoreConfig {
    * Por ahora solo está configurado para Pilatos.
    */
   extraSegments?: StoreExtraSegments;
+  /**
+   * `true` únicamente para tiendas que venden productos de MÚLTIPLES
+   * marcas (hoy, solo Pilatos — un marketplace multimarca). El resto de
+   * las tiendas son monomarca: cada una vende exclusivamente su propia
+   * marca, así que "¿cuál marca vendió más?" no es una pregunta con
+   * sentido para ellas (la respuesta sería trivialmente la marca de la
+   * propia tienda). `ProductAnalyticsService.getTopBrandByCategory` usa
+   * este flag para decidir si el análisis de marca aplica, en vez de un
+   * `if (storeId === 'pilatos')` disperso en el código.
+   */
+  isMultiBrand?: boolean;
 }
 
 /**
@@ -60,6 +71,7 @@ export function getStoresConfig(): StoreConfig[] {
       color: '#f5c518',
       appKey: process.env.PILATOS_APP_KEY,
       appToken: process.env.PILATOS_APP_TOKEN,
+      isMultiBrand: true,
       extraSegments: {
         sellers: [
           { sellerName: 'ARMO STUDIO', label: 'Armo studio' },

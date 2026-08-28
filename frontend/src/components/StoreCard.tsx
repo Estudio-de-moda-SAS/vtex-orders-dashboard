@@ -1,15 +1,24 @@
 import { CityBreakdown, StoreDashboardResult } from '@/types/dashboard';
 import { formatCOP, formatNumber, formatPercentage, statusLabel } from '@/lib/format';
+import { resolveUnknownLabel } from '@/lib/enrichment';
+import { CategoryBrandRankingResult, CategoryRanking } from '@/types/product-analytics';
 import { DataConsistencyIndicator } from './DataConsistencyIndicator';
 
 interface StoreCardProps {
   store: StoreDashboardResult;
   generatedAt?: string;
+  /** `true` cuando el enriquecimiento (ciudad + descuento + categoría + marca) ya terminó para este rango — ver `resolveUnknownLabel`. */
+  enrichmentComplete: boolean;
+  /** Ranking de categorías de la tienda, ya ordenado por el backend de mayor a menor valor. */
+  categoryRanking?: CategoryRanking[];
+  /** Marca top por categoría — solo definido/aplicable para tiendas multimarca. */
+  brandRanking?: CategoryBrandRankingResult;
 }
 
 const TOP_CITIES_LIMIT = 10;
+const TOP_BRANDS_LIMIT = 5;
 
-export function StoreCard({ store, generatedAt }: StoreCardProps) {
+export function StoreCard({ store, generatedAt, enrichmentComplete, categoryRanking, brandRanking }: StoreCardProps) {
   return (
     <div
       className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel"
@@ -64,8 +73,18 @@ export function StoreCard({ store, generatedAt }: StoreCardProps) {
             </Section>
 
             <Section title="Ciudades">
-              <TopCities cityBreakdown={store.data.cityBreakdown} />
+              <TopCities cityBreakdown={store.data.cityBreakdown} enrichmentComplete={enrichmentComplete} />
             </Section>
+
+            <Section title="Categoría top">
+              <TopCategory categoryRanking={categoryRanking} enrichmentComplete={enrichmentComplete} />
+            </Section>
+
+            {brandRanking?.applicable && (
+              <Section title="Categoría → marca top">
+                <TopCategoryBrands categories={brandRanking.categories} />
+              </Section>
+            )}
 
             <DataConsistencyIndicator data={store.data} generatedAt={generatedAt} />
           </>
@@ -94,7 +113,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** Solo las `TOP_CITIES_LIMIT` ciudades que más generan compras (por valor), igual que el resto de los recuadros de ciudades. */
-function TopCities({ cityBreakdown }: { cityBreakdown: Record<string, CityBreakdown> }) {
+function TopCities({
+  cityBreakdown,
+  enrichmentComplete,
+}: {
+  cityBreakdown: Record<string, CityBreakdown>;
+  enrichmentComplete: boolean;
+}) {
   const sorted = Object.entries(cityBreakdown).sort((a, b) => b[1].totalValue - a[1].totalValue);
   const top = sorted.slice(0, TOP_CITIES_LIMIT);
   const remaining = sorted.length - top.length;
@@ -104,7 +129,9 @@ function TopCities({ cityBreakdown }: { cityBreakdown: Record<string, CityBreakd
       <ul className="flex flex-col gap-1.5">
         {top.map(([city, breakdown]) => (
           <li key={city} className="flex items-center justify-between text-sm">
-            <span className="text-ink-muted">{city}</span>
+            <span className="text-ink-muted">
+              {resolveUnknownLabel(city, enrichmentComplete, 'Sin ciudad')}
+            </span>
             <span className="font-medium tabular-nums text-ink">
               {formatCOP(breakdown.totalValue)}{' '}
               <span className="text-ink-faint">({formatPercentage(breakdown.percentage)})</span>
@@ -115,6 +142,61 @@ function TopCities({ cityBreakdown }: { cityBreakdown: Record<string, CityBreakd
       {remaining > 0 && (
         <p className="mt-2 text-xs text-ink-faint">
           +{remaining} {remaining === 1 ? 'ciudad más' : 'ciudades más'}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** La categoría con más valor vendido, o el estado "sin datos" apropiado según si ya terminó el enriquecimiento. */
+function TopCategory({
+  categoryRanking,
+  enrichmentComplete,
+}: {
+  categoryRanking?: CategoryRanking[];
+  enrichmentComplete: boolean;
+}) {
+  const top = categoryRanking && categoryRanking.length > 0 ? categoryRanking[0] : undefined;
+
+  if (!top) {
+    return (
+      <Metric
+        label="Categoría top"
+        value={resolveUnknownLabel('Sin categoría', enrichmentComplete, 'Sin categoría')}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-ink-faint">Categoría top</p>
+      <p className="mt-0.5 font-display text-lg font-semibold text-ink">{top.category}</p>
+      <p className="text-xs text-ink-faint">{formatCOP(top.value)}</p>
+    </div>
+  );
+}
+
+/** Marca top dentro de cada categoría, en formato "Categoría → Marca" — solo se llama cuando `applicable: true`. */
+function TopCategoryBrands({ categories }: { categories: { category: string; topBrand: string }[] }) {
+  const top = categories.slice(0, TOP_BRANDS_LIMIT);
+  const remaining = categories.length - top.length;
+
+  return (
+    <>
+      <ul className="flex flex-col gap-1.5">
+        {top.map((entry) => (
+          <li key={entry.category} className="flex items-center gap-2 text-sm">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+            <span className="text-ink-muted">
+              {entry.category} <span className="text-ink-faint">→</span>{' '}
+              <span className="font-medium text-ink">{entry.topBrand}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {remaining > 0 && (
+        <p className="mt-2 text-xs text-ink-faint">
+          +{remaining} {remaining === 1 ? 'categoría más' : 'categorías más'}
         </p>
       )}
     </>

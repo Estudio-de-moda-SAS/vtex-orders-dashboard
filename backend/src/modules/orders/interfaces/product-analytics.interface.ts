@@ -84,10 +84,70 @@ export type CategoryBrandRankingResult =
   | { applicable: true; categories: CategoryBrandTop[] }
   | { applicable: false; reason: string };
 
-export interface EnrichmentStatus {
-  storeId: string;
-  totalOrders: number;
-  enrichedOrders: number;
-  percentage: number;
-  isComplete: boolean;
+/** `orders`/`sales` acá son SOLO ventas contabilizadas (mismo criterio que el resto del dashboard) — una campaña sin ninguna orden contabilizada no aparece en la lista. */
+export interface CampaignBreakdown {
+  /** Nombre tal cual lo entrega VTEX (`ratesAndBenefitsData`), ej. "Envío gratis". */
+  campaignName: string;
+  orders: number;
+  sales: number;
 }
+
+export interface CollectionCategoryBreakdown {
+  categoryName: string;
+  units: number;
+  sales: number;
+}
+
+/**
+ * Una colección (Línea/Rack/Outlet/Saldos — ver `StoreConfig.collections`)
+ * con el desglose de categorías vendidas DENTRO de ella. `units`/`sales`
+ * son SOLO ventas contabilizadas (mismo criterio que el resto del
+ * dashboard). Incluye también "Sin colección" (el SKU no está en
+ * ninguna de las 4 colecciones curadas) — se incluye a propósito para
+ * que sumar TODAS las filas de la lista (reales + "Sin colección") dé
+ * exactamente el total de unidades/ventas contabilizadas de la tienda,
+ * sin dejar nada afuera. Las colecciones reales van ordenadas de mayor
+ * a menor por unidades; "Sin colección" siempre al final de la lista
+ * (no es una colección real que tenga sentido destacar primero).
+ */
+export interface CollectionBreakdown {
+  collectionName: string;
+  units: number;
+  sales: number;
+  categories: CollectionCategoryBreakdown[];
+}
+
+/**
+ * Totales de la tienda en el rango, mismo criterio de "ventas
+ * contabilizadas" que `StoreDashboardData.totalOrders`/`revenueTotalValue`
+ * — referencia para verificar que sumar lo mostrado en campañas/
+ * colecciones (incluyendo "Sin colección") cuadra con esto. Para
+ * campañas, como una orden puede tener más de una campaña simultánea, la
+ * suma de `campaigns` puede superar `orders` (una orden con 2 campañas
+ * cuenta en ambas) — no es un error, `orders` sigue sirviendo como
+ * referencia de cuántas órdenes contabilizadas hubo en total.
+ */
+export interface StoreHighlightTotals {
+  orders: number;
+  units: number;
+  sales: number;
+}
+
+/**
+ * Para una tienda: TODAS las campañas de descuento usadas en el rango
+ * (cantidad de órdenes + valor que representa cada una) y TODAS las
+ * colecciones con ventas (incluyendo "Sin colección"), cada una con su
+ * desglose de categorías — ambas listas ya vienen ordenadas de mayor a
+ * menor por el valor principal de cada una (órdenes para campañas,
+ * unidades para colecciones). `totals` trae los totales reales de la
+ * tienda para poder verificar que todo está sumado (ver
+ * `StoreHighlightTotals`).
+ */
+export interface StoreHighlight {
+  campaigns: CampaignBreakdown[];
+  collections: CollectionBreakdown[];
+  totals: StoreHighlightTotals;
+}
+
+/** Respuesta de GET /api/analytics/store-highlights. */
+export type StoreHighlightsByStore = Record<string, StoreHighlight>;

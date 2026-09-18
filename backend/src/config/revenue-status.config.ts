@@ -43,13 +43,18 @@ export function getRevenueStatusDefinitions(): RevenueStatusDefinition[] {
       key: 'payment-approved',
       label: 'Pago aprobado',
       statusMatchers: ['payment-approved'],
-      descriptionMatchers: ['pago aprobado', 'pagamento aprovado'],
+      // 'approve payment': variante real observada en el histórico de
+      // Excel de al menos una cuenta (Pilatos).
+      descriptionMatchers: ['pago aprobado', 'pagamento aprovado', 'approve payment'],
     },
     {
       key: 'handling',
       label: 'En manejo',
       statusMatchers: ['handling', 'ready-for-handling'],
-      descriptionMatchers: ['en manejo', 'em tratamento', 'listo para manejo'],
+      // 'ready for handling' (con espacios): variante real observada en el
+      // histórico de Excel de al menos una cuenta — no matchea
+      // 'ready-for-handling' (con guiones) por comparación exacta.
+      descriptionMatchers: ['en manejo', 'em tratamento', 'listo para manejo', 'ready for handling'],
     },
     {
       key: 'checking-invoice',

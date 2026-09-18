@@ -7,21 +7,23 @@ de un rango de fechas.
 ## 1. Qué hace el proyecto
 
 El usuario selecciona una fecha inicial y una fecha final y presiona
-**Consultar**. El backend consulta en paralelo (con concurrencia controlada)
-las órdenes de las seis tiendas VTEX para ese rango, pagina automáticamente
-hasta obtener todas las órdenes, calcula indicadores agregados por tienda
-(total de órdenes, órdenes por status, valor facturado, medios de pago) y
-entrega al frontend únicamente esa información consolidada — nunca la lista
-cruda de órdenes ni ninguna credencial.
+**Consultar**. El backend lee, directamente de Supabase (PostgreSQL),
+agregados diarios ya pre-calculados por un cron interno — calcula
+indicadores agregados por tienda (total de órdenes, órdenes por status,
+valor facturado, medios de pago, ciudad, categoría, marca, colección,
+descuento) y entrega al frontend únicamente esa información consolidada
+— nunca la lista cruda de órdenes ni ninguna credencial. **El dashboard
+nunca le habla a VTEX en el momento de la consulta** — ver sección 13.
 
-Si una tienda falla, las demás se muestran con normalidad y la tienda con
-error se marca claramente en el dashboard.
+Si una tienda no tiene datos para el rango pedido, se muestra con
+normalidad (totales en cero); si su última sincronización con VTEX falló,
+se marca claramente en el dashboard (`isComplete: false`).
 
 ## 2. Arquitectura
 
 ```text
 vtex-orders-dashboard/
-├── backend/     → NestJS + TypeScript. Único responsable de hablar con VTEX.
+├── backend/     → NestJS + TypeScript. Único responsable de hablar con VTEX (solo el cron).
 ├── frontend/    → Next.js + TypeScript. Solo habla con el backend.
 ├── docker-compose.yml
 └── README.md
@@ -32,42 +34,44 @@ vtex-orders-dashboard/
 ```text
 backend/src/
 ├── config/
-│   ├── configuration.ts     # Config general (puerto, CORS, concurrencia, caché)
-│   └── stores.config.ts     # Configuración centralizada de las 6 tiendas
+│   ├── configuration.ts     # Config general (puerto, CORS, concurrencia VTEX, cron)
+│   └── stores.config.ts     # Configuración centralizada de las 6 tiendas (+ colecciones)
 ├── common/
-│   ├── filters/              # Filtro global de excepciones
-│   └── utils/                 # Fechas/zona horaria y caché en memoria
+│   ├── aggregation/           # daily-aggregator.ts (reglas de negocio de agregación, compartidas
+│   │                            entre el cron y el importador de Excel) + types.ts
+│   ├── filters/                # Filtro global de excepciones
+│   └── utils/                  # Fechas/zona horaria, descuento, normalización de dinero/ciudad,
+│                                # extracción de detalle de orden VTEX
 ├── modules/
+│   ├── database/                # Pool de `pg` + repositorios sobre Supabase + migraciones SQL
+│   ├── vtex/                    # VtexOrdersService (HTTP + paginación + retries hacia VTEX)
+│   ├── sync/                    # VtexSyncCronService — el cron, única pieza que habla con VTEX
+│   ├── catalog/                 # Árbol de categorías + colecciones (catalog_system/catalog VTEX)
 │   ├── orders/
-│   │   ├── controllers/       # GET /api/orders/dashboard
+│   │   ├── controllers/         # GET /api/orders/dashboard, /api/analytics/*, /api/sync/status
 │   │   ├── services/
-│   │   │   ├── vtex-orders.service.ts       # HTTP + paginación + retries hacia VTEX
-│   │   │   ├── orders-analytics.service.ts  # Cálculo de indicadores
-│   │   │   └── orders.service.ts            # Orquesta las 6 tiendas en paralelo
-│   │   ├── dto/                # Validación de query params
-│   │   └── interfaces/         # Tipos de órdenes VTEX y de la respuesta del dashboard
-│   └── stores/                 # GET /api/stores (info pública, sin credenciales)
+│   │   │   ├── orders-analytics.service.ts  # Filas SQL → StoreDashboardData
+│   │   │   ├── orders.service.ts            # Orquesta las consultas SQL del dashboard
+│   │   │   └── product-analytics.service.ts # Descuento/categoría/marca desde agregados
+│   │   ├── dto/                 # Validación de query params
+│   │   └── interfaces/          # Tipos de la respuesta del dashboard y de VTEX
+│   └── stores/                  # GET /api/stores (info pública, sin credenciales)
+├── cli/
+│   └── import-historical-orders.ts  # Script de importación histórica de Excel (ver sección 13.2)
 ├── app.module.ts
 └── main.ts
 ```
 
-**Flujo de una consulta:**
+**Flujo de una consulta al dashboard** (siempre lectura pura, sin VTEX):
 
 1. El frontend llama `GET /api/orders/dashboard?startDate=...&endDate=...`.
 2. `OrdersController` valida el rango de fechas.
-3. `OrdersService` consulta las 6 tiendas en paralelo (máx. `VTEX_STORE_CONCURRENCY`
-   simultáneas) usando `VtexOrdersService`.
-4. `VtexOrdersService` pide la página 1, lee `paging.pages` y pide el resto de
-   páginas con concurrencia limitada (`VTEX_PAGE_CONCURRENCY`), reintentando
-   errores temporales (5xx, timeouts, errores de red) hasta `VTEX_MAX_RETRIES`
-   veces, y deduplica por `orderId`.
-5. `OrdersAnalyticsService` transforma las órdenes en indicadores agregados
-   por tienda.
-6. `OrdersService` ensambla la respuesta final y la cachea en memoria por
-   `store + startDate + endDate` durante `CACHE_TTL_MS`.
-7. Si una tienda falla en cualquier punto del proceso, se captura el error y
-   se retorna `{ success: false, error }` para esa tienda sin afectar a las
-   demás.
+3. `OrdersService` consulta `DashboardQueryRepository` (`SUM`/`GROUP BY`
+   sobre `sales_daily*` en Supabase) para todas las tiendas a la vez.
+4. `OrdersAnalyticsService` convierte esas filas SQL en la forma
+   `StoreDashboardData` que consume el frontend.
+5. `OrdersService` también consulta `sync_logs` (`SyncLogsRepository`)
+   para exponer `lastSyncedAt`/`lastSyncStatus` por tienda.
 
 ### Frontend (Next.js, App Router)
 
@@ -87,38 +91,37 @@ por `orders.service.ts`.
 ## 3. Seguridad
 
 - `X-VTEX-API-AppKey` y `X-VTEX-API-AppToken` **solo existen en el backend**,
-  cargados desde variables de entorno.
+  cargados desde variables de entorno, y solo los usa el cron
+  (`VtexSyncCronService`) — el dashboard nunca los necesita, porque nunca
+  llama a VTEX.
 - El frontend nunca recibe, envía ni almacena esas credenciales. No se usan
   variables `NEXT_PUBLIC_*` para nada relacionado con VTEX.
 - El backend nunca registra (`log`) API keys ni tokens; los mensajes de error
   que llegan al frontend son genéricos (status HTTP y mensaje descriptivo,
   sin headers).
+- El importador de Excel (sección 13.2) descarta columnas con datos
+  personales/de pago apenas lee cada fila — nunca las guarda ni las loguea.
 
 ## 4. Instalación
 
 Requisitos:
-- **Backend: Node.js 22.5 o superior** (usa el módulo `node:sqlite` integrado
-  en Node para el caché histórico — ver sección 13 — que requiere esa
-  versión mínima; no requiere instalar Python ni herramientas de
-  compilación, a diferencia de otros paquetes SQLite para Node).
+- **Backend: Node.js 22.5 o superior.**
 - **Frontend: Node.js 18 o superior.**
 - npm (o yarn, manteniendo consistencia).
-
-Si `node -v` te muestra una versión menor a 22.5, instala la LTS más
-reciente desde nodejs.org antes de continuar con el backend.
+- Un proyecto de Supabase (PostgreSQL) — ver sección 13 para el connection
+  string y cómo correr las migraciones.
 
 ### Backend
 
 ```bash
 cd backend
 npm install
-cp .env.example .env   # completar con las credenciales reales de cada tienda
+cp .env.example .env   # completar con las credenciales VTEX y DATABASE_URL
+npm run db:migrate     # crea las tablas en Supabase (ver sección 13)
 npm run start:dev
 ```
 
-El backend queda en `http://localhost:3001`. Al arrancar verás un aviso
-`ExperimentalWarning: SQLite is an experimental feature` — es esperado, no
-es un error (ver sección 13).
+El backend queda en `http://localhost:3001`.
 
 ### Frontend
 
@@ -139,6 +142,9 @@ El frontend queda en `http://localhost:3000`.
 |---|---|---|
 | `PORT` | Puerto del backend | `3001` |
 | `FRONTEND_ORIGIN` | Origen(es) permitidos por CORS, separados por coma | `http://localhost:3000` |
+| `DATABASE_URL` | Connection string del POOLER de Supabase, modo Transaction (puerto 6543) — ver sección 13 | — |
+| `SYNC_CRON_INTERVAL_HOURS` | Cada cuántas horas corre el cron de sincronización con VTEX | `4` |
+| `SYNC_RECALC_WINDOW_DAYS` | Días hacia atrás que el cron recalcula en cada corrida | `3` |
 | `VTEX_PAGE_CONCURRENCY` | Páginas simultáneas por ventana de fechas (no global) | `3` |
 | `VTEX_STORE_CONCURRENCY` | Tiendas consultadas en paralelo | `3` |
 | `VTEX_GLOBAL_CONCURRENCY` | Límite de concurrencia GLOBAL, compartido entre todas las tiendas y segmentos — el control más importante contra HTTP 429 (ver sección 8.1) | `4` |
@@ -147,20 +153,19 @@ El frontend queda en `http://localhost:3000`.
 | `VTEX_MAX_RETRIES` | Reintentos ante errores transitorios genéricos (timeout, 5xx) | `2` |
 | `VTEX_RATE_LIMIT_BACKOFF_MS` | Backoff base (ms) ante un HTTP 429, con crecimiento exponencial (ver sección 8.1) | `2000` |
 | `VTEX_RATE_LIMIT_MAX_RETRIES` | Reintentos permitidos específicamente ante un 429, independiente de `VTEX_MAX_RETRIES` | `5` |
-| `LIVE_QUERY_DEDUPE_TTL_MS` | Cuánto tiempo se reutiliza el resultado de una consulta en vivo idéntica en vez de repetirla (ver sección 8.1) | `30000` |
 | `VTEX_PAGE_RETRY_SWEEPS` | Rondas adicionales de reintento solo para páginas que ya agotaron sus reintentos individuales (ver sección 8) | `3` |
 | `VTEX_MAX_SAFE_OFFSET` | Offset máximo (`(page-1)*per_page`) considerado seguro antes de partir el rango de fechas en dos (ver sección 8) | `1400` |
 | `VTEX_MIN_CHUNK_MINUTES` | Duración mínima de una sub-ventana antes de dejar de partir el rango | `5` |
 | `VTEX_MAX_SPLIT_DEPTH` | Profundidad máxima de partición recursiva del rango de fechas | `12` |
 | `VTEX_MONEY_DIVISOR` | Divisor para normalizar `totalValue` a la unidad real de la moneda (ver sección 11) | `1000` |
-| `VTEX_CITY_ENRICHMENT_BATCH_SIZE` | Órdenes por lote en el enriquecimiento de ciudad en segundo plano (ver sección 13.1) | `1` |
-| `VTEX_CITY_ENRICHMENT_BATCH_PAUSE_MS` | Pausa (ms) entre lotes, y mientras se espera a que no haya tráfico de listado en curso (ver sección 13.1) | `150` |
-| `DB_PATH` | Ruta del archivo SQLite del caché histórico (ver sección 13) | `./data/cache.sqlite` |
-| `IMMUTABILITY_WINDOW_DAYS` | Días antes de "hoy" que se consideran todavía mutables (el resto se cachea para siempre) | `40` |
-| `INLINE_BACKFILL_MAX_DAYS` | Días "cerrados" sin sincronizar a partir de los cuales se usa un job de fondo en vez de sincronizar en línea | `3` |
-| `NIGHTLY_SYNC_HOUR` | Hora (0-23, UTC) a la que corre la sincronización automática nocturna | `1` |
 | `<TIENDA>_APP_KEY` / `<TIENDA>_APP_TOKEN` | Credenciales VTEX por tienda | — |
 | `<TIENDA>_ENVIRONMENT` | Ambiente VTEX por tienda | `vtexcommercestable` |
+
+### Backend, solo para el importador local (`backend/.env.local`)
+
+| Variable | Descripción |
+|---|---|
+| `DATABASE_URL` | La misma connection string de Supabase — el script de importación histórica corre desde tu máquina, no desde el backend desplegado, así que necesita su propio archivo de entorno (ver sección 13.2). |
 
 ### Frontend (`frontend/.env.local`)
 
@@ -192,8 +197,9 @@ REPLAY_APP_KEY=...
 REPLAY_APP_TOKEN=...
 ```
 
-Sin credenciales, cada tienda simplemente aparece con `success: false` y un
-mensaje de error claro; el resto de la aplicación sigue funcionando.
+Sin credenciales, el cron simplemente no sincroniza esa tienda (sus
+agregados quedan en cero hasta que se configuren); el resto de la
+aplicación sigue funcionando con normalidad.
 
 ## 7. Endpoints disponibles
 
@@ -208,21 +214,15 @@ credenciales cargadas). Nunca incluye credenciales.
 ]
 ```
 
-### `GET /api/orders/dashboard?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&forceRefresh=false`
+### `GET /api/orders/dashboard?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
 
 Valida que ambas fechas existan, sean válidas y que `startDate <= endDate`.
 Acepta también fechas ISO 8601 completas si se necesita mayor precisión.
 
-Internamente resuelve cada tienda combinando caché histórico local (SQLite)
-+ consulta en vivo de los días recientes (ver sección 13). Si el rango
-pedido tiene mucho histórico nunca sincronizado, la respuesta llega de
-inmediato con lo que ya haya disponible y `data.syncInProgress: true` +
-`data.syncJobId` en las tiendas afectadas — hay que sondear
-`GET /api/sync/jobs/:id` y volver a pedir el dashboard cuando termine.
-
-`forceRefresh=true` ignora el caché para el rango pedido y vuelve a
-consultar VTEX incluso para días marcados como cerrados (botón de
-"Forzar actualización" del frontend).
+Lectura SQL pura sobre los agregados diarios de Supabase — **nunca llama
+a VTEX**. La frescura de los datos es la de la última corrida del cron
+para cada tienda (`data.lastSyncedAt`/`data.lastSyncStatus`), no la del
+momento de la consulta.
 
 **Ejemplo de consulta:**
 
@@ -243,9 +243,8 @@ GET /api/orders/dashboard?startDate=2026-06-01&endDate=2026-06-30
     "totalRevenueOrders": 980,
     "totalRevenueValue": 850000000,
     "storesQueried": 6,
-    "storesWithErrors": 1,
-    "storesWithIncompleteData": 0,
-    "storesSyncing": 1
+    "storesWithErrors": 0,
+    "storesWithIncompleteData": 0
   },
   "stores": [
     {
@@ -263,116 +262,70 @@ GET /api/orders/dashboard?startDate=2026-06-01&endDate=2026-06-30
           "Mastercard": { "count": 80, "percentage": 32 },
           "Visa": { "count": 60, "percentage": 24 }
         },
-        "responseTimeMs": 4210,
+        "responseTimeMs": 42,
         "isConsistent": true,
-        "isComplete": false,
-        "syncInProgress": true,
-        "syncJobId": "f28add8f-b236-4bab-beb7-f9990f5a6b61",
-        "pendingClosedDays": 118
+        "isComplete": true,
+        "lastSyncedAt": "2026-06-30T09:00:00.000Z",
+        "lastSyncStatus": "success"
       }
-    },
-    {
-      "id": "diesel",
-      "name": "Diesel",
-      "color": "#D32F2F",
-      "success": false,
-      "error": "Credenciales no configuradas para la tienda \"diesel\". Verifique las variables de entorno."
     }
   ],
   "segments": [
     {
-      "id": "pilatos:seller:ARMO STUDIO",
+      "id": "pilatos:seller:disandina-s-a-s",
       "storeId": "pilatos",
-      "label": "Armo studio",
+      "label": "Disandina S.A.S",
       "type": "seller",
       "success": true,
-      "data": { "totalOrders": 12, "revenueOrders": 10, "revenueTotalValue": 3200000, "...": "..." }
+      "data": { "totalOrders": 12, "revenueOrders": 10, "revenueTotalValue": 3200000 }
     },
     {
-      "id": "pilatos:marketplace:25",
+      "id": "pilatos:marketplace:agaval",
       "storeId": "pilatos",
       "label": "Agaval",
       "type": "marketplace",
       "success": true,
-      "data": { "totalOrders": 8, "revenueOrders": 7, "revenueTotalValue": 1800000, "...": "..." }
+      "data": { "totalOrders": 8, "revenueOrders": 7, "revenueTotalValue": 1800000 }
     }
   ],
   "generatedAt": "2026-06-30T10:00:00.000Z"
 }
 ```
 
-### `GET /api/sync/jobs/:id`
+### `GET /api/sync/status`
 
-Consulta el progreso de un job de sincronización en segundo plano
-(backfill histórico grande). Retorna `404` si el id no existe.
+Última corrida del cron de sincronización VTEX por tienda —
+`lastSyncedAt`/`lastSyncStatus` (ver sección 13).
 
-```json
-{
-  "id": "f28add8f-b236-4bab-beb7-f9990f5a6b61",
-  "label": "backfill:pilatos:2025-01-01T05:00:00.000Z:2025-12-31T04:59:59.999Z",
-  "status": "running",
-  "totalDays": 325,
-  "completedDays": 118,
-  "createdAt": "2026-06-30T10:00:00.000Z",
-  "updatedAt": "2026-06-30T10:02:15.000Z"
-}
-```
+### `POST /api/catalog/sync-collections` / `POST /api/catalog/sync-categories`
 
-`status` puede ser `pending`, `running`, `completed` o `failed` (con
-`error` describiendo qué pasó, sin credenciales ni datos sensibles). El
-mismo endpoint sirve para consultar el progreso del enriquecimiento de
-ciudad (sección 13.1), que reutiliza esta misma tabla `sync_jobs`.
-
-### `POST /api/sync/enrich-cities`
-
-Dispara manualmente el backfill retroactivo de ciudad de envío sobre todas
-las órdenes ya cacheadas que todavía no la tengan resuelta (ver sección
-13.1). Responde `202` de inmediato con el job (o un mensaje si no había
-nada pendiente) — no espera a que termine.
-
-### `GET /api/sync/enrichment-status?storeId=pilatos&startDate=...&endDate=...`
-
-Estado actual del enriquecimiento (ciudad + descuento + categoría + marca,
-ver sección 13.2) para UNA tienda, calculado al vuelo — no reutiliza
-`sync_jobs` (ver esa sección para el porqué). `startDate`/`endDate` son
-opcionales: si se omiten, el % es sobre todo el histórico cacheado de la
-tienda; si se pasan, es sobre ese rango específico.
-
-```json
-{
-  "storeId": "pilatos",
-  "totalOrders": 450,
-  "enrichedOrders": 392,
-  "percentage": 87.1,
-  "isComplete": false
-}
-```
+Disparan manualmente el refresco de `collection_reference`/
+`category_reference` (ver sección 13.1). Responden `202` de inmediato, sin
+esperar a que termine.
 
 ### Endpoints de analítica de producto (`/api/analytics/*`)
 
 Los cuatro reciben solo `startDate`/`endDate` — ninguno recibe `storeId`:
 todos retornan el desglose de TODAS las tiendas de una sola vez (global +
 por tienda), para que el frontend no tenga que hacer una llamada HTTP por
-cada una de las 6 tiendas en cada carga de página. Ver sección 13.2 para
-de dónde sale cada dato.
+cada una de las 6 tiendas en cada carga de página.
 
-- **`GET /api/analytics/discounts`** → `{ global: DiscountDistribution, byStore: Record<storeId, DiscountDistribution> }`.
+- **`GET /api/analytics/discounts`** → `{ global: DiscountDistribution, byStore: Record<storeId, DiscountDistribution>, multiBrand: {...} }`.
   Distribución de descuentos por bucket de 5 puntos (0%, 5%, 10%...), a
-  nivel de ÍTEM (no de orden), sobre todos los ítems del rango.
+  nivel de UNIDAD, sobre todos los ítems del rango.
 - **`GET /api/analytics/categories`** → `Record<storeId, { categories: CategoryRanking[] }>`.
   Ranking de categorías por tienda (cantidad y valor vendido), sobre
   todos los ítems del rango. Usado por `StoreCard` para "Categoría top".
 - **`GET /api/analytics/category-contribution`** → `{ general: Record<categoría, CategoryBreakdown>, byStore: Record<storeId, Record<categoría, CategoryBreakdown>> }`.
   Aporte de cada categoría sobre el total de ventas **contabilizadas**
   (distinto del endpoint anterior: aquí solo cuentan las órdenes
-  contabilizadas, para que la suma coincida con "valor contabilizado" —
-  mismo criterio que `cityRevenueBreakdown`).
+  contabilizadas, para que la suma coincida con "valor contabilizado").
 - **`GET /api/analytics/category-brands`** → `Record<storeId, CategoryBrandRankingResult>`.
   Para cada tienda, si es multimarca (`isMultiBrand`): la marca que más
   vendió DENTRO de cada categoría. Si no lo es:
   `{ applicable: false, reason: "..." }` explícito, nunca una lista vacía.
 
-## 8. Cómo funciona la paginación
+## 8. Cómo funciona la paginación (dentro del cron)
 
 Hay dos problemas distintos que pueden hacer que falten órdenes, y cada uno
 se resuelve de forma diferente:
@@ -400,24 +353,6 @@ llegar a una ventana mínima de `VTEX_MIN_CHUNK_MINUTES`. Así, ninguna
 sub-consulta individual necesita paginar más allá del offset seguro. Al
 final, todas las sub-ventanas se combinan (deduplicadas por `orderId`).
 
-Los pasos completos son:
-
-1. Se solicita la página 1 de la ventana de fechas actual (inicialmente,
-   todo el rango pedido por el usuario).
-2. Si `(paging.pages - 1) * per_page` supera `VTEX_MAX_SAFE_OFFSET`, la
-   ventana se parte en dos mitades y se repite el proceso para cada una
-   (paso 1) — antes de pedir ninguna otra página de la ventana original.
-3. Cuando una ventana ya es lo bastante chica (o no se puede partir más),
-   se paginan sus páginas restantes con concurrencia controlada
-   (`VTEX_PAGE_CONCURRENCY`) y con los reintentos/rondas del punto 1.
-4. Las órdenes de todas las páginas y sub-ventanas se combinan en un `Map`
-   indexado por `orderId`, lo que elimina duplicados automáticamente.
-5. Si al final alguna página nunca se pudo descargar, o el total obtenido
-   no coincide con lo que VTEX reportó, la tienda se marca con
-   `isComplete: false` y `pagesFailed > 0`. El frontend muestra esto de
-   forma visible (banner en el resumen global y advertencia en la tarjeta
-   de la tienda) en vez de mostrar un total silenciosamente incompleto.
-
 **Nota importante:** `VTEX_MAX_SAFE_OFFSET` (default `1400`) es una
 salvaguarda heurística y configurable, no un límite oficial documentado
 por VTEX. Este valor se calibró con evidencia real: en una cuenta VTEX se
@@ -430,139 +365,58 @@ empieza a fallar.
 
 ### Errores permanentes (HTTP 400/401/403/404/422) vs. errores transitorios
 
-Es importante no tratar estos dos casos igual, porque la respuesta
-correcta es distinta:
-
 - **Errores transitorios** (timeout, 429, 500, 502, 503, 504): pueden
   resolverse esperando y reintentando — por eso tienen todo el mecanismo
   de reintentos y rondas descrito arriba.
 - **Errores permanentes** (400, 401, 403, 404, 422): VTEX está rechazando
   la petición de forma estructural — reintentarla, sin importar cuánto se
-  espere, nunca va a funcionar. El caso real que evidenció esto: un HTTP
-  400 consistente en 4 rondas de reintento (con backoff de 1s, 2s, 3s)
-  sobre las mismas 10 páginas, perdiendo ~7 segundos sin ninguna
-  posibilidad real de éxito.
+  espere, nunca va a funcionar.
 
 Por eso, un error permanente se detecta y se deja de reintentar de
-inmediato (no consume rondas de sweep en vano), y además dispara una
-**salvaguarda reactiva**: si ocurre un HTTP 400 aunque el offset calculado
-no superara `VTEX_MAX_SAFE_OFFSET` (es decir, nuestro umbral configurado
-resultó estar mal calibrado para esa cuenta), el sistema parte el rango de
-fechas en dos mitades de todas formas y reintenta — la evidencia real de
-un 400 es más confiable que cualquier umbral configurado de antemano. Así,
-el sistema se auto-corrige incluso si `VTEX_MAX_SAFE_OFFSET` no es exacto.
+inmediato, y además dispara una **salvaguarda reactiva**: si ocurre un
+HTTP 400 aunque el offset calculado no superara `VTEX_MAX_SAFE_OFFSET`, el
+sistema parte el rango de fechas en dos mitades de todas formas y
+reintenta — la evidencia real de un 400 es más confiable que cualquier
+umbral configurado de antemano.
 
-### ¿Por qué no evitamos la paginación por completo?
+## 8.1. Rate limiting (HTTP 429)
 
-VTEX no ofrece un endpoint de "traer todas las órdenes del rango sin
-límite": siempre hay un tope de cuántas órdenes devuelve una sola llamada
-(`per_page`), así que alguna forma de pedir en partes es inevitable
-cuando el volumen de órdenes supera ese tope. Lo que sí se puede reducir
-es la CANTIDAD de peticiones necesarias, subiendo `VTEX_PER_PAGE` (el
-default quedó en `50`; VTEX puede aceptar valores más altos, pero no hay
-forma de confirmar en este momento cuál es su tope real documentado —
-pruébalo empíricamente subiéndolo, por ejemplo, a 100, y si VTEX empieza a
-rechazarlo o a comportarse distinto, bájalo de nuevo).
-
-Importante: subir `per_page` reduce el NÚMERO de peticiones HTTP para el
-mismo volumen de órdenes, pero NO cambia a partir de qué cantidad de
-órdenes se activa la partición por fecha (`VTEX_MAX_SAFE_OFFSET` se mide
-en posición de orden, no en número de página) — ambos mecanismos son
-complementarios, no alternativos.
-
-## 8.1. Rate limiting (HTTP 429) y datos "en vivo"
-
-Con rangos de fechas incluso cortos (2-3 días) es posible ver una tienda
-marcada como incompleta por errores `HTTP 429` (rate limit) en los logs.
-Esto NO depende del tamaño del rango — depende de cuántas peticiones
-simultáneas le llegan a VTEX en el momento en que se abre el dashboard.
-Pilatos es la tienda más propensa a esto porque, además de su consulta
-general, dispara 9 consultas adicionales (3 sellers + 6 marketplaces) —
-ver sección 10.
-
-### Por qué un 429 es distinto a cualquier otro error
+Con rangos de fechas incluso cortos (2-3 días) es posible ver una falla
+`HTTP 429` (rate limit) en los logs del cron. Esto NO depende del tamaño
+del rango — depende de cuántas peticiones simultáneas le llegan a VTEX en
+el momento en que corre el cron. Pilatos es la tienda más propensa a esto
+porque, además de su consulta general, dispara consultas adicionales por
+cada marketplace configurado (ver sección 10).
 
 Un 429 significa "estás pidiendo más rápido de lo que permito", no "algo
-se rompió". Reintentar de inmediato (como se hacía antes, a los
-300-600ms) casi siempre vuelve a fallar, porque la ventana de la que
-depende el límite de VTEX probablemente sigue activa. Por eso el 429 se
-trata aparte, con:
+se rompió". Por eso se trata aparte, con:
 
 - **Backoff exponencial** (`VTEX_RATE_LIMIT_BACKOFF_MS`, default 2s, 4s,
   8s, 16s, 32s...) en vez del backoff corto de errores genéricos, o el
   valor de la cabecera `Retry-After` si VTEX la envía.
 - **Su propio presupuesto de reintentos** (`VTEX_RATE_LIMIT_MAX_RETRIES`,
-  default 5) — más generoso que `VTEX_MAX_RETRIES`, porque esperar más
-  tiempo no cuesta corrección, solo velocidad.
+  default 5) — más generoso que `VTEX_MAX_RETRIES`.
 
 ### Límite de concurrencia GLOBAL
 
-El control más importante: `VtexOrdersService` es un singleton (una sola
-instancia para toda la aplicación), así que su límite de concurrencia
-(`VTEX_GLOBAL_CONCURRENCY`, default 4) se comparte entre **todas** las
-tiendas y **todos** los segmentos. Sin importar cuántas tiendas se
-consulten en paralelo (`VTEX_STORE_CONCURRENCY`) o cuántas páginas se
-pidan a la vez dentro de una ventana (`VTEX_PAGE_CONCURRENCY`), nunca hay
-más de `VTEX_GLOBAL_CONCURRENCY` peticiones a VTEX en vuelo al mismo
-tiempo en toda la app. Esto es necesario porque la evidencia (dos tiendas
-distintas recibiendo 429 casi al mismo segundo) sugiere que el límite de
-VTEX no es estrictamente "por tienda".
-
-Si sigues viendo 429 con frecuencia, baja `VTEX_GLOBAL_CONCURRENCY` (por
-ejemplo a 2 o 3). Si nunca los ves y quieres que el dashboard cargue más
-rápido, puedes subirlo — no hay forma de confirmar el límite exacto de tu
-cuenta VTEX sin probarlo empíricamente.
-
-### Deduplicación de consultas en vivo
-
-Si varias personas abren el dashboard casi al mismo tiempo (o una persona
-refresca varias veces seguidas), cada una dispararía su propia consulta
-idéntica a VTEX — empeorando justo el problema del 429. `LiveQueryDedupeCache`
-evita esto: si ya hay una consulta idéntica (misma tienda, misma fuente,
-misma ventana de fechas) en curso o recién completada dentro de
-`LIVE_QUERY_DEDUPE_TTL_MS` (default 30s), se reutiliza ese resultado en
-vez de generar tráfico adicional hacia VTEX.
-
-### Exactitud vs. datos "en vivo": qué significa realmente "incompleto"
-
-Este punto es importante para no generar falsas alarmas. Se distinguen
-dos situaciones que antes se trataban igual:
-
-- **Falla real**: una página nunca se pudo descargar (`pagesFailed > 0`).
-  Esto SÍ marca la fuente como incompleta — es un error genuino y vale la
-  pena reintentar ("Forzar actualización").
-- **Drift esperado en datos en vivo**: VTEX reportó, por ejemplo, "hay 464
-  órdenes" al pedir la página 1, pero al terminar de traer todas las
-  páginas (unos segundos después) el conteo real es 463 o 465 — sin que
-  ninguna página haya fallado. Esto pasa en cualquier tienda con
-  movimiento activo: es una foto de un instante específico, no un error
-  de nuestro sistema. **No se oculta ni se ajusta ningún número** — se
-  sigue mostrando el total real obtenido — pero ya no se marca como
-  "incompleto", porque no lo es. El frontend muestra en su lugar un aviso
-  permanente y neutral ("datos tomados a las HH:MM, pueden variar
-  levemente") en vez de una alerta de error.
-
-Para los días ya "cerrados" (históricos, fuera de la ventana de
-inmutabilidad) esta distinción no aplica: ahí se exige coincidencia exacta
-siempre, porque esos datos ya no deberían estar cambiando — cualquier
-discrepancia ahí sí es un error real.
+El control más importante: `VtexOrdersService` es un singleton, así que su
+límite de concurrencia (`VTEX_GLOBAL_CONCURRENCY`, default 4) se comparte
+entre **todas** las tiendas y **todos** los segmentos que el cron consulta
+en una misma corrida. Si sigues viendo 429 con frecuencia, baja
+`VTEX_GLOBAL_CONCURRENCY` (por ejemplo a 2 o 3).
 
 ## 9. Cómo se calculan los indicadores
 
-- **`totalOrders`**: cantidad de órdenes únicas obtenidas para la tienda (o
-  para el segmento, en el caso de sellers/marketplaces), sin importar su
-  status.
-- **`statusCounts`**: conteo de órdenes agrupadas por `status`. Se valida
-  que `sum(statusCounts) === totalOrders`; si no coincide, `isConsistent`
-  se marca en `false` y se registra una advertencia en los logs del backend.
-- **`revenueOrders` / `revenueTotalValue`**: cantidad y suma de `totalValue`
-  de las órdenes cuyo estado está entre los "contabilizados": `invoiced`,
-  `payment-approved`, `handling` y `checking-invoice`. La coincidencia se
-  valida tanto contra `status` (código) como contra `statusDescription`
-  (texto legible), por si el código exacto varía entre cuentas VTEX — ver
+- **`totalOrders`**: suma de `sales_daily.orders` del rango — cantidad de
+  órdenes únicas de la tienda (o del segmento, en el caso de sellers/
+  marketplaces), sin importar su status.
+- **`statusCounts`**: `SUM(orders) GROUP BY status` sobre
+  `sales_daily_by_status`. Se valida que `sum(statusCounts) === totalOrders`;
+  si no coincide, `isConsistent` se marca en `false`.
+- **`revenueOrders` / `revenueTotalValue`**: suma de `sales_daily_by_status`
+  filtrando los status "contabilizados": `invoiced`, `payment-approved`,
+  `handling` y `checking-invoice` — ver
   `backend/src/config/revenue-status.config.ts` para ajustar la lista.
-  Los valores de `totalValue` originales de VTEX nunca se modifican en la
-  fuente; solo se normalizan internamente para el cálculo (ver sección 11).
 - **`paymentMethods`**: agrupación por `paymentNames`. Si una orden reporta
   varios medios de pago separados por coma, se cuenta en cada uno de ellos
   (sin inflar `totalOrders`), y el porcentaje se calcula sobre el total de
@@ -571,43 +425,36 @@ discrepancia ahí sí es un error real.
 ## 10. Cómo agregar una nueva tienda
 
 1. Agregar una entrada nueva en `backend/src/config/stores.config.ts` con su
-   `id`, `accountName`, `environment` y `color`.
+   `id`, `accountName`, `environment`, `color` y (opcional) `collections`.
 2. Agregar `<ID>_APP_KEY`, `<ID>_APP_TOKEN` y `<ID>_ENVIRONMENT` en
    `backend/.env` y `backend/.env.example`.
-3. Reiniciar el backend.
+3. Reiniciar el backend (el cron recogerá la tienda nueva en su siguiente
+   corrida, o al reiniciar).
 
-No se requiere ningún otro cambio: paginación, analítica, endpoints y
-frontend leen la configuración de tiendas dinámicamente.
+No se requiere ningún otro cambio: el cron, la analítica, los endpoints y
+el frontend leen la configuración de tiendas dinámicamente.
 
 ### Sellers y marketplaces (segmentación adicional)
 
 Actualmente configurado solo para Pilatos, en
-`backend/src/config/stores.config.ts` → `extraSegments`. Por cada tienda que
-lo tenga configurado, además de la consulta general se ejecutan consultas
-independientes:
+`backend/src/config/stores.config.ts` → `extraSegments`. El cron ejecuta,
+además de la consulta general, una consulta de LISTADO independiente por
+cada segmento configurado — mismo mecanismo para los dos tipos:
 
-- Una por cada `seller` en `extraSegments.sellers`, agregando el parámetro
-  `f_sellerNames=<sellerName>` a la petición VTEX.
-- Una por cada `marketplace` en `extraSegments.marketplaces`, agregando el
-  parámetro `salesChannelId=<salesChannelId>`.
+- Una por cada `seller` en `extraSegments.sellers`, agregando el
+  parámetro `f_sellerNames=<sellerName>` al listado.
+- Una por cada `marketplace` en `extraSegments.marketplaces`, agregando
+  el parámetro `salesChannelId=<salesChannelId>`.
+
+Las órdenes que devuelve cada consulta filtrada SON las de ese
+seller/marketplace — no se inspecciona ningún campo del detalle de la
+orden para clasificarlas.
 
 Todas esas órdenes se combinan (deduplicadas por `orderId`) con las de la
 consulta general para calcular el total real de la tienda, y además se
-exponen por separado en `segments` de la respuesta del dashboard, para las
-tablas "Comparativo de sellers" y "Comparativo de marketplaces" del
-frontend, ordenadas de mayor a menor valor contabilizado.
-
-Para agregar esta segmentación a otra tienda, basta con completar su
-`extraSegments` en `stores.config.ts`; el resto del mecanismo (paginación,
-concurrencia, deduplicación, analítica, endpoints y las tablas del
-frontend) ya está generalizado y no requiere cambios adicionales.
-
-Los segmentos de una tienda se consultan secuencialmente entre sí (no en
-paralelo), y cada uno respeta el límite de concurrencia GLOBAL
-(`VTEX_GLOBAL_CONCURRENCY`) compartido con el resto de la aplicación — ver
-sección 8.1 para el detalle de por qué esto es importante para evitar
-HTTP 429, especialmente relevante para Pilatos por sus 9 fuentes
-adicionales.
+exponen por separado en `sales_daily_by_seller`/`sales_daily_by_marketplace`
+(`segments` de la respuesta del dashboard), para las tablas "Comparativo de
+sellers" y "Comparativo de marketplaces" del frontend.
 
 ## 11. Formato de moneda y normalización de `totalValue`
 
@@ -617,17 +464,10 @@ Los valores en pesos colombianos se formatean con
 
 **Normalización.** En algunas cuentas VTEX el campo `totalValue` del listado
 de órdenes viene expresado en una unidad menor que la moneda real (por
-ejemplo, milésimas). El síntoma es que las cifras de ventas facturadas
-aparecen 1000 veces más grandes de lo real — por ejemplo, un total que en
-realidad es "23 millones" se muestra como "23 mil millones".
-
-Para corregirlo, el backend normaliza `totalValue` en un único punto de
-entrada: `VtexOrdersService.mergeOrders()`, apenas las órdenes llegan de
-VTEX (`backend/src/common/utils/money-normalizer.util.ts`). Como todo el
-resto de la aplicación —analítica, KPIs, tarjetas por tienda, tabla
-comparativa y los 4 gráficos— consume esas mismas órdenes ya normalizadas,
-la corrección se refleja automáticamente en todos los casos sin tener que
-duplicarla en ningún otro archivo.
+ejemplo, milésimas). Para corregirlo, el cron normaliza `totalValue` en un
+único punto de entrada: `VtexOrdersService.normalizeMoney()`
+(`backend/src/common/utils/money-normalizer.util.ts`), antes de guardar
+cualquier agregado en Supabase.
 
 El factor de corrección se controla con `VTEX_MONEY_DIVISOR` en `.env`:
 
@@ -637,272 +477,134 @@ El factor de corrección se controla con `VTEX_MONEY_DIVISOR` en `.env`:
 | `100` | La cuenta VTEX entrega los valores en centavos (convención estándar documentada por VTEX) |
 | `1` | Los valores ya vienen correctos, sin conversión |
 
-Para calibrarlo con certeza: toma una orden real conocida, compara su
-`totalValue` crudo (puedes verlo llamando directamente a la API de VTEX)
-contra su valor real en pesos, y divide uno entre el otro para obtener el
-divisor correcto.
-
-Importante: los valores originales que entrega VTEX nunca se modifican en
-la fuente; la normalización solo ajusta la copia interna que usa el
-backend para calcular indicadores, tal como pide el punto 31 del brief
-original.
+**Importante:** el histórico importado desde Excel (sección 13.2) YA viene
+en pesos reales — el importador NUNCA aplica `VTEX_MONEY_DIVISOR` sobre
+esos valores.
 
 ## 12. Zona horaria
 
-Colombia usa UTC-5 sin horario de verano. Cuando el usuario selecciona una
-fecha (sin hora), el backend la interpreta como el inicio/fin de ese día en
-la zona horaria de Colombia y la convierte a UTC antes de construir el
-filtro `f_creationDate` de VTEX, evitando que la consulta incluya o excluya
-órdenes de un día distinto al seleccionado.
+Colombia usa UTC-5 sin horario de verano. Todo el sistema — el cron, el
+dashboard y el importador de Excel — agrupa las órdenes por "día calendario
+de Colombia" (no UTC) de forma consistente, usando
+`backend/src/common/utils/date-range.util.ts` como único punto de verdad
+para esa conversión. Si esto no fuera consistente entre las tres fuentes,
+un mismo día podría aparecer con datos distintos según de dónde vino cada
+agregado.
 
-**Importante:** el caché histórico (sección 13) agrupa las órdenes por
-"día calendario de Colombia" (no UTC), de forma consistente con lo
-anterior. Si esto no fuera consistente, el rango efectivamente consultado
-a VTEX podía desviarse hasta ~24 horas del rango pedido por el usuario
-(por ejemplo, pedir "15 al 18 de julio" terminaba consultando de facto
-15 de julio 00:00 UTC a 19 de julio 23:59 UTC — un día completo de más).
-Todas las funciones de fecha del backend (`common/utils/date-range.util.ts`)
-usan el mismo criterio de "día calendario de Colombia" para evitar que
-esto vuelva a pasar.
+## 13. Arquitectura de datos: cron + agregados en Supabase
 
-## 13. Caché histórico local (SQLite) y sincronización incremental
+El backend YA NO guarda órdenes crudas ni consulta VTEX en el momento en
+que alguien abre el dashboard. En su lugar:
 
-Este es el mecanismo que permite pedir rangos grandes (ej. "todo 2025" o
-"todo el año") sin tener que volver a paginar miles de órdenes de VTEX en
-cada consulta.
+- **`VtexSyncCronService`** (`backend/src/modules/sync/services/vtex-sync-cron.service.ts`)
+  es la ÚNICA pieza del sistema que le habla a VTEX en vivo. Corre cada
+  `SYNC_CRON_INTERVAL_HOURS` horas (+ una corrida al arrancar el backend).
+  En cada corrida, por cada tienda: trae el listado de VTEX (general +
+  una consulta filtrada por cada seller/marketplace configurado, ver
+  sección 10) para la ventana `[hoy - SYNC_RECALC_WINDOW_DAYS, ahora]`, el
+  detalle de cada orden de esa ventana (ciudad, ítems, campañas de
+  descuento), y **recalcula por completo** los agregados diarios de esos
+  días
+  específicos — los días fuera de esa ventana nunca se vuelven a tocar,
+  quedan fijos como histórico definitivo.
+- **`common/aggregation/daily-aggregator.ts`** contiene las reglas de
+  negocio de agregación (clasificación de revenue, split de método de
+  pago, buckets de descuento) como funciones puras, sin dependencias de
+  VTEX ni de Postgres — las usa TANTO el cron como el importador de Excel
+  (sección 13.2), para no duplicar esas reglas entre las dos fuentes.
+- **Supabase (PostgreSQL)** guarda el resultado en un puñado de tablas
+  `sales_daily*` (una fila por día+tienda+dimensión — status, medio de
+  pago, ciudad, categoría, marca, colección, campaña de descuento, bucket
+  de descuento, seller, marketplace), más tablas de referencia chicas
+  (`category_reference`, `brand_reference`, `collection_reference`) y
+  `sync_logs` (trazabilidad de cada corrida). Ver el esquema completo en
+  `backend/src/modules/database/migrations/0001_init.sql`.
+- **El dashboard** (`OrdersService`/`ProductAnalyticsService`) solo hace
+  `SUM`/`GROUP BY` sobre esas tablas — nunca VTEX, nunca un caché en
+  memoria o en disco.
 
-**Nota de implementación:** el caché usa el módulo SQLite integrado en
-Node.js (`node:sqlite`, disponible desde Node 22.5+) en vez de un paquete
-externo con módulo nativo compilado. Esto evita que instalar el proyecto
-requiera Python o Visual Studio Build Tools en Windows — viene incluido en
-el propio Node que ya tienes instalado. Al arrancar el backend vas a ver
-un aviso `ExperimentalWarning: SQLite is an experimental feature` en la
-consola — es normal y no afecta el funcionamiento, solo indica que la API
-podría cambiar en futuras versiones de Node.
+### Conexión a Supabase
 
-### La idea central
+Usa el connection string del **pooler de Supabase, modo Transaction
+(puerto 6543)** — nunca el de conexión directa (puerto 5432), por la
+cantidad de usuarios concurrentes esperados. Se obtiene desde el panel de
+Supabase: *Project Settings → Database → Connection string → pestaña
+"Direct" → seleccionar "Transaction pooler"*. Se configura en
+`DATABASE_URL` (`backend/.env`).
 
-Una orden de hace varios meses ya no cambia (más allá de una ventana
-razonable para devoluciones). Si ya se trajo una vez de VTEX, no hace
-falta volver a pedirla — se guarda en un archivo SQLite local
-(`backend/data/cache.sqlite` por defecto) y de ahí en adelante se lee
-instantáneo, sin tocar VTEX para nada.
+### Crear/actualizar el esquema
 
-**Importante: esto no reemplaza a VTEX ni duplica su base de datos.** VTEX
-sigue siendo el único dueño de la verdad sobre las órdenes. Este archivo es
-solo una copia de lectura de lo histórico ya cerrado, para no tener que
-volver a pedirle a VTEX (con su límite de páginas y velocidad) algo que ya
-nos dio antes.
+```bash
+cd backend
+npm run db:migrate
+```
 
-### Reglas
+Corre `migrations/0001_init.sql` completo dentro de una sola transacción.
+El script usa `DROP TABLE IF EXISTS ... CASCADE` antes de cada
+`CREATE TABLE`, así que es seguro volver a correrlo mientras se itera el
+esquema — pero también significa que **borra y recrea todas las tablas**
+cada vez que se ejecuta: no lo corras contra una base con datos que
+quieras conservar sin antes respaldarlos.
 
-- **Ventana de inmutabilidad** (`IMMUTABILITY_WINDOW_DAYS`, default `40`
-  días — un mes de garantía de devolución + margen): cualquier día anterior
-  a `hoy - 40` se considera "cerrado". Una vez sincronizado exitosamente,
-  nunca se vuelve a pedir a VTEX.
-- **Ventana mutable**: los últimos 40 días (incluyendo hoy) siempre se
-  consultan en vivo en cada petición, porque todavía podrían cambiar de
-  estado.
-- **Backfill en línea vs. en segundo plano**: si al pedir un rango hay
-  pocos días cerrados sin sincronizar (`INLINE_BACKFILL_MAX_DAYS`, default
-  `3`), se traen como parte de la misma petición HTTP. Si hay muchos (ej.
-  la primera vez que alguien pide un año completo), se lanza un **job de
-  fondo** que no bloquea la respuesta: el dashboard responde de inmediato
-  con lo que ya haya en caché + la ventana mutable en vivo, marcando
-  `syncInProgress: true` y un `syncJobId` en las tiendas afectadas. El
-  frontend sondea `GET /api/sync/jobs/:id` cada par de segundos y refresca
-  el dashboard automáticamente cuando el job termina.
-- **Sincronización automática nocturna**: cada noche, a la hora configurada
-  en `NIGHTLY_SYNC_HOUR` (default 1am UTC), un cron interno
-  (`@nestjs/schedule`) sincroniza la ventana mutable completa de todas las
-  tiendas (y sus segmentos), para que los datos recientes ya estén
-  calientes en caché cuando alguien abra el dashboard en la mañana. Esto es
-  adicional a la sincronización on-demand, no la reemplaza.
-- **Botón "Forzar actualización"**: ignora el caché para el rango pedido y
-  vuelve a consultar VTEX incluso para días marcados como cerrados (por si
-  algo cambió después de la ventana de inmutabilidad — ej. una devolución
-  fuera de plazo).
+### Catálogo: categorías y colecciones
 
-### Modelo de datos (SQLite)
+- `category_reference` (id → nombre) se refresca al arrancar el backend
+  y con `POST /api/catalog/sync-categories` — solo se usa para traducir
+  el histórico de Excel (el detalle de orden de la API ya trae el nombre
+  de categoría directamente).
+- `collection_reference` (SKU → colección: Línea/Rack/Outlet/Saldos) se
+  refresca al arrancar, todos los días a las 3am, y con
+  `POST /api/catalog/sync-collections`. Los IDs de colección por tienda
+  están en `backend/src/config/stores.config.ts` (`collections`) — agregar
+  un estado nuevo a futuro es solo editar esa lista.
+- `brand_reference` (SKU → marca) se puebla PASIVAMENTE: cada vez que el
+  cron o el importador de Excel procesan el detalle de una orden con
+  `brandName`, se guarda ahí — solo importa para Pilatos (única tienda
+  `isMultiBrand`).
 
-- `orders`: una fila por orden, por tienda y por "fuente" (`main`, o un
-  `seller`/`marketplace` específico de Pilatos), indexada por día
-  (`day_bucket`). Deduplicada por `(store_id, source_type, source_key,
-  order_id)`. Incluye una columna `city` (nullable) poblada de forma
-  asíncrona por el enriquecimiento de ciudad — ver sección 13.1.
-- `sync_watermarks`: qué días (por tienda/fuente) ya se sincronizaron
-  completos y pueden leerse del caché sin volver a VTEX.
-- `sync_jobs`: progreso de los backfills en segundo plano, persistido para
-  sobrevivir un reinicio del backend a medio camino.
-- `order_items`: detalle a nivel de PRODUCTO (descuento, categoría,
-  marca), poblado por el mismo enriquecimiento que la columna `city` —
-  ver sección 13.2.
+## 13.1. Segmentación de Pilatos (sellers/marketplaces) — detalle de tablas
 
-### Requisito de despliegue: disco persistente
+`sales_daily_by_seller`/`sales_daily_by_marketplace` clasifican a nivel de
+ORDEN completa (no de ítem). Las órdenes de un segmento YA están incluidas
+en el total de su tienda en `sales_daily` — estas tablas son solo para el
+desglose comparativo, no se deben volver a sumar al resumen global.
 
-El archivo SQLite necesita vivir en un disco que sobreviva reinicios y
-redeploys. **No funciona en entornos "serverless" sin disco persistente**
-(ej. Vercel serverless functions) — ahí el archivo se perdería entre
-peticiones y toda la estrategia de caché se rompería. Funciona bien en:
+## 13.2. Importación histórica desde Excel
 
-- Un servidor propio o VM.
-- Azure App Service (Linux) — usar la carpeta persistente `/home`. El tier
-  gratuito F1 no soporta "Always On", lo que pondría en riesgo la
-  sincronización nocturna; se recomienda al menos el tier Basic (B1).
-- Railway u otra plataforma con volúmenes persistentes.
+Script CLI **separado del backend desplegado** — corre manualmente desde
+tu máquina, nunca se sube a git junto con los archivos Excel reales (que
+contienen información personal de clientes; `.env.local` con
+`DATABASE_URL` tampoco se sube, ver `.gitignore`).
 
-Con SQLite, evita ejecutar más de una instancia del backend en paralelo
-escribiendo al mismo archivo (bloqueo de archivo entre procesos). Para este
-caso de uso (dashboard interno, no una app pública masiva), correr una sola
-instancia es más que suficiente. Si en el futuro el tráfico exige escalar
-horizontalmente, ahí se migraría a una base de datos administrada (ej.
-PostgreSQL) — no es necesario ahora.
+```bash
+cd backend
+cp .env.local.example .env.local   # completar con tu DATABASE_URL
+npm run import:historico -- --path="C:/ruta/a/order vtex"
+```
 
-### Cómo se ve un backfill grande en la práctica
+Reconoce archivos con el patrón `"ordenes {tienda} {mes_inicio} - {mes_fin} {año}"`
+(ej. `"ordenes diesel enero - junio 2026"`), lee cada uno con un lector
+**streaming** (no carga el Excel completo en memoria), y por cada fila:
 
-1. Alguien pide "todo 2025" por primera vez → el dashboard responde de
-   inmediato con lo que haya en caché (probablemente nada) + un banner de
-   progreso ("Trayendo histórico por primera vez...").
-2. El job de fondo va bajando día por día (con concurrencia acotada, para
-   no saturar a VTEX), guardando cada día en SQLite y marcándolo como
-   sincronizado.
-3. El frontend sondea el progreso y, cuando termina, vuelve a pedir el
-   dashboard automáticamente — ya instantáneo.
-4. **La próxima vez que cualquiera pida 2025** (ese mismo día, la semana
-   que viene, el año que viene), es instantáneo: todo ya está en caché.
+1. Descarta de inmediato toda columna con datos personales/de pago (ver
+   `backend/src/cli/excel-import/row-picker.ts` — es una ALLOWLIST
+   explícita: solo sobreviven las columnas necesarias, cualquier otra
+   columna —incluida una que se agregue al Excel en el futuro— se
+   descarta automáticamente).
+2. Valida que la columna `Host` corresponda al `accountName` esperado
+   para esa tienda — si no coincide, aborta ESE archivo (nunca mezcla
+   datos de cuentas distintas).
+3. Agrupa las filas por `Order` (una orden con varios productos genera
+   varias filas, distintas solo en las columnas de SKU) y resuelve
+   categoría/colección/marca contra las tablas de referencia (sección 13).
+4. Alimenta el MISMO `daily-aggregator.ts` que usa el cron, y hace
+   upsert en las mismas tablas `sales_daily*` — el destino no distingue
+   si el dato vino de Excel o de la API.
+5. Registra el resultado en `sync_logs` con `source = 'excel_import'`.
 
-Este costo de "primera vez" es inevitable — el cuello de botella es VTEX,
-no el almacenamiento local — pero nunca se vuelve a pagar dos veces por el
-mismo período.
-
-## 13.1. Enriquecimiento de ciudad de envío
-
-El listado `/api/oms/pvt/orders` (usado por toda la sincronización de la
-sección 13) **no trae la ciudad de envío** de la orden — ese dato solo
-existe en `shippingData.address.city` del detalle de cada orden
-individual (`GET /api/oms/pvt/orders/{orderId}`). Pedirlo ahí para cada
-orden, en cada consulta del dashboard, sería lentísimo y saturaría a VTEX.
-
-**La idea central**, igual que con el caché histórico: la ciudad de una
-orden nunca cambia una vez creada (a diferencia del `status`), así que se
-trata como un enriquecimiento "una sola vez, para siempre" sobre las
-órdenes que ya viven en `orders`. `OrderCityEnrichmentService`
-(`backend/src/modules/sync/services/order-city-enrichment.service.ts`)
-recorre en segundo plano las filas con `city IS NULL`, consulta el
-detalle en VTEX, extrae y normaliza únicamente el campo `city` (nunca se
-guarda ni se loguea el resto de la respuesta — no incluye ningún dato
-personal del cliente), y actualiza la fila. Guarda `''` (string vacío,
-distinto de `NULL`) cuando VTEX no reportó ciudad para esa orden (ej.
-retiro en tienda), para no volver a intentarla en cada pasada.
-
-**Baja prioridad REAL, no solo aproximada:** las peticiones de detalle
-pasan por el mismo `globalLimit` que el resto de las consultas a VTEX (ver
-sección 8.1) — nunca pueden, por sí solas, exceder lo que VTEX tolera. Pero
-como ese límite es estrictamente FIFO (sin noción de prioridad), depender
-solo de "lotes chicos + pausa" no bastaba: en producción se detectó que
-podía demorar lo suficiente una consulta en vivo de Pilatos (`main` + 10
-segmentos por consulta, la tienda con más fuentes simultáneas) como para
-que su paginación — sobre una ventana que sigue mutando en tiempo real —
-alcanzara a "correrse" entre página y página, perdiendo una orden sin que
-se marcara como dato incompleto (el código trata ese tipo de discrepancia
-como "drift esperado", no como error — ver sección 8.1).
-
-La solución real tiene dos capas:
-
-1. `OrderCityEnrichmentService` espera a que `VtexOrdersService.isListingBusy()`
-   sea `false` antes de pedir un lote nuevo de la base de datos.
-2. Dentro de `VtexOrdersService.fetchOrderDetail`, ese mismo chequeo se
-   repite JUSTO ANTES de cada intento individual (el primero y cada
-   reintento) — lo más cerca posible del `globalLimit()` real. Esto
-   importa porque un lote de varias promesas concurrentes pasa el chequeo
-   de la capa 1 casi en el mismo instante; si el tráfico real llega justo
-   después, esas peticiones ya en curso no se pueden cancelar y siguen
-   ocupando slots del límite global. Por eso `VTEX_CITY_ENRICHMENT_BATCH_SIZE`
-   default es `1` (no `4` ni `24` como en iteraciones anteriores): así el
-   peor caso posible es "1 de `VTEX_GLOBAL_CONCURRENCY` slots ocupado por
-   mala suerte de timing", nunca más que eso. `VTEX_CITY_ENRICHMENT_BATCH_PAUSE_MS`
-   (default `150`ms) es solo la pausa entre reintentos de "¿ya no hay
-   tráfico?" y entre lotes, para no convertir la espera en un spin-loop
-   pegado a la base de datos.
-
-**Cómo se dispara** (siempre de forma no bloqueante, y sin duplicar un job
-ya en curso):
-
-1. Automáticamente al arrancar el backend, si quedan órdenes sin ciudad.
-2. Automáticamente después de cada lote de órdenes cacheado durante la
-   sincronización normal (sección 13).
-3. Manualmente: `POST /api/sync/enrich-cities` (responde `202` de
-   inmediato con el job; se puede sondear con `GET /api/sync/jobs/:id`,
-   reutilizando la misma tabla `sync_jobs` de los backfills históricos).
-
-**Resumibilidad:** como el job siempre selecciona `WHERE city IS NULL`, un
-reinicio del backend a medio camino no repite trabajo ya hecho — al
-arrancar, cualquier job huérfano (`pending`/`running` de un proceso
-anterior) se marca `failed` y, si aún queda algo pendiente, se lanza uno
-nuevo que retoma exactamente donde el archivo SQLite haya quedado.
-
-## 13.2. Enriquecimiento de producto (descuento, categoría, marca)
-
-Extiende el MISMO mecanismo de la sección 13.1 — no es un proceso nuevo
-ni una llamada adicional a VTEX. El detalle de una orden
-(`GET /api/oms/pvt/orders/{orderId}`) que ya se consulta para resolver la
-ciudad trae también, en la misma respuesta, `items[]` con el detalle de
-cada producto (`price`, `sellingPrice`, `additionalInfo.categories`,
-`additionalInfo.brandName`) — `OrderCityEnrichmentService.enrichOne`
-extrae ambas cosas en la misma pasada y guarda el producto en una tabla
-nueva, `order_items`, separada de `orders` (una orden con 3 productos
-genera 3 filas). La señal de "esta orden ya quedó completamente
-procesada" sigue siendo `city` (no NULL): si guardar los productos
-fallara, la ciudad no se escribe, y la orden se reintenta completa en la
-próxima pasada — nunca queda "a medias" (ciudad guardada pero sin
-productos, o viceversa).
-
-**De dónde sale cada dato:**
-- **Descuento por ítem**: `(price - sellingPrice) / price * 100`, con
-  `price`/`sellingPrice` normalizados con el mismo divisor que
-  `totalValue` (`VtexOrdersService.normalizeMoney`, único punto de
-  verdad para esa conversión). El resultado se redondea al múltiplo de 5
-  más cercano (0%, 5%, 10%...) — ver `computeDiscountPercentage` en
-  `common/utils/discount.util.ts` — para que "cuál fue el descuento más
-  aplicado" tenga una moda clara en vez de decenas de porcentajes
-  ligeramente distintos.
-- **Categoría**: el primer elemento de `additionalInfo.categories` (el de
-  más bajo nivel, ej. "Gorras" antes que "Accesorios" o "Hombre"). Vacío
-  → `"Sin categoría"`.
-- **Marca**: `additionalInfo.brandName`. Vacío → `"Sin marca"`.
-
-**Mono-marca vs. multimarca:** Kipling, Diesel, Superdry, Girbaud y
-Replay son monomarca — cada una vende solo su propia marca, así que
-"¿cuál marca vendió más?" no tiene sentido para ellas. Solo Pilatos
-(marketplace multimarca) tiene `isMultiBrand: true` en
-`stores.config.ts`; `ProductAnalyticsService.getTopBrandByCategory` usa
-ese flag para retornar `{ applicable: false, reason: "..." }` en vez de
-una lista vacía sin explicación para el resto.
-
-**Modelo de datos:** `order_items` (`store_id, source_type, source_key,
-order_id, ean, sku_id, product_name, category, brand, quantity,
-list_price, selling_price, discount_percentage, day_bucket`), PK sobre
-las primeras 6 columnas. A diferencia de `orders`, cada orden física
-tiene UNA sola fila de productos (sin duplicar por segmento/fuente) —
-`OrdersCacheRepository.findOrdersMissingCity` retorna, junto con cada
-orden pendiente, un `source_type`/`source_key` cualquiera de los que ya
-existan para ella en `orders` (da igual cuál, solo se usa para tener una
-referencia válida al guardar).
-
-**Analítica:** `ProductAnalyticsService` (ver sección 7 para los
-endpoints) tiene dos criterios distintos a propósito: `getTopCategory`/
-`getMostAppliedDiscount` usan TODOS los ítems del rango (sin filtrar por
-status — misma decisión que `cityBreakdown`, para no dejar sin dato
-rangos con muchas órdenes recientes todavía no contabilizadas);
-`getCategoryRevenueBreakdown` usa SOLO órdenes contabilizadas (misma
-decisión que `cityRevenueBreakdown`), para que el aporte de cada
-categoría sea comparable contra "valor contabilizado".
-
-**Progreso en el frontend:** mientras `GET /api/sync/enrichment-status`
-reporta `isComplete: false` para una tienda, el frontend muestra
-"Pendiente de identificar" en vez de "Sin ciudad"/"Sin categoría"/"Sin
-marca" — para no confundir "todavía no se revisó" con "se revisó y no
-hay dato" (ver `frontend/src/lib/enrichment.ts`).
+El `order_id` del Excel (incluidos prefijos como `VPC-`) se guarda tal
+cual, sin ninguna transformación — así coincide con el mismo id que
+eventualmente traiga la API para esa orden.
 
 ## 14. Scripts
 
@@ -910,8 +612,11 @@ hay dato" (ver `frontend/src/lib/enrichment.ts`).
 # Backend
 cd backend
 npm install
-npm run start:dev     # desarrollo
+npm run start:dev         # desarrollo
 npm run build && npm run start:prod   # producción
+npm run db:migrate        # crea/recrea el esquema en Supabase
+npm run import:historico -- --path="..."   # importación histórica de Excel
+npm test                  # tests de verificación (agregación, columnas sensibles, order_id)
 
 # Frontend
 cd frontend
@@ -926,10 +631,7 @@ El repositorio incluye `Dockerfile` en `backend/` y `frontend/`, y un
 `docker-compose.yml` de referencia en la raíz. No es obligatorio
 contenerizar para ejecutar el proyecto localmente con Node.
 
-**Importante:** `docker-compose.yml` monta `./backend/data` como volumen
-en `/app/data` — ahí vive el archivo SQLite del caché histórico (ver
-sección 13). Sin ese volumen, cada `docker compose down`/redeploy borraría
-todo el histórico ya sincronizado y habría que volver a traerlo de VTEX
-desde cero. Si despliegan sin Docker Compose (ej. directamente en Azure
-App Service), asegúrense igual de que `DB_PATH` apunte a una carpeta con
-disco persistente.
+El backend ya NO necesita un volumen de disco persistente (no hay caché
+SQLite local) — todo el estado vive en Supabase. Solo asegúrate de que
+`DATABASE_URL` esté configurada en el entorno del contenedor/plataforma de
+despliegue (ej. variables de entorno de Render).

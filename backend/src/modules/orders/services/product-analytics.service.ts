@@ -4,92 +4,346 @@ import { normalizeEndDate, normalizeStartDate, toDayBucketColombia } from '../..
 import { matchRevenueStatusDefinition } from '../../../common/utils/revenue-status.util';
 import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
 import { getStoresConfig, StoreConfig } from '../../../config/stores.config';
-import { OrderItemsRepository, OrderItemWithStatus } from '../../storage/repositories/order-items.repository';
+import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
 import {
+  CampaignBreakdown,
   CategoryBrandRankingResult,
   CategoryBrandTop,
   CategoryBreakdown,
   CategoryRankingResult,
+  CollectionBreakdown,
+  CollectionCategoryBreakdown,
   DiscountAnalyticsResponse,
   DiscountDistribution,
+  StoreHighlight,
 } from '../interfaces/product-analytics.interface';
 
 /**
- * Calcula indicadores a nivel de PRODUCTO (descuento, categoría, marca) a
- * partir de `order_items` — separado de `OrdersAnalyticsService`, que
- * trabaja a nivel de orden completa. No conoce nada de HTTP ni de VTEX,
- * solo lee lo que `OrderCityEnrichmentService` ya dejó guardado.
+ * Calcula indicadores a nivel de PRODUCTO (descuento, categoría, marca) —
+ * ya NO escanea `order_items` fila por fila: lee directamente los
+ * agregados diarios ya calculados por el cron/importador
+ * (`sales_daily_by_category`/`by_brand`/`by_discount_bucket`/
+ * `by_brand_discount_bucket`) y solo hace `SUM`/`GROUP BY` sobre el rango
+ * de fechas pedido. Mismos métodos públicos que antes de la migración —
+ * el contrato con el frontend no cambia.
+ *
+ * Nota sobre `DiscountBucket.count`: antes contaba líneas de producto
+ * (una por SKU distinto en una orden); como el agregado diario solo
+ * guarda unidades totales por bucket (no líneas individuales), aquí
+ * `count` representa UNIDADES vendidas con ese % de descuento — una
+ * lectura al menos igual de útil para "cuál descuento se aplicó más", y
+ * la única posible sin volver a guardar el detalle línea por línea.
  */
+
+/** Mismo literal que `UNKNOWN_COLLECTION` en `vtex-sync-cron.service.ts`/`cli/excel-import/row-mapper.ts`. */
+const UNKNOWN_COLLECTION = 'Sin colección';
+
 @Injectable()
 export class ProductAnalyticsService {
-  private readonly revenueStatusDefinitions = getRevenueStatusDefinitions();
   private readonly storesById = new Map(getStoresConfig().map((store) => [store.id, store]));
+  private readonly revenueStatusDefinitions = getRevenueStatusDefinitions();
 
-  constructor(private readonly orderItemsRepository: OrderItemsRepository) {}
+  constructor(private readonly dashboardQueryRepository: DashboardQueryRepository) {}
 
   /**
-   * Distribución de descuentos (agrupada por bucket de 5 puntos) a nivel
-   * de ÍTEM, no de orden — sobre TODOS los ítems del rango (sin filtrar
-   * por status), igual criterio que `getTopCategory`. `storeId` omitido
-   * = global, todas las tiendas combinadas.
+   * Para cada tienda: TODAS las campañas de descuento usadas en el rango
+   * y TODAS las colecciones con ventas (incluyendo "Sin colección"),
+   * cada una con su desglose de categorías — "Sin colección" siempre
+   * queda al FINAL de su lista (las demás sí ordenadas de mayor a menor
+   * por unidades), porque no es una colección real que tenga sentido
+   * destacar primero.
+   *
+   * Todo (campañas, colecciones, `totals`) usa el mismo criterio de
+   * "ventas" que el resto del dashboard: solo estados CONTABILIZADOS
+   * (`revenue-status.config.ts`) — antes campañas/colecciones contaban
+   * TODAS las órdenes (incluidas canceladas), mientras que las tarjetas
+   * de tienda ya solo cuentan ventas contabilizadas, así que los totales
+   * no cuadraban entre sí. `totals` se calcula exactamente igual que
+   * `OrdersAnalyticsService.buildStoreData` (mismo filtro sobre
+   * `sales_daily_by_status`), para que sea comparable 1:1 con lo que
+   * muestra la tarjeta de cada tienda.
    */
-  getMostAppliedDiscount(startDate: string, endDate: string, storeId?: string): DiscountDistribution {
-    return this.computeDiscountDistribution(this.getItems(startDate, endDate, storeId));
+  async getStoreHighlightsBulk(startDate: string, endDate: string): Promise<Record<string, StoreHighlight>> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+
+    const [campaignRows, collectionRows, collectionCategoryRows, statusRows] = await Promise.all([
+      this.dashboardQueryRepository.queryGrouped(
+        'sales_daily_by_discount_campaign',
+        'campaign_name',
+        ['revenue_orders', 'revenue_sales'],
+        startDay,
+        endDay,
+      ),
+      this.dashboardQueryRepository.queryGrouped(
+        'sales_daily_by_collection',
+        'collection_name',
+        ['revenue_units', 'revenue_sales'],
+        startDay,
+        endDay,
+      ),
+      this.dashboardQueryRepository.queryGroupedMulti(
+        'sales_daily_by_collection_category',
+        ['collection_name', 'category_name'],
+        ['units', 'sales'],
+        startDay,
+        endDay,
+      ),
+      this.dashboardQueryRepository.queryGrouped('sales_daily_by_status', 'status', ['orders', 'sales'], startDay, endDay),
+    ]);
+
+    const result: Record<string, StoreHighlight> = {};
+    for (const store of this.storesById.values()) {
+      const campaigns: CampaignBreakdown[] = campaignRows
+        .filter((r) => r.store_id === store.id)
+        .map((r) => ({
+          campaignName: String(r.campaign_name),
+          orders: Number(r.revenue_orders),
+          sales: Number(r.revenue_sales),
+        }))
+        .filter((c) => c.orders > 0)
+        .sort((a, b) => b.orders - a.orders);
+
+      const collections: CollectionBreakdown[] = collectionRows
+        .filter((r) => r.store_id === store.id)
+        .map((r) => {
+          const collectionName = String(r.collection_name);
+          const categories: CollectionCategoryBreakdown[] = collectionCategoryRows
+            .filter((cc) => cc.store_id === store.id && String(cc.collection_name) === collectionName)
+            .map((cc) => ({ categoryName: String(cc.category_name), units: Number(cc.units), sales: Number(cc.sales) }))
+            .sort((a, b) => b.units - a.units);
+
+          return { collectionName, units: Number(r.revenue_units), sales: Number(r.revenue_sales), categories };
+        })
+        .sort((a, b) => {
+          if (a.collectionName === UNKNOWN_COLLECTION) return 1;
+          if (b.collectionName === UNKNOWN_COLLECTION) return -1;
+          return b.units - a.units;
+        });
+
+      // Mismo cálculo que `OrdersAnalyticsService.computeRevenueTotals` —
+      // "ventas" = solo estados contabilizados.
+      let revenueOrders = 0;
+      let revenueSales = 0;
+      for (const row of statusRows) {
+        if (row.store_id !== store.id) continue;
+        if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+        revenueOrders += Number(row.orders);
+        revenueSales += Number(row.sales);
+      }
+      const totalUnits = collections.reduce((acc, c) => acc + c.units, 0);
+
+      result[store.id] = {
+        campaigns,
+        collections,
+        totals: { orders: revenueOrders, units: totalUnits, sales: revenueSales },
+      };
+    }
+    return result;
+  }
+
+  async getDiscountAnalyticsBulk(startDate: string, endDate: string): Promise<DiscountAnalyticsResponse> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+
+    const bucketRows = await this.dashboardQueryRepository.queryGrouped(
+      'sales_daily_by_discount_bucket',
+      'discount_percentage',
+      ['units'],
+      startDay,
+      endDay,
+    );
+    const global = this.buildDistribution(bucketRows);
+    const byStore: Record<string, DiscountDistribution> = {};
+    for (const store of this.storesById.values()) {
+      byStore[store.id] = this.buildDistribution(bucketRows.filter((r) => r.store_id === store.id));
+    }
+
+    const multiBrandStores = Array.from(this.storesById.values()).filter((s) => s.isMultiBrand);
+    const multiBrand = await this.buildMultiBrandDiscountBreakdown(multiBrandStores, startDay, endDay);
+
+    return { global, byStore, multiBrand };
   }
 
   /**
-   * Igual que `getMostAppliedDiscount`, pero agrupado por MARCA — y
-   * ÚNICAMENTE sobre tiendas multimarca (`isMultiBrand`, hoy solo
-   * Pilatos). A propósito NO incluye tiendas monomarca: su "marca" es
-   * literalmente la propia tienda (ej. la marca de todo lo que vende
-   * Girbaud es "Girbaud"), así que ya está cubierta por
-   * `getMostAppliedDiscount`/`byStore` — mezclarla aquí no compara nada
-   * nuevo, solo duplica esa misma cifra bajo otro nombre y diluye la
-   * comparación real: cuál marca tiene mejor/peor descuento DENTRO del
-   * catálogo multimarca de Pilatos.
-   *
-   * `general` es el mismo criterio pero sin desglosar por marca — el
-   * descuento más aplicado combinando TODAS las marcas de las tiendas
-   * multimarca. Es un número DISTINTO de `getMostAppliedDiscount()` sin
-   * `storeId` (ese es el global de TODA la compañía) — no deben
-   * confundirse ni mostrarse como si fueran el mismo dato.
+   * "Ventas" = solo estados contabilizados (ver nota en
+   * `orders-analytics.service.ts`) — usa `revenue_units`/`revenue_sales`,
+   * no `units`/`sales` (que cuentan TODAS las órdenes sin importar estado).
    */
-  getMultiBrandDiscountBreakdown(
+  async getTopCategoryBulk(startDate: string, endDate: string): Promise<Record<string, CategoryRankingResult>> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+    const rows = await this.dashboardQueryRepository.queryGrouped(
+      'sales_daily_by_category',
+      'category_name',
+      ['revenue_units', 'revenue_sales'],
+      startDay,
+      endDay,
+    );
+
+    const result: Record<string, CategoryRankingResult> = {};
+    for (const store of this.storesById.values()) {
+      const storeRows = rows.filter((r) => r.store_id === store.id);
+      const storeTotal = storeRows.reduce((acc, r) => acc + Number(r.revenue_sales), 0);
+      const categories = storeRows
+        .map((r) => ({
+          category: String(r.category_name),
+          quantity: Number(r.revenue_units),
+          value: Number(r.revenue_sales),
+          percentage: storeTotal > 0 ? Number(((Number(r.revenue_sales) / storeTotal) * 100).toFixed(2)) : 0,
+        }))
+        .sort((a, b) => b.value - a.value);
+      result[store.id] = { categories };
+    }
+    return result;
+  }
+
+  async getCategoryRevenueBreakdownBulk(
     startDate: string,
     endDate: string,
-  ): { storeNames: string[]; general: DiscountDistribution; byBrand: Record<string, DiscountDistribution> } {
-    const multiBrandStores = Array.from(this.storesById.values()).filter((store) => store.isMultiBrand);
-    const items = multiBrandStores.flatMap((store) => this.getItems(startDate, endDate, store.id));
+  ): Promise<{ general: Record<string, CategoryBreakdown>; byStore: Record<string, Record<string, CategoryBreakdown>> }> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+    const rows = await this.dashboardQueryRepository.queryGrouped(
+      'sales_daily_by_category',
+      'category_name',
+      ['revenue_units', 'revenue_sales'],
+      startDay,
+      endDay,
+    );
 
-    const itemsByBrand = new Map<string, OrderItemWithStatus[]>();
-    for (const item of items) {
-      const list = itemsByBrand.get(item.brand);
-      if (list) {
-        list.push(item);
-      } else {
-        itemsByBrand.set(item.brand, [item]);
+    const byStore: Record<string, Record<string, CategoryBreakdown>> = {};
+    for (const store of this.storesById.values()) {
+      byStore[store.id] = this.buildCategoryBreakdown(rows.filter((r) => r.store_id === store.id));
+    }
+    const general = this.buildCategoryBreakdown(rows);
+    return { general, byStore };
+  }
+
+  async getTopBrandByCategoryBulk(
+    startDate: string,
+    endDate: string,
+  ): Promise<Record<string, CategoryBrandRankingResult>> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+    const result: Record<string, CategoryBrandRankingResult> = {};
+
+    for (const store of this.storesById.values()) {
+      result[store.id] = await this.getTopBrandByCategory(store, startDay, endDay);
+    }
+    return result;
+  }
+
+  private async getTopBrandByCategory(
+    store: StoreConfig,
+    startDay: string,
+    endDay: string,
+  ): Promise<CategoryBrandRankingResult> {
+    if (!store.isMultiBrand) {
+      return {
+        applicable: false,
+        reason: `"${store.name}" es una tienda monomarca (vende únicamente su propia marca) — el análisis de marca top por categoría no aplica.`,
+      };
+    }
+
+    // Cruce real categoría×marca (sales_daily_by_category_brand) — la
+    // marca top DENTRO de cada categoría, no una aproximación global.
+    const rows = await this.dashboardQueryRepository.queryGroupedMulti(
+      'sales_daily_by_category_brand',
+      ['category_name', 'brand_name'],
+      ['units', 'sales'],
+      startDay,
+      endDay,
+      store.id,
+    );
+    if (rows.length === 0) return { applicable: true, categories: [] };
+
+    const byCategory = new Map<string, { brand: string; quantity: number; value: number }[]>();
+    const categoryTotalValue = new Map<string, number>();
+    for (const row of rows) {
+      const category = String(row.category_name);
+      const list = byCategory.get(category) ?? [];
+      list.push({ brand: String(row.brand_name), quantity: Number(row.units), value: Number(row.sales) });
+      byCategory.set(category, list);
+      categoryTotalValue.set(category, (categoryTotalValue.get(category) ?? 0) + Number(row.sales));
+    }
+
+    const categories: CategoryBrandTop[] = [];
+    for (const [category, brandTotals] of byCategory.entries()) {
+      let topBrand = '';
+      let topBrandValue = -1;
+      let topBrandQuantity = 0;
+      for (const entry of brandTotals) {
+        if (entry.value > topBrandValue) {
+          topBrand = entry.brand;
+          topBrandValue = entry.value;
+          topBrandQuantity = entry.quantity;
+        }
+      }
+      categories.push({ category, topBrand, quantity: topBrandQuantity, value: topBrandValue });
+    }
+
+    categories.sort((a, b) => (categoryTotalValue.get(b.category) ?? 0) - (categoryTotalValue.get(a.category) ?? 0));
+
+    return { applicable: true, categories };
+  }
+
+  private async buildMultiBrandDiscountBreakdown(
+    multiBrandStores: StoreConfig[],
+    startDay: string,
+    endDay: string,
+  ): Promise<{ storeNames: string[]; general: DiscountDistribution; byBrand: Record<string, DiscountDistribution> }> {
+    if (multiBrandStores.length === 0) {
+      return { storeNames: [], general: { buckets: [], topBucket: null, totalItems: 0 }, byBrand: {} };
+    }
+
+    const rows: Record<string, string | number>[] = [];
+    for (const store of multiBrandStores) {
+      const storeRows = await this.dashboardQueryRepository.queryGrouped(
+        'sales_daily_by_brand_discount_bucket',
+        'discount_percentage',
+        ['units'],
+        startDay,
+        endDay,
+        store.id,
+      );
+      rows.push(...storeRows);
+    }
+
+    const general = this.buildDistribution(rows);
+
+    const byBrandRows: Record<string, Record<string, string | number>[]> = {};
+    for (const store of multiBrandStores) {
+      const storeBrandRows = await this.dashboardQueryRepository.queryGroupedMulti(
+        'sales_daily_by_brand_discount_bucket',
+        ['brand_name', 'discount_percentage'],
+        ['units'],
+        startDay,
+        endDay,
+        store.id,
+      );
+      for (const row of storeBrandRows) {
+        const brand = String(row.brand_name);
+        (byBrandRows[brand] ??= []).push(row);
       }
     }
 
     const byBrand: Record<string, DiscountDistribution> = {};
-    for (const [brand, brandItems] of itemsByBrand.entries()) {
-      byBrand[brand] = this.computeDiscountDistribution(brandItems);
+    for (const [brand, brandRows] of Object.entries(byBrandRows)) {
+      byBrand[brand] = this.buildDistribution(brandRows);
     }
 
-    return {
-      storeNames: multiBrandStores.map((store) => store.name),
-      general: this.computeDiscountDistribution(items),
-      byBrand,
-    };
+    return { storeNames: multiBrandStores.map((s) => s.name), general, byBrand };
   }
 
-  /** Agrupa ítems por `discount_percentage` (ya redondeado al múltiplo de 5) y determina el bucket con más ocurrencias. */
-  private computeDiscountDistribution(items: OrderItemWithStatus[]): DiscountDistribution {
+  /**
+   * Re-agrupa por `discount_percentage` con un Map (no asume que las
+   * filas de entrada ya vengan sin buckets repetidos) — importante porque
+   * `buildMultiBrandDiscountBreakdown` concatena filas de VARIAS tiendas
+   * multimarca antes de llamar esto, y dos tiendas pueden compartir el
+   * mismo bucket.
+   */
+  private buildDistribution(rows: Record<string, string | number>[]): DiscountDistribution {
     const counts = new Map<number, number>();
-    for (const item of items) {
-      counts.set(item.discountPercentage, (counts.get(item.discountPercentage) ?? 0) + 1);
+    for (const row of rows) {
+      const bucket = Number(row.discount_percentage ?? 0);
+      counts.set(bucket, (counts.get(bucket) ?? 0) + Number(row.units));
     }
-
     const buckets = Array.from(counts.entries())
       .map(([bucket, count]) => ({ bucket, count }))
       .sort((a, b) => a.bucket - b.bucket);
@@ -103,208 +357,39 @@ export class ProductAnalyticsService {
       }
     }
 
-    return { buckets, topBucket, totalItems: items.length };
+    const totalItems = buckets.reduce((acc, b) => acc + b.count, 0);
+    return { buckets, topBucket, totalItems };
   }
 
-  /**
-   * Ranking de categorías de UNA tienda por cantidad y valor vendido —
-   * sobre TODOS los ítems del rango (sin filtrar por status). Usado por
-   * `StoreCard` para "Categoría top" (el primer elemento del ranking).
-   */
-  getTopCategory(startDate: string, endDate: string, storeId: string): CategoryRankingResult {
-    const items = this.getItems(startDate, endDate, storeId);
-
-    const totals = new Map<string, { quantity: number; value: number }>();
-    let storeTotal = 0;
-    for (const item of items) {
-      const value = item.sellingPrice * item.quantity;
-      const current = totals.get(item.category) ?? { quantity: 0, value: 0 };
-      current.quantity += item.quantity;
-      current.value += value;
-      totals.set(item.category, current);
-      storeTotal += value;
-    }
-
-    const categories = Array.from(totals.entries())
-      .map(([category, totalsForCategory]) => ({
-        category,
-        ...totalsForCategory,
-        percentage: storeTotal > 0 ? Number(((totalsForCategory.value / storeTotal) * 100).toFixed(2)) : 0,
-      }))
-      .sort((a, b) => b.value - a.value);
-
-    return { categories };
-  }
-
-  /**
-   * Aporte de cada categoría sobre el total de ventas CONTABILIZADAS
-   * (mismo criterio y misma razón que `cityRevenueBreakdown` en
-   * `OrdersAnalyticsService`: para que la suma coincida con "valor
-   * contabilizado" y sea comparable). `storeId` omitido = aporte general,
-   * todas las tiendas combinadas — usado por el recuadro "Aporte general
-   * por categoría" y su filtro en el frontend.
-   */
-  getCategoryRevenueBreakdown(
-    startDate: string,
-    endDate: string,
-    storeId?: string,
-  ): Record<string, CategoryBreakdown> {
-    const items = this.getItems(startDate, endDate, storeId).filter((item) => this.isRevenueCounted(item));
-
+  private buildCategoryBreakdown(rows: Record<string, string | number>[]): Record<string, CategoryBreakdown> {
     const totals = new Map<string, { quantity: number; value: number }>();
     let grandTotal = 0;
-
-    for (const item of items) {
-      const value = item.sellingPrice * item.quantity;
-      const current = totals.get(item.category) ?? { quantity: 0, value: 0 };
-      current.quantity += item.quantity;
+    for (const row of rows) {
+      const category = String(row.category_name);
+      const quantity = Number(row.revenue_units);
+      const value = Number(row.revenue_sales);
+      const current = totals.get(category) ?? { quantity: 0, value: 0 };
+      current.quantity += quantity;
       current.value += value;
-      totals.set(item.category, current);
+      totals.set(category, current);
       grandTotal += value;
     }
 
     const result: Record<string, CategoryBreakdown> = {};
-    for (const [category, totalsForCategory] of totals.entries()) {
+    for (const [category, totals_] of totals.entries()) {
       result[category] = {
-        quantity: totalsForCategory.quantity,
-        value: totalsForCategory.value,
-        percentage: grandTotal > 0 ? Number(((totalsForCategory.value / grandTotal) * 100).toFixed(2)) : 0,
+        quantity: totals_.quantity,
+        value: totals_.value,
+        percentage: grandTotal > 0 ? Number(((totals_.value / grandTotal) * 100).toFixed(2)) : 0,
       };
     }
     return result;
   }
 
-  /**
-   * Para cada categoría, la marca que más vendió DENTRO de ella (no un
-   * ranking de marcas suelto) — sobre TODOS los ítems del rango (sin
-   * filtrar por status), ordenado de la categoría con más ventas totales
-   * hacia la de menos. SOLO aplica a tiendas multimarca (`isMultiBrand`);
-   * para cualquier otra retorna `{ applicable: false, reason }` explícito,
-   * nunca una lista vacía sin explicación.
-   */
-  getTopBrandByCategory(startDate: string, endDate: string, storeId: string): CategoryBrandRankingResult {
-    const store = this.storesById.get(storeId);
-    if (!store) {
-      return { applicable: false, reason: `La tienda "${storeId}" no existe.` };
-    }
-    if (!store.isMultiBrand) {
-      return {
-        applicable: false,
-        reason: `"${store.name}" es una tienda monomarca (vende únicamente su propia marca) — el análisis de marca top por categoría no aplica.`,
-      };
-    }
-
-    const items = this.getItems(startDate, endDate, storeId);
-
-    // category -> brand -> {quantity, value}, más el valor total por
-    // categoría (usado solo para el orden final del resultado).
-    const byCategory = new Map<string, Map<string, { quantity: number; value: number }>>();
-    const categoryTotalValue = new Map<string, number>();
-
-    for (const item of items) {
-      const value = item.sellingPrice * item.quantity;
-
-      let brandTotals = byCategory.get(item.category);
-      if (!brandTotals) {
-        brandTotals = new Map();
-        byCategory.set(item.category, brandTotals);
-      }
-      const current = brandTotals.get(item.brand) ?? { quantity: 0, value: 0 };
-      current.quantity += item.quantity;
-      current.value += value;
-      brandTotals.set(item.brand, current);
-
-      categoryTotalValue.set(item.category, (categoryTotalValue.get(item.category) ?? 0) + value);
-    }
-
-    const categories: CategoryBrandTop[] = [];
-    for (const [category, brandTotals] of byCategory.entries()) {
-      let topBrand = '';
-      let topBrandValue = -1;
-      let topBrandQuantity = 0;
-      for (const [brand, totals] of brandTotals.entries()) {
-        if (totals.value > topBrandValue) {
-          topBrand = brand;
-          topBrandValue = totals.value;
-          topBrandQuantity = totals.quantity;
-        }
-      }
-      categories.push({ category, topBrand, quantity: topBrandQuantity, value: topBrandValue });
-    }
-
-    categories.sort((a, b) => (categoryTotalValue.get(b.category) ?? 0) - (categoryTotalValue.get(a.category) ?? 0));
-
-    return { applicable: true, categories };
-  }
-
-  /**
-   * Igual que `getMostAppliedDiscount`, pero retorna el global (todas las
-   * tiendas), el desglose por tienda Y el desglose por marca en una sola
-   * llamada — usado por `GET /api/analytics/discounts`, para que el
-   * frontend no tenga que hacer una petición separada por cada tienda ni
-   * por cada marca en cada carga de página.
-   */
-  getDiscountAnalyticsBulk(startDate: string, endDate: string): DiscountAnalyticsResponse {
-    const byStore: Record<string, DiscountDistribution> = {};
-    for (const store of this.storesById.values()) {
-      byStore[store.id] = this.getMostAppliedDiscount(startDate, endDate, store.id);
-    }
+  private toDayRange(startDate: string, endDate: string): { startDay: string; endDay: string } {
     return {
-      global: this.getMostAppliedDiscount(startDate, endDate),
-      byStore,
-      multiBrand: this.getMultiBrandDiscountBreakdown(startDate, endDate),
+      startDay: toDayBucketColombia(normalizeStartDate(startDate)),
+      endDay: toDayBucketColombia(normalizeEndDate(endDate)),
     };
-  }
-
-  /** Igual que `getTopCategory`, pero para las 6 tiendas de una sola vez — usado por `GET /api/analytics/categories`. */
-  getTopCategoryBulk(startDate: string, endDate: string): Record<string, CategoryRankingResult> {
-    const result: Record<string, CategoryRankingResult> = {};
-    for (const store of this.storesById.values()) {
-      result[store.id] = this.getTopCategory(startDate, endDate, store.id);
-    }
-    return result;
-  }
-
-  /**
-   * Igual que `getCategoryRevenueBreakdown`, pero retorna el aporte
-   * general (todas las tiendas) JUNTO con el desglose de cada tienda
-   * individual en una sola llamada — usado por
-   * `GET /api/analytics/category-contribution`.
-   */
-  getCategoryRevenueBreakdownBulk(
-    startDate: string,
-    endDate: string,
-  ): { general: Record<string, CategoryBreakdown>; byStore: Record<string, Record<string, CategoryBreakdown>> } {
-    const byStore: Record<string, Record<string, CategoryBreakdown>> = {};
-    for (const store of this.storesById.values()) {
-      byStore[store.id] = this.getCategoryRevenueBreakdown(startDate, endDate, store.id);
-    }
-    return { general: this.getCategoryRevenueBreakdown(startDate, endDate), byStore };
-  }
-
-  /** Igual que `getTopBrandByCategory`, pero para las 6 tiendas de una sola vez — usado por `GET /api/analytics/category-brands`. */
-  getTopBrandByCategoryBulk(startDate: string, endDate: string): Record<string, CategoryBrandRankingResult> {
-    const result: Record<string, CategoryBrandRankingResult> = {};
-    for (const store of this.storesById.values()) {
-      result[store.id] = this.getTopBrandByCategory(startDate, endDate, store.id);
-    }
-    return result;
-  }
-
-  private getItems(startDate: string, endDate: string, storeId?: string): OrderItemWithStatus[] {
-    const startIso = normalizeStartDate(startDate);
-    const endIso = normalizeEndDate(endDate);
-    const startDay = toDayBucketColombia(startIso);
-    const endDay = toDayBucketColombia(endIso);
-    return this.orderItemsRepository.getItemsWithOrderStatus(startDay, endDay, storeId);
-  }
-
-  private isRevenueCounted(item: OrderItemWithStatus): boolean {
-    return (
-      matchRevenueStatusDefinition(
-        { status: item.orderStatus, statusDescription: item.orderStatusDescription },
-        this.revenueStatusDefinitions,
-      ) !== undefined
-    );
   }
 }

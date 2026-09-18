@@ -1,10 +1,10 @@
-import { DashboardResponse, StoreInfo, SyncJob } from '@/types/dashboard';
+import { DashboardResponse, StoreInfo } from '@/types/dashboard';
 import {
   CategoryBrandRankingByStore,
   CategoryContributionResponse,
   CategoryRankingByStore,
   DiscountAnalyticsResponse,
-  EnrichmentStatus,
+  StoreHighlightsByStore,
 } from '@/types/product-analytics';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
@@ -59,47 +59,18 @@ export const ordersService = {
   /**
    * Obtiene la información consolidada del dashboard para el rango de
    * fechas dado. Las fechas se envían en formato `YYYY-MM-DD`; el backend
-   * se encarga de la conversión a UTC. Internamente el backend combina
-   * caché histórico local + consulta en vivo; si hay un backfill grande
-   * pendiente, la respuesta llega con `syncInProgress: true` en las
-   * tiendas afectadas y un `syncJobId` para hacer seguimiento.
-   *
-   * `forceRefresh` ignora el caché para el rango pedido (botón de
-   * "forzar actualización").
+   * se encarga de la conversión a UTC. El backend NUNCA consulta VTEX en
+   * esta llamada — lee agregados pre-calculados por el cron de
+   * sincronización, con la frescura de su última corrida
+   * (`lastSyncedAt`/`lastSyncStatus` por tienda).
    */
-  getDashboardData(
-    startDate: string,
-    endDate: string,
-    forceRefresh = false,
-  ): Promise<DashboardResponse> {
+  getDashboardData(startDate: string, endDate: string): Promise<DashboardResponse> {
     const params = new URLSearchParams({ startDate, endDate });
-    if (forceRefresh) params.set('forceRefresh', 'true');
     return request<DashboardResponse>(`/api/orders/dashboard?${params.toString()}`);
   },
 
   getStores(): Promise<StoreInfo[]> {
     return request<StoreInfo[]>('/api/stores');
-  },
-
-  /** Consulta el progreso de un job de sincronización en segundo plano. */
-  getSyncJobStatus(jobId: string): Promise<SyncJob> {
-    return request<SyncJob>(`/api/sync/jobs/${jobId}`);
-  },
-
-  /**
-   * Estado actual del enriquecimiento (ciudad + descuento + categoría +
-   * marca — todo se calcula en la misma pasada en segundo plano) para
-   * una tienda. `startDate`/`endDate` opcionales: si se omiten, el % es
-   * sobre todo el histórico cacheado de la tienda; si se pasan, es sobre
-   * ese rango específico (lo que la persona está mirando en pantalla).
-   */
-  getEnrichmentStatus(storeId: string, startDate?: string, endDate?: string): Promise<EnrichmentStatus> {
-    const params = new URLSearchParams({ storeId });
-    if (startDate && endDate) {
-      params.set('startDate', startDate);
-      params.set('endDate', endDate);
-    }
-    return request<EnrichmentStatus>(`/api/sync/enrichment-status?${params.toString()}`);
   },
 
   /** Distribución de descuentos (global + por tienda) para el rango dado. */
@@ -124,5 +95,11 @@ export const ordersService = {
   getCategoryBrandRanking(startDate: string, endDate: string): Promise<CategoryBrandRankingByStore> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<CategoryBrandRankingByStore>(`/api/analytics/category-brands?${params.toString()}`);
+  },
+
+  /** Para cada tienda, la campaña de descuento más usada y el estado de venta contabilizado más común. */
+  getStoreHighlights(startDate: string, endDate: string): Promise<StoreHighlightsByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<StoreHighlightsByStore>(`/api/analytics/store-highlights?${params.toString()}`);
   },
 };

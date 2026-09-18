@@ -8,7 +8,21 @@ import pLimit from 'p-limit';
 import { StoreConfig } from '../../../config/stores.config';
 import { diffMs, midpointIso, toVtexDateFilterFormat } from '../../../common/utils/date-range.util';
 import { normalizeVtexMoneyValue } from '../../../common/utils/money-normalizer.util';
-import { VtexOrder, VtexOrderDetailResponse, VtexOrdersResponse } from '../interfaces/vtex-order.interface';
+import {
+  VtexCategoryTreeNode,
+  VtexOrder,
+  VtexOrderDetailResponse,
+  VtexOrdersResponse,
+} from '../interfaces/vtex-order.interface';
+
+/** Respuesta real de `catalog/pvt/collection/{id}/products` — confirmada contra una cuenta real. */
+interface VtexCollectionProductsResponse {
+  Data: { SkuId: number | string }[];
+  Page?: number;
+  Size?: number;
+  TotalPage?: number;
+  TotalRows?: number;
+}
 
 export interface FetchStoreOrdersResult {
   orders: VtexOrder[];
@@ -518,6 +532,76 @@ export class VtexOrdersService {
       // mientras una consulta de listado real está esperando.
       () => this.waitWhileListingBusy(),
     );
+  }
+
+  private buildCategoryTreeUrl(store: StoreConfig): string {
+    return `https://${store.accountName}.${store.environment}.com.br/api/catalog_system/pub/category/tree/5`;
+  }
+
+  private buildCollectionProductsUrl(store: StoreConfig, collectionId: number, page: number, pageSize: number): string {
+    return `https://${store.accountName}.${store.environment}.com.br/api/catalog/pvt/collection/${collectionId}/products?page=${page}&pageSize=${pageSize}`;
+  }
+
+  /**
+   * Árbol completo de categorías de la cuenta (usado SOLO para traducir el
+   * histórico de Excel, que trae categorías como IDs puros — ver
+   * `cli/import-historical-orders.ts`; el detalle de orden de la API ya
+   * trae el nombre directamente, no necesita esto). Se aplana
+   * recursivamente: cada nodo del árbol (sin importar su profundidad)
+   * aparece una vez en el resultado.
+   */
+  async fetchCategoryTree(store: StoreConfig): Promise<{ id: number; name: string }[]> {
+    const url = this.buildCategoryTreeUrl(store);
+    const tree = await this.requestWithRetry<VtexCategoryTreeNode[]>(
+      store,
+      url,
+      undefined,
+      'el árbol de categorías',
+    );
+    const flattened: { id: number; name: string }[] = [];
+    const visit = (nodes: VtexCategoryTreeNode[] | null | undefined) => {
+      for (const node of nodes ?? []) {
+        if (typeof node.id === 'number' && node.name) {
+          flattened.push({ id: node.id, name: node.name });
+        }
+        visit(node.children);
+      }
+    };
+    visit(tree);
+    return flattened;
+  }
+
+  /**
+   * Recorre TODAS las páginas de una colección hasta agotarla — usado por
+   * `collection-sync.service.ts` para poblar `collection_reference`.
+   * Respuesta real de VTEX (confirmada contra la cuenta de Pilatos):
+   * `{ Data: [{ SkuId, ProductId, ... }], Page, Size, TotalPage,
+   * TotalRows }` — NO un array plano de IDs. Se para cuando `Page >=
+   * TotalPage` o cuando una página viene vacía.
+   */
+  async fetchCollectionProducts(store: StoreConfig, collectionId: number): Promise<string[]> {
+    this.assertCredentials(store);
+    const pageSize = 100;
+    const skuIds: string[] = [];
+    let page = 1;
+
+    for (;;) {
+      const url = this.buildCollectionProductsUrl(store, collectionId, page, pageSize);
+      const response = await this.requestWithRetry<VtexCollectionProductsResponse>(
+        store,
+        url,
+        undefined,
+        `la colección ${collectionId} (página ${page})`,
+      );
+      const items = response?.Data ?? [];
+      if (items.length === 0) break;
+      skuIds.push(...items.map((item) => String(item.SkuId)));
+      if (response.TotalPage !== undefined && page >= response.TotalPage) break;
+      if (response.TotalPage === undefined && items.length < pageSize) break;
+      page += 1;
+    }
+
+    return skuIds;
   }
 
   private async waitWhileListingBusy(): Promise<void> {

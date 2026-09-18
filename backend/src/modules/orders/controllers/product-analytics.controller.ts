@@ -72,4 +72,20 @@ export class ProductAnalyticsController {
     ProductAnalyticsQueryDto.assertRange(query.startDate, query.endDate);
     return this.productAnalyticsService.getTopBrandByCategoryBulk(query.startDate, query.endDate);
   }
+
+  /**
+   * GET /api/analytics/store-highlights?startDate=...&endDate=...
+   *
+   * Para cada tienda: campaña de descuento más usada y estado de venta
+   * contabilizado más común, en el rango pedido — recuadro aparte, no
+   * dentro de las tarjetas de tienda.
+   */
+  @Get('store-highlights')
+  getStoreHighlights(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: ProductAnalyticsQueryDto,
+  ) {
+    ProductAnalyticsQueryDto.assertRange(query.startDate, query.endDate);
+    return this.productAnalyticsService.getStoreHighlightsBulk(query.startDate, query.endDate);
+  }
 }

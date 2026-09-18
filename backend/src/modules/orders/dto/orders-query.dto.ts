@@ -1,6 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsISO8601, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsISO8601, IsNotEmpty } from 'class-validator';
 
 /**
  * DTO de entrada para GET /api/orders/dashboard.
@@ -15,16 +14,6 @@ export class OrdersQueryDto {
   @IsNotEmpty({ message: 'endDate es obligatorio' })
   @IsISO8601({}, { message: 'endDate debe ser una fecha válida (YYYY-MM-DD o ISO 8601)' })
   endDate!: string;
-
-  /**
-   * Si es `true`, ignora el caché local para el rango pedido y vuelve a
-   * consultar VTEX incluso para días considerados "cerrados" (botón de
-   * "forzar actualización" del frontend).
-   */
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean({ message: 'forceRefresh debe ser true o false' })
-  forceRefresh?: boolean;
 
   /**
    * Valida la coherencia entre las dos fechas. Se invoca explícitamente

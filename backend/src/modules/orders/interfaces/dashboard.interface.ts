@@ -68,19 +68,24 @@ export interface StoreDashboardData {
   responseTimeMs: number;
   isConsistent: boolean;
   /**
-   * `false` si todavía hay días "cerrados" (fuera de la ventana de
-   * inmutabilidad) que nunca se han sincronizado al caché local, o si la
-   * consulta en vivo de la ventana mutable (los últimos días) falló. El
-   * frontend debe mostrar una advertencia visible cuando esto ocurra, en
-   * vez de mostrar un total silenciosamente parcial.
+   * Derivado de `sync_logs`: `true` solo si la corrida MÁS RECIENTE del
+   * cron para esta tienda tuvo `status = 'success'` (`lastSyncStatus`).
+   * Nunca se hardcodea — si la última corrida falló, esto da `false` para
+   * que el frontend siga mostrando la advertencia de datos no refrescados,
+   * aunque haya habido una corrida exitosa antes.
    */
   isComplete: boolean;
-  /** `true` si hay un job de sincronización en segundo plano trayendo días pendientes para esta tienda. */
-  syncInProgress: boolean;
-  /** Id del job de sincronización en curso, si `syncInProgress` es `true` (para poder consultar su progreso). */
-  syncJobId?: string;
-  /** Cuántos días históricos ("cerrados") todavía no se han sincronizado al caché local. */
-  pendingClosedDays: number;
+  /** `finished_at` de la última corrida EXITOSA del cron para esta tienda (`source = 'vtex_api'`), o `null` si nunca hubo una. */
+  lastSyncedAt: string | null;
+  /** Status de la corrida más RECIENTE del cron para esta tienda (exitosa o no), o `null` si nunca corrió. */
+  lastSyncStatus: 'success' | 'error' | 'partial' | null;
+}
+
+/** Forma reducida de `StoreDashboardData` usada por los segmentos (sellers/marketplaces) — es todo lo que `SegmentComparisonTable` necesita. */
+export interface SegmentDashboardData {
+  totalOrders: number;
+  revenueOrders: number;
+  revenueTotalValue: number;
 }
 
 export interface StoreDashboardResult {
@@ -109,7 +114,7 @@ export interface SegmentDashboardResult {
   type: 'seller' | 'marketplace';
   success: boolean;
   error?: string;
-  data?: StoreDashboardData;
+  data?: SegmentDashboardData;
 }
 
 export interface GlobalSummary {
@@ -120,10 +125,8 @@ export interface GlobalSummary {
   totalRevenueBreakdown: Record<string, RevenueStatusBreakdown>;
   storesQueried: number;
   storesWithErrors: number;
-  /** Tiendas que respondieron exitosamente pero con datos incompletos (ver `StoreDashboardData.isComplete`). */
+  /** Tiendas cuya última corrida del cron falló (ver `StoreDashboardData.isComplete`/`lastSyncStatus`). */
   storesWithIncompleteData: number;
-  /** Tiendas con un backfill en segundo plano actualmente en curso. */
-  storesSyncing: number;
 }
 
 export interface DashboardResponse {

@@ -39,12 +39,11 @@ export function GlobalSummary({ summary }: GlobalSummaryProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      {summary.storesWithIncompleteData > 0 && summary.storesSyncing === 0 && (
+      {summary.storesWithIncompleteData > 0 && (
         <div className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           ⚠ {summary.storesWithIncompleteData}{' '}
-          {summary.storesWithIncompleteData === 1 ? 'tienda tiene' : 'tiendas tienen'} datos
-          posiblemente incompletos. Revisa el detalle en su tarjeta o prueba "Forzar
-          actualización".
+          {summary.storesWithIncompleteData === 1 ? 'tienda tuvo' : 'tiendas tuvieron'} un fallo en
+          su última sincronización con VTEX. Revisa el detalle en su tarjeta.
         </div>
       )}
 

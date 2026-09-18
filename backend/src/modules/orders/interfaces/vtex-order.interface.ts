@@ -56,12 +56,27 @@ export interface VtexOrderDetailItem {
 }
 
 /**
+ * Una campaña/beneficio de descuento aplicado a la orden completa (no a
+ * un ítem). El nombre en `name` coincide carácter por carácter con la
+ * columna `Discounts Names` del Excel histórico — confirmado con una
+ * respuesta real de VTEX vía Postman.
+ */
+export interface VtexRateAndBenefitsIdentifier {
+  name?: string;
+}
+
+/**
  * Subconjunto del detalle de una orden (`GET /api/oms/pvt/orders/{orderId}`)
  * que la aplicación necesita: ciudad de envío + los datos de producto
- * usados por `ProductAnalyticsService` (descuento, categoría, marca).
- * Deliberadamente NO se tipan `clientProfileData` ni el resto de
- * `shippingData.address` (calle, destinatario, teléfono) — esos campos
- * nunca deben leerse ni persistirse, ver `OrderCityEnrichmentService`.
+ * usados por el agregador diario (descuento, categoría, marca, campaña de
+ * descuento). Deliberadamente NO se tipan `clientProfileData` ni el resto
+ * de `shippingData.address` (calle, destinatario, teléfono) — esos campos
+ * nunca deben leerse ni persistirse, ver `order-item-extract.util.ts`.
+ *
+ * La clasificación de seller/marketplace NO usa el detalle de la orden:
+ * se resuelve por CUÁL consulta de listado filtrada (`f_sellerNames`/
+ * `salesChannelId`) la devolvió — ver `source-definitions.util.ts` y
+ * `vtex-sync-cron.service.ts`.
  */
 export interface VtexOrderDetailResponse {
   orderId?: string;
@@ -71,6 +86,16 @@ export interface VtexOrderDetailResponse {
     } | null;
   } | null;
   items?: VtexOrderDetailItem[] | null;
+  ratesAndBenefitsData?: {
+    rateAndBenefitsIdentifiers?: VtexRateAndBenefitsIdentifier[] | null;
+  } | null;
+}
+
+/** Un nodo del árbol de categorías (`catalog_system/pub/category/tree`). Aplanado recursivamente por `fetchCategoryTree`. */
+export interface VtexCategoryTreeNode {
+  id: number;
+  name: string;
+  children?: VtexCategoryTreeNode[] | null;
 }
 
 export interface VtexPaging {

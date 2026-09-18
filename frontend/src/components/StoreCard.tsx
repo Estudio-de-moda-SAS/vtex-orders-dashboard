@@ -1,14 +1,10 @@
 import { CityBreakdown, StoreDashboardResult } from '@/types/dashboard';
 import { formatCOP, formatNumber, formatPercentage, statusLabel } from '@/lib/format';
-import { resolveUnknownLabel } from '@/lib/enrichment';
 import { CategoryBrandRankingResult, CategoryRanking } from '@/types/product-analytics';
 import { DataConsistencyIndicator } from './DataConsistencyIndicator';
 
 interface StoreCardProps {
   store: StoreDashboardResult;
-  generatedAt?: string;
-  /** `true` cuando el enriquecimiento (ciudad + descuento + categoría + marca) ya terminó para este rango — ver `resolveUnknownLabel`. */
-  enrichmentComplete: boolean;
   /** Ranking de categorías de la tienda, ya ordenado por el backend de mayor a menor valor. */
   categoryRanking?: CategoryRanking[];
   /** Marca top por categoría — solo definido/aplicable para tiendas multimarca. */
@@ -18,7 +14,7 @@ interface StoreCardProps {
 const TOP_CITIES_LIMIT = 10;
 const TOP_BRANDS_LIMIT = 5;
 
-export function StoreCard({ store, generatedAt, enrichmentComplete, categoryRanking, brandRanking }: StoreCardProps) {
+export function StoreCard({ store, categoryRanking, brandRanking }: StoreCardProps) {
   return (
     <div
       className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel"
@@ -73,11 +69,11 @@ export function StoreCard({ store, generatedAt, enrichmentComplete, categoryRank
             </Section>
 
             <Section title="Ciudades">
-              <TopCities cityBreakdown={store.data.cityBreakdown} enrichmentComplete={enrichmentComplete} />
+              <TopCities cityBreakdown={store.data.cityBreakdown} />
             </Section>
 
             <Section title="Categoría top">
-              <TopCategory categoryRanking={categoryRanking} enrichmentComplete={enrichmentComplete} />
+              <TopCategory categoryRanking={categoryRanking} />
             </Section>
 
             {brandRanking?.applicable && (
@@ -86,7 +82,7 @@ export function StoreCard({ store, generatedAt, enrichmentComplete, categoryRank
               </Section>
             )}
 
-            <DataConsistencyIndicator data={store.data} generatedAt={generatedAt} />
+            <DataConsistencyIndicator data={store.data} />
           </>
         )
       )}
@@ -113,13 +109,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** Solo las `TOP_CITIES_LIMIT` ciudades que más generan compras (por valor), igual que el resto de los recuadros de ciudades. */
-function TopCities({
-  cityBreakdown,
-  enrichmentComplete,
-}: {
-  cityBreakdown: Record<string, CityBreakdown>;
-  enrichmentComplete: boolean;
-}) {
+function TopCities({ cityBreakdown }: { cityBreakdown: Record<string, CityBreakdown> }) {
   const sorted = Object.entries(cityBreakdown).sort((a, b) => b[1].totalValue - a[1].totalValue);
   const top = sorted.slice(0, TOP_CITIES_LIMIT);
   const remaining = sorted.length - top.length;
@@ -129,9 +119,7 @@ function TopCities({
       <ul className="flex flex-col gap-1.5">
         {top.map(([city, breakdown]) => (
           <li key={city} className="flex items-center justify-between text-sm">
-            <span className="text-ink-muted">
-              {resolveUnknownLabel(city, enrichmentComplete, 'Sin ciudad')}
-            </span>
+            <span className="text-ink-muted">{city}</span>
             <span className="font-medium tabular-nums text-ink">
               {formatCOP(breakdown.totalValue)}{' '}
               <span className="text-ink-faint">({formatPercentage(breakdown.percentage)})</span>
@@ -148,23 +136,12 @@ function TopCities({
   );
 }
 
-/** La categoría con más valor vendido, o el estado "sin datos" apropiado según si ya terminó el enriquecimiento. */
-function TopCategory({
-  categoryRanking,
-  enrichmentComplete,
-}: {
-  categoryRanking?: CategoryRanking[];
-  enrichmentComplete: boolean;
-}) {
+/** La categoría con más valor vendido, o "Sin categoría" si la tienda todavía no tiene ventas en el rango. */
+function TopCategory({ categoryRanking }: { categoryRanking?: CategoryRanking[] }) {
   const top = categoryRanking && categoryRanking.length > 0 ? categoryRanking[0] : undefined;
 
   if (!top) {
-    return (
-      <Metric
-        label="Categoría top"
-        value={resolveUnknownLabel('Sin categoría', enrichmentComplete, 'Sin categoría')}
-      />
-    );
+    return <Metric label="Categoría top" value="Sin categoría" />;
   }
 
   return (

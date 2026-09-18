@@ -85,11 +85,53 @@ export type CategoryBrandRankingResult =
 /** Respuesta de GET /api/analytics/category-brands. */
 export type CategoryBrandRankingByStore = Record<string, CategoryBrandRankingResult>;
 
-/** Respuesta de GET /api/sync/enrichment-status. */
-export interface EnrichmentStatus {
-  storeId: string;
-  totalOrders: number;
-  enrichedOrders: number;
-  percentage: number;
-  isComplete: boolean;
+export interface CampaignBreakdown {
+  /** Nombre tal cual lo entrega VTEX, ej. "Envío gratis". */
+  campaignName: string;
+  orders: number;
+  sales: number;
 }
+
+export interface CollectionCategoryBreakdown {
+  categoryName: string;
+  units: number;
+  sales: number;
+}
+
+/**
+ * Una colección (Línea/Rack/Outlet/Saldos) con el desglose de categorías
+ * vendidas DENTRO de ella (mayor a menor por unidades). Incluye también
+ * "Sin colección" a propósito — sumar TODAS las filas (reales + "Sin
+ * colección") da exactamente el total de unidades/ventas de la tienda.
+ */
+export interface CollectionBreakdown {
+  collectionName: string;
+  units: number;
+  sales: number;
+  categories: CollectionCategoryBreakdown[];
+}
+
+/**
+ * Totales reales de la tienda en el rango (todas las órdenes, sin
+ * filtrar) — referencia para verificar que sumar lo mostrado cuadra.
+ */
+export interface StoreHighlightTotals {
+  orders: number;
+  units: number;
+  sales: number;
+}
+
+/**
+ * Para una tienda: TODAS las campañas de descuento usadas en el rango y
+ * TODAS las colecciones con ventas (incluyendo "Sin colección"), cada
+ * una ya ordenada de mayor a menor (órdenes para campañas, unidades para
+ * colecciones), más los totales reales de la tienda para verificación.
+ */
+export interface StoreHighlight {
+  campaigns: CampaignBreakdown[];
+  collections: CollectionBreakdown[];
+  totals: StoreHighlightTotals;
+}
+
+/** Respuesta de GET /api/analytics/store-highlights. */
+export type StoreHighlightsByStore = Record<string, StoreHighlight>;

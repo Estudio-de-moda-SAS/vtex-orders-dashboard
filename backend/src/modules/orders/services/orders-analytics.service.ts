@@ -1,208 +1,231 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
 import { matchRevenueStatusDefinition } from '../../../common/utils/revenue-status.util';
-import { VtexOrder } from '../interfaces/vtex-order.interface';
+import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
 import {
   CityBreakdown,
+  GlobalSummary,
   PaymentMethodBreakdown,
   RevenueStatusBreakdown,
   StoreDashboardData,
+  StoreDashboardResult,
 } from '../interfaces/dashboard.interface';
 
-const UNKNOWN_PAYMENT_LABEL = 'Otro';
-const UNKNOWN_CITY_LABEL = 'Sin ciudad';
+const DEFAULT_CURRENCY_CODE = 'COP';
+
+export interface StoreTotalsRow {
+  orders: number;
+  units: number;
+  sales: number;
+  discounts: number;
+}
+export interface ByStatusRow {
+  status: string;
+  orders: number;
+  sales: number;
+}
+export interface ByPaymentRow {
+  paymentMethod: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+export interface ByCityRow {
+  city: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
 
 export interface StoreDataMeta {
-  isComplete: boolean;
-  syncInProgress: boolean;
-  syncJobId?: string;
-  pendingClosedDays: number;
   responseTimeMs: number;
+  lastSyncedAt: string | null;
+  lastSyncStatus: 'success' | 'error' | 'partial' | null;
 }
 
 /**
- * Convierte una lista de órdenes crudas de VTEX en los indicadores
- * agregados que necesita el dashboard. No conoce nada sobre HTTP ni
- * sobre VTEX: solo recibe órdenes ya obtenidas y las resume.
+ * Convierte filas SQL ya agregadas (`SUM`/`GROUP BY` de
+ * `DashboardQueryRepository`) en la forma `StoreDashboardData` que
+ * consume el frontend. No conoce Postgres ni HTTP: solo recibe filas y
+ * las resume — mismo rol que tenía antes de la migración, ahora
+ * alimentado por SQL en vez de `VtexOrder[]`.
  *
- * Se usa tanto para tiendas completas como para segmentos (vendedores o
- * canales de marketplace dentro de una tienda), ya que ambos comparten la
- * misma forma de indicadores (`StoreDashboardData`).
+ * "Ventas" = SOLO los estados que definen `revenue-status.config.ts`
+ * (invoiced/payment-approved/handling(+ready-for-handling)/checking-invoice)
+ * — a pedido explícito del usuario, órdenes en cualquier otro estado
+ * (canceladas, etc.) NO cuentan como venta en NINGÚN widget: `totalOrders`
+ * es literalmente `revenueOrders`, `statusCounts` (widget "Estados") solo
+ * lista estos estados, `cityBreakdown`/`paymentMethods` usan los conteos
+ * `revenue_*` en vez de los conteos totales. Esto aplica retroactivamente
+ * sin reprocesar nada: `sales_daily_by_status`/`by_payment`/`by_city` ya
+ * traían este desglose por estado desde el inicio de la migración.
+ *
+ * Nota sobre `revenueOrders`/`revenueTotalValue`/`revenueBreakdown`: se
+ * derivan de `byStatus` comparando SOLO `status` (código) contra
+ * `statusMatchers` — a diferencia del modelo anterior, aquí no se cuenta
+ * con `statusDescription` por fila (no se persiste a ese nivel de
+ * detalle), así que el fallback por `descriptionMatchers` no aplica en
+ * esta capa. En la práctica esto no cambia el resultado mientras el
+ * código de status de cada cuenta VTEX sea el esperado (que es el caso
+ * normal); solo importaría si alguna cuenta reportara un código
+ * distinto al documentado en `revenue-status.config.ts`.
  */
 @Injectable()
 export class OrdersAnalyticsService {
   private readonly logger = new Logger(OrdersAnalyticsService.name);
   private readonly revenueStatusDefinitions = getRevenueStatusDefinitions();
 
-  buildStoreData(contextId: string, orders: VtexOrder[], meta: StoreDataMeta): StoreDashboardData {
-    const totalOrders = orders.length;
-    const statusCounts = this.countByStatus(orders);
-    const { revenueOrders, revenueTotalValue, revenueBreakdown, countedOrders } =
-      this.computeRevenueTotals(orders);
-    const paymentMethods = this.groupByPaymentMethod(orders);
-    // Sobre TODAS las órdenes (como `groupByPaymentMethod`), no solo las
-    // "contabilizadas": limitarlo a esas dejaba prácticamente sin ciudad
-    // cualquier rango con muchas órdenes recientes que todavía no llegan a
-    // un status contabilizado (ej. el mes en curso). El costo es que la
-    // suma de `cityBreakdown[...].totalValue` ya NO coincide exactamente
-    // con `revenueTotalValue` — se prioriza cobertura completa sobre esa
-    // coincidencia exacta. Ver `cityRevenueBreakdown` para la versión que
-    // SÍ coincide (usada donde se necesita comparar contra "lo que
-    // realmente se vendió").
-    const cityBreakdown = this.groupByCity(orders);
-    // Mismo agrupamiento, pero solo con las órdenes "contabilizadas" (las
-    // mismas que `revenueTotalValue`) — para comparativos que necesitan
-    // coincidir exactamente con "valor contabilizado" (ej. el recuadro de
-    // aporte general por ciudad del frontend).
-    const cityRevenueBreakdown = this.groupByCity(countedOrders);
-    const currencyCode = orders.find((o) => o.currencyCode)?.currencyCode ?? 'COP';
+  buildStoreData(
+    contextId: string,
+    totals: StoreTotalsRow,
+    byStatus: ByStatusRow[],
+    byPayment: ByPaymentRow[],
+    byCity: ByCityRow[],
+    meta: StoreDataMeta,
+  ): StoreDashboardData {
+    const { revenueOrders, revenueTotalValue, revenueBreakdown } = this.computeRevenueTotals(byStatus);
 
-    const sumOfStatuses = Object.values(statusCounts).reduce((acc, n) => acc + n, 0);
-    const isConsistent = sumOfStatuses === totalOrders;
+    // "Estados" (statusCounts) solo lista los estados que SÍ cuentan como
+    // venta — mismo filtro que revenueOrders/revenueBreakdown, no un
+    // desglose aparte de "todos los estados".
+    const statusCounts: Record<string, number> = {};
+    for (const row of byStatus) {
+      if (matchRevenueStatusDefinition({ status: row.status }, this.revenueStatusDefinitions)) {
+        statusCounts[row.status] = row.orders;
+      }
+    }
 
+    const paymentMethods = this.buildPaymentMethods(byPayment);
+    const cityBreakdown = this.buildCityBreakdown(byCity, (row) => ({
+      count: row.revenueOrders,
+      totalValue: row.revenueSales,
+    }));
+    const cityRevenueBreakdown = cityBreakdown;
+
+    // Chequeo de cordura: el subtotal filtrado nunca debería superar el
+    // total sin filtrar (`sales_daily`, todas las órdenes) — si esto
+    // falla hay un bug real en la clasificación de estados.
+    const isConsistent = revenueOrders <= totals.orders;
     if (!isConsistent) {
       this.logger.warn(
-        `[${contextId}] Inconsistencia de datos: suma de status (${sumOfStatuses}) !== totalOrders (${totalOrders})`,
+        `[${contextId}] Inconsistencia de datos: revenueOrders (${revenueOrders}) > totalOrders sin filtrar (${totals.orders})`,
       );
     }
 
     return {
-      totalOrders,
+      totalOrders: revenueOrders,
       revenueOrders,
       revenueTotalValue,
       revenueBreakdown,
-      currencyCode,
+      currencyCode: DEFAULT_CURRENCY_CODE,
       statusCounts,
       paymentMethods,
       cityBreakdown,
       cityRevenueBreakdown,
       responseTimeMs: meta.responseTimeMs,
       isConsistent,
-      isComplete: meta.isComplete,
-      syncInProgress: meta.syncInProgress,
-      syncJobId: meta.syncJobId,
-      pendingClosedDays: meta.pendingClosedDays,
+      isComplete: meta.lastSyncStatus === 'success',
+      lastSyncedAt: meta.lastSyncedAt,
+      lastSyncStatus: meta.lastSyncStatus,
     };
   }
 
-  private countByStatus(orders: VtexOrder[]): Record<string, number> {
-    const counts: Record<string, number> = {};
-    for (const order of orders) {
-      const status = order.status ?? 'unknown';
-      counts[status] = (counts[status] ?? 0) + 1;
-    }
-    return counts;
-  }
-
-  /**
-   * Suma órdenes y valor de las órdenes cuyo status (o statusDescription)
-   * corresponde a alguno de los estados "contabilizados": invoiced,
-   * payment-approved, handling o checking-invoice; y además desglosa ese
-   * mismo total por cada uno de esos estados individualmente. Ver
-   * `config/revenue-status.config.ts` para la lista exacta y cómo
-   * ajustarla si el código real de VTEX difiere.
-   */
-  private computeRevenueTotals(orders: VtexOrder[]): {
+  private computeRevenueTotals(byStatus: ByStatusRow[]): {
     revenueOrders: number;
     revenueTotalValue: number;
     revenueBreakdown: Record<string, RevenueStatusBreakdown>;
-    /** Las mismas órdenes que componen `revenueOrders`/`revenueTotalValue` — ver `cityRevenueBreakdown`. */
-    countedOrders: VtexOrder[];
   } {
     const revenueBreakdown: Record<string, RevenueStatusBreakdown> = {};
     for (const definition of this.revenueStatusDefinitions) {
       revenueBreakdown[definition.key] = { orders: 0, value: 0 };
     }
 
-    const countedOrders: VtexOrder[] = [];
+    let revenueOrders = 0;
     let revenueTotalValue = 0;
 
-    for (const order of orders) {
-      const definition = matchRevenueStatusDefinition(order, this.revenueStatusDefinitions);
+    for (const row of byStatus) {
+      const definition = matchRevenueStatusDefinition({ status: row.status }, this.revenueStatusDefinitions);
       if (!definition) continue;
-      const value = order.totalValue ?? 0;
-      countedOrders.push(order);
-      revenueTotalValue += value;
-      revenueBreakdown[definition.key].orders += 1;
-      revenueBreakdown[definition.key].value += value;
+      revenueOrders += row.orders;
+      revenueTotalValue += row.sales;
+      revenueBreakdown[definition.key].orders += row.orders;
+      revenueBreakdown[definition.key].value += row.sales;
     }
 
-    return { revenueOrders: countedOrders.length, revenueTotalValue, revenueBreakdown, countedOrders };
+    return { revenueOrders, revenueTotalValue, revenueBreakdown };
   }
 
-  /**
-   * Agrupa órdenes por medio de pago. VTEX puede reportar múltiples medios
-   * de pago separados por coma en `paymentNames` (ej. "Visa, Voucher");
-   * en ese caso la orden se cuenta en cada medio de pago involucrado, sin
-   * inflar el conteo total de órdenes reportado en otros indicadores.
-   */
-  private groupByPaymentMethod(orders: VtexOrder[]): Record<string, PaymentMethodBreakdown> {
-    const rawCounts: Record<string, number> = {};
-    let totalMentions = 0;
+  private buildPaymentMethods(byPayment: ByPaymentRow[]): Record<string, PaymentMethodBreakdown> {
+    const totalMentions = byPayment.reduce((acc, row) => acc + row.revenueOrders, 0);
+    const result: Record<string, PaymentMethodBreakdown> = {};
+    for (const row of byPayment) {
+      if (row.revenueOrders === 0) continue;
+      result[row.paymentMethod] = {
+        count: row.revenueOrders,
+        percentage: totalMentions > 0 ? Number(((row.revenueOrders / totalMentions) * 100).toFixed(2)) : 0,
+      };
+    }
+    return result;
+  }
 
-    for (const order of orders) {
-      const paymentNames = (order.paymentNames ?? '').trim();
-      const methods = paymentNames
-        ? paymentNames
-            .split(',')
-            .map((m) => m.trim())
-            .filter(Boolean)
-        : [UNKNOWN_PAYMENT_LABEL];
+  private buildCityBreakdown(
+    byCity: ByCityRow[],
+    pick: (row: ByCityRow) => { count: number; totalValue: number },
+  ): Record<string, CityBreakdown> {
+    const picked = byCity.map((row) => ({ city: row.city, ...pick(row) }));
+    const totalValue = picked.reduce((acc, row) => acc + row.totalValue, 0);
 
-      for (const method of methods) {
-        rawCounts[method] = (rawCounts[method] ?? 0) + 1;
-        totalMentions += 1;
+    const result: Record<string, CityBreakdown> = {};
+    for (const row of picked) {
+      if (row.count === 0 && row.totalValue === 0) continue;
+      result[row.city] = {
+        count: row.count,
+        totalValue: row.totalValue,
+        percentage: totalValue > 0 ? Number(((row.totalValue / totalValue) * 100).toFixed(2)) : 0,
+      };
+    }
+    return result;
+  }
+
+  buildGlobalSummary(storeResults: StoreDashboardResult[]): GlobalSummary {
+    let totalOrders = 0;
+    let totalRevenueOrders = 0;
+    let totalRevenueValue = 0;
+    let storesWithErrors = 0;
+    let storesWithIncompleteData = 0;
+
+    const totalRevenueBreakdown: Record<string, RevenueStatusBreakdown> = {};
+    for (const definition of this.revenueStatusDefinitions) {
+      totalRevenueBreakdown[definition.key] = { orders: 0, value: 0 };
+    }
+
+    for (const result of storeResults) {
+      if (result.success && result.data) {
+        totalOrders += result.data.totalOrders;
+        totalRevenueOrders += result.data.revenueOrders;
+        totalRevenueValue += result.data.revenueTotalValue;
+        for (const [key, breakdown] of Object.entries(result.data.revenueBreakdown)) {
+          const target = totalRevenueBreakdown[key] ?? { orders: 0, value: 0 };
+          target.orders += breakdown.orders;
+          target.value += breakdown.value;
+          totalRevenueBreakdown[key] = target;
+        }
+        if (!result.data.isComplete) storesWithIncompleteData += 1;
+      } else {
+        storesWithErrors += 1;
       }
     }
 
-    const result: Record<string, PaymentMethodBreakdown> = {};
-    for (const [method, count] of Object.entries(rawCounts)) {
-      result[method] = {
-        count,
-        percentage: totalMentions > 0 ? Number(((count / totalMentions) * 100).toFixed(2)) : 0,
-      };
-    }
-    return result;
-  }
-
-  /**
-   * Agrupa por ciudad de envío (`order.city`, poblada por
-   * `OrderCityEnrichmentService` — ver su comentario de clase). Opera
-   * sobre las MISMAS órdenes que `groupByPaymentMethod` (todas las
-   * obtenidas, sin filtrar por status de revenue) — a propósito, para no
-   * dejar sin ciudad rangos con muchas órdenes recientes que todavía no
-   * llegan a un status "contabilizado" (ej. el mes en curso). Por eso la
-   * suma de `totalValue` de todas las ciudades NO tiene por qué coincidir
-   * con `revenueTotalValue` — se prioriza cobertura completa sobre esa
-   * coincidencia exacta. `percentage` es sobre el VALOR total (no sobre
-   * el conteo): el objetivo es "cuánto genera a la venta esa ciudad", no
-   * cuántas órdenes tuvo.
-   */
-  private groupByCity(orders: VtexOrder[]): Record<string, CityBreakdown> {
-    const totalsByCity = new Map<string, { count: number; totalValue: number }>();
-    let totalValue = 0;
-
-    for (const order of orders) {
-      const city = order.city && order.city.trim() ? order.city : UNKNOWN_CITY_LABEL;
-      const value = order.totalValue ?? 0;
-
-      const current = totalsByCity.get(city) ?? { count: 0, totalValue: 0 };
-      current.count += 1;
-      current.totalValue += value;
-      totalsByCity.set(city, current);
-
-      totalValue += value;
-    }
-
-    const result: Record<string, CityBreakdown> = {};
-    for (const [city, totals] of totalsByCity.entries()) {
-      result[city] = {
-        count: totals.count,
-        totalValue: totals.totalValue,
-        percentage: totalValue > 0 ? Number(((totals.totalValue / totalValue) * 100).toFixed(2)) : 0,
-      };
-    }
-    return result;
+    return {
+      totalOrders,
+      totalRevenueOrders,
+      totalRevenueValue,
+      totalRevenueBreakdown,
+      storesQueried: storeResults.length,
+      storesWithErrors,
+      storesWithIncompleteData,
+    };
   }
 }

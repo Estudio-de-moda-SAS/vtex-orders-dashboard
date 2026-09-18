@@ -6,9 +6,7 @@ interface DateRangeFilterProps {
   onStartDateChange: (value: string) => void;
   onEndDateChange: (value: string) => void;
   onSubmit: () => void;
-  onForceRefresh: () => void;
   isLoading: boolean;
-  hasResults: boolean;
 }
 
 /**
@@ -22,9 +20,7 @@ export function DateRangeFilter({
   onStartDateChange,
   onEndDateChange,
   onSubmit,
-  onForceRefresh,
   isLoading,
-  hasResults,
 }: DateRangeFilterProps) {
   const isRangeValid = Boolean(startDate) && Boolean(endDate) && startDate <= endDate;
 
@@ -79,18 +75,6 @@ export function DateRangeFilter({
             'Consultar'
           )}
         </button>
-
-        {hasResults && (
-          <button
-            type="button"
-            onClick={onForceRefresh}
-            disabled={!isRangeValid || isLoading}
-            title="Ignora el caché y vuelve a consultar todo el rango en VTEX, incluso días ya cerrados"
-            className="inline-flex items-center justify-center rounded-xl border border-surface-border px-4 py-2.5 text-sm font-medium text-ink-muted transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Forzar actualización
-          </button>
-        )}
       </div>
 
       {!isRangeValid && startDate && endDate && (

@@ -1,15 +1,13 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 
+import { DatabaseModule } from '../database/database.module';
 import { VtexModule } from '../vtex/vtex.module';
-import { StorageModule } from '../storage/storage.module';
-import { HistoricalSyncService } from './services/historical-sync.service';
-import { LiveQueryDedupeCache } from './services/live-query-dedupe.cache';
-import { NightlySyncScheduler } from './services/nightly-sync.scheduler';
-import { OrderCityEnrichmentService } from './services/order-city-enrichment.service';
+import { VtexSyncCronService } from './services/vtex-sync-cron.service';
 
 @Module({
-  imports: [VtexModule, StorageModule],
-  providers: [HistoricalSyncService, NightlySyncScheduler, LiveQueryDedupeCache, OrderCityEnrichmentService],
-  exports: [HistoricalSyncService, OrderCityEnrichmentService],
+  imports: [VtexModule, DatabaseModule, ScheduleModule],
+  providers: [VtexSyncCronService],
+  exports: [VtexSyncCronService],
 })
 export class SyncModule {}

@@ -1,6 +1,18 @@
 import { RevenueStatusDefinition } from '../../config/revenue-status.config';
-import { VtexOrder } from '../../modules/orders/interfaces/vtex-order.interface';
 import { normalizeText } from './text-normalize.util';
+
+/**
+ * Cualquier cosa con `status`/`statusDescription` de VTEX — no
+ * necesariamente una `VtexOrder` completa. Permite reutilizar esta lógica
+ * también sobre filas de `order_items` combinadas con el status de su
+ * orden (ver `OrderItemsRepository.getItemsWithOrderStatus`), sin tener
+ * que reconstruir un objeto `VtexOrder` completo solo para poder llamar
+ * esta función.
+ */
+export interface StatusLike {
+  status: string | null | undefined;
+  statusDescription?: string | null;
+}
 
 /**
  * Determina si una orden cuenta para el total "contabilizado" del
@@ -8,7 +20,7 @@ import { normalizeText } from './text-normalize.util';
  * (texto legible) contra la configuración de `revenue-status.config.ts`.
  * Ver ese archivo para la lista de estados incluidos y cómo ajustarlos.
  */
-export function isRevenueStatus(order: VtexOrder, definitions: RevenueStatusDefinition[]): boolean {
+export function isRevenueStatus(order: StatusLike, definitions: RevenueStatusDefinition[]): boolean {
   return matchRevenueStatusDefinition(order, definitions) !== undefined;
 }
 
@@ -18,7 +30,7 @@ export function isRevenueStatus(order: VtexOrder, definitions: RevenueStatusDefi
  * total "contabilizado" por estado (invoiced, payment-approved, etc.).
  */
 export function matchRevenueStatusDefinition(
-  order: VtexOrder,
+  order: StatusLike,
   definitions: RevenueStatusDefinition[],
 ): RevenueStatusDefinition | undefined {
   const normalizedStatus = normalizeText(order.status);

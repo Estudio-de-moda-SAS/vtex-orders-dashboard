@@ -59,31 +59,15 @@ export interface AppConfig {
     /** Pausa (ms) entre lotes y mientras se espera a que `isListingBusy()` sea `false`. Ver `cityEnrichmentBatchSize`. */
     cityEnrichmentBatchPauseMs: number;
   };
-  storage: {
-    /** Ruta del archivo SQLite donde se cachea el histórico de órdenes. */
-    dbPath: string;
+  sync: {
+    /** Cada cuántas horas corre el cron de sincronización con VTEX. */
+    cronIntervalHours: number;
     /**
-     * Días antes de "hoy" que se consideran "todavía mutables" (una orden
-     * podría cambiar de estado, ej. una devolución). Todo lo anterior a esta
-     * ventana se trata como cerrado y se cachea para siempre; todo dentro de
-     * la ventana se vuelve a consultar en VTEX cada vez.
+     * Cuántos días hacia atrás recalcula el cron en cada corrida (ventana
+     * de recálculo, para capturar cambios de estado de órdenes recientes).
+     * Los días fuera de esta ventana nunca se vuelven a tocar.
      */
-    immutabilityWindowDays: number;
-    /**
-     * Si al pedir un rango hay más de esta cantidad de días "cerrados" que
-     * nunca se han sincronizado, la sincronización se hace en un job de
-     * fondo (para no bloquear la petición HTTP) en vez de en línea.
-     */
-    inlineBackfillMaxDays: number;
-    /** Hora (0-23, hora del servidor) a la que corre la sincronización automática nocturna. */
-    nightlySyncHour: number;
-    /**
-     * Cuánto tiempo (ms) se reutiliza el resultado de una consulta EN VIVO
-     * (ventana mutable) para la misma tienda/fuente/rango, en vez de
-     * volver a pedirle lo mismo a VTEX. Protege contra el caso de varias
-     * personas abriendo el dashboard casi al mismo tiempo.
-     */
-    liveQueryDedupeTtlMs: number;
+    recalcWindowDays: number;
   };
 }
 
@@ -133,12 +117,9 @@ export default (): { app: AppConfig } => ({
       cityEnrichmentBatchSize: parseInt(process.env.VTEX_CITY_ENRICHMENT_BATCH_SIZE ?? '1', 10),
       cityEnrichmentBatchPauseMs: parseInt(process.env.VTEX_CITY_ENRICHMENT_BATCH_PAUSE_MS ?? '150', 10),
     },
-    storage: {
-      dbPath: process.env.DB_PATH ?? './data/cache.sqlite',
-      immutabilityWindowDays: parseInt(process.env.IMMUTABILITY_WINDOW_DAYS ?? '40', 10),
-      inlineBackfillMaxDays: parseInt(process.env.INLINE_BACKFILL_MAX_DAYS ?? '3', 10),
-      nightlySyncHour: parseInt(process.env.NIGHTLY_SYNC_HOUR ?? '1', 10),
-      liveQueryDedupeTtlMs: parseInt(process.env.LIVE_QUERY_DEDUPE_TTL_MS ?? '30000', 10),
+    sync: {
+      cronIntervalHours: parseInt(process.env.SYNC_CRON_INTERVAL_HOURS ?? '4', 10),
+      recalcWindowDays: parseInt(process.env.SYNC_RECALC_WINDOW_DAYS ?? '3', 10),
     },
   },
 });

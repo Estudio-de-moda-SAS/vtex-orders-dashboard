@@ -11,13 +11,12 @@ export class OrdersController {
   /**
    * GET /api/orders/dashboard?startDate=2026-06-01&endDate=2026-06-30
    *
-   * Consulta las seis tiendas VTEX configuradas para el rango de fechas
-   * dado y retorna la información consolidada lista para el dashboard.
-   * Internamente resuelve cada tienda combinando caché histórico local +
-   * consulta en vivo de la ventana mutable (ver HistoricalSyncService).
-   *
-   * `forceRefresh=true` ignora el caché para el rango pedido y vuelve a
-   * consultar VTEX incluso para días ya marcados como "cerrados".
+   * Consulta consolidada de las seis tiendas para el rango de fechas
+   * dado. Lectura SQL pura sobre los agregados diarios pre-calculados en
+   * Supabase (`sales_daily*`) — este endpoint NUNCA llama a VTEX; la
+   * frescura de los datos es la de la última corrida del cron
+   * (`lastSyncedAt`/`lastSyncStatus` por tienda), no la del momento de la
+   * consulta.
    */
   @Get('dashboard')
   async getDashboard(
@@ -25,6 +24,6 @@ export class OrdersController {
     query: OrdersQueryDto,
   ): Promise<DashboardResponse> {
     OrdersQueryDto.assertRange(query.startDate, query.endDate);
-    return this.ordersService.getDashboard(query.startDate, query.endDate, query.forceRefresh ?? false);
+    return this.ordersService.getDashboard(query.startDate, query.endDate);
   }
 }

@@ -65,17 +65,24 @@ export interface StoreDashboardData {
   responseTimeMs: number;
   isConsistent: boolean;
   /**
-   * `false` si todavía hay días históricos sin sincronizar al caché local,
-   * o si la consulta en vivo de los días recientes falló. Los totales son
-   * un piso, no el valor real, mientras esto sea `false`.
+   * `true` solo si la corrida MÁS RECIENTE del cron de sincronización
+   * para esta tienda tuvo éxito (`lastSyncStatus === 'success'`). Si la
+   * última corrida falló, esto da `false` — los datos no son parciales
+   * (siempre reflejan la última corrida exitosa), pero pueden no estar
+   * tan frescos como se espera.
    */
   isComplete: boolean;
-  /** `true` si hay un backfill en segundo plano trayendo días pendientes para esta tienda. */
-  syncInProgress: boolean;
-  /** Id del job de sincronización en curso (para consultar su progreso). */
-  syncJobId?: string;
-  /** Cuántos días históricos todavía no se han sincronizado al caché local. */
-  pendingClosedDays: number;
+  /** `finished_at` de la última corrida EXITOSA del cron para esta tienda, o `null` si nunca hubo una. */
+  lastSyncedAt: string | null;
+  /** Status de la corrida más reciente del cron (exitosa o no), o `null` si nunca corrió. */
+  lastSyncStatus: 'success' | 'error' | 'partial' | null;
+}
+
+/** Forma reducida de `StoreDashboardData` para segmentos (sellers/marketplaces) — todo lo que `SegmentComparisonTable` necesita. */
+export interface SegmentDashboardData {
+  totalOrders: number;
+  revenueOrders: number;
+  revenueTotalValue: number;
 }
 
 export interface StoreDashboardResult {
@@ -95,7 +102,7 @@ export interface SegmentDashboardResult {
   type: 'seller' | 'marketplace';
   success: boolean;
   error?: string;
-  data?: StoreDashboardData;
+  data?: SegmentDashboardData;
 }
 
 export interface GlobalSummary {
@@ -106,9 +113,8 @@ export interface GlobalSummary {
   totalRevenueBreakdown: Record<string, RevenueStatusBreakdown>;
   storesQueried: number;
   storesWithErrors: number;
+  /** Tiendas cuya última corrida del cron falló (ver `StoreDashboardData.isComplete`/`lastSyncStatus`). */
   storesWithIncompleteData: number;
-  /** Tiendas con un backfill en segundo plano actualmente en curso. */
-  storesSyncing: number;
 }
 
 export interface DashboardResponse {
@@ -120,19 +126,6 @@ export interface DashboardResponse {
   stores: StoreDashboardResult[];
   segments: SegmentDashboardResult[];
   generatedAt: string;
-}
-
-export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-export interface SyncJob {
-  id: string;
-  label: string;
-  status: SyncJobStatus;
-  totalDays: number;
-  completedDays: number;
-  error?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type DashboardRequestState =

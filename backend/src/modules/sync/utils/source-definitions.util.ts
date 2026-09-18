@@ -1,14 +1,27 @@
 import { StoreConfig } from '../../../config/stores.config';
-import { OrderSourceRef } from '../../storage/repositories/orders-cache.repository';
-import { SourceDefinition } from '../interfaces/sync.types';
+
+/** Identifica de forma única una fuente de órdenes dentro de una tienda: la general ("main") o un segmento (seller/marketplace). */
+export interface OrderSourceRef {
+  storeId: string;
+  sourceType: 'main' | 'seller' | 'marketplace';
+  sourceKey: string;
+}
+
+export interface SourceDefinition {
+  ref: OrderSourceRef;
+  /** Parámetros adicionales de VTEX a incluir en el listado (ej. `{ salesChannelId: '25' }` o `{ f_sellerNames: 'Disandina S.A.S' }`). */
+  extraParams?: Record<string, string>;
+  label: string;
+}
 
 /**
  * Construye la lista de "fuentes" a sincronizar para una tienda: la
  * fuente principal (`main`) más, si aplica, un elemento por cada
  * vendedor (seller) y canal de marketplace configurado en
- * `store.extraSegments`. Se usa tanto en la consulta on-demand del
- * dashboard como en la sincronización automática nocturna, para que
- * ambas cubran exactamente las mismas fuentes.
+ * `store.extraSegments`. Mismo mecanismo para ambos: una consulta de
+ * LISTADO adicional filtrada (`f_sellerNames`/`salesChannelId`) — las
+ * órdenes que esa consulta devuelve SON las de ese segmento, sin
+ * necesitar inspeccionar ningún campo del detalle para clasificarlas.
  */
 export function buildSourceDefinitions(store: StoreConfig): SourceDefinition[] {
   const mainRef: OrderSourceRef = { storeId: store.id, sourceType: 'main', sourceKey: '' };

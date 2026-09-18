@@ -151,3 +151,38 @@ export function subtractDaysUtc(dayBucket: string, days: number): string {
   cursor.setUTCDate(cursor.getUTCDate() - days);
   return cursor.toISOString().slice(0, 10);
 }
+
+/** Suma días a un día YYYY-MM-DD (calendario Colombia) y retorna el resultado en el mismo formato. */
+export function addDaysUtc(dayBucket: string, days: number): string {
+  return subtractDaysUtc(dayBucket, -days);
+}
+
+/**
+ * Agrupa una lista ORDENADA de días (YYYY-MM-DD) en tramos contiguos (cada
+ * día es exactamente el siguiente calendario del anterior). Usado por
+ * `OrdersService.fillMissingDays`: si los días sin sincronizar de un rango
+ * NO son consecutivos (ej. faltan el 5, el 6 y el 17, pero el 7-16 ya
+ * existe en la base), traer todo el 5-17 de una sola consulta en vivo
+ * volvería a descargar (y sumar por encima de lo que ya hay) el 7-16 — hay
+ * que pedirle a VTEX cada tramo contiguo por separado.
+ */
+export function groupConsecutiveDayRuns(sortedDays: string[]): { start: string; end: string }[] {
+  if (sortedDays.length === 0) return [];
+
+  const runs: { start: string; end: string }[] = [];
+  let runStart = sortedDays[0];
+  let runEnd = sortedDays[0];
+
+  for (let i = 1; i < sortedDays.length; i += 1) {
+    const day = sortedDays[i];
+    if (day === addDaysUtc(runEnd, 1)) {
+      runEnd = day;
+    } else {
+      runs.push({ start: runStart, end: runEnd });
+      runStart = day;
+      runEnd = day;
+    }
+  }
+  runs.push({ start: runStart, end: runEnd });
+  return runs;
+}

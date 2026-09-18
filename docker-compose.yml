@@ -8,12 +8,6 @@ services:
       - ./backend/.env
     ports:
       - '3001:3001'
-    volumes:
-      # IMPORTANTE: el caché histórico (SQLite) vive en ./backend/data.
-      # Este volumen es lo que hace que sobreviva a un `docker compose down`
-      # o a un redeploy. Sin él, cada reinicio perdería todo el histórico
-      # ya sincronizado y habría que volver a traerlo de VTEX.
-      - ./backend/data:/app/data
     restart: unless-stopped
 
   frontend:

@@ -8,7 +8,21 @@ import pLimit from 'p-limit';
 import { StoreConfig } from '../../../config/stores.config';
 import { diffMs, midpointIso, toVtexDateFilterFormat } from '../../../common/utils/date-range.util';
 import { normalizeVtexMoneyValue } from '../../../common/utils/money-normalizer.util';
-import { VtexOrder, VtexOrderDetailResponse, VtexOrdersResponse } from '../interfaces/vtex-order.interface';
+import {
+  VtexCategoryTreeNode,
+  VtexOrder,
+  VtexOrderDetailResponse,
+  VtexOrdersResponse,
+} from '../interfaces/vtex-order.interface';
+
+/** Respuesta real de `catalog/pvt/collection/{id}/products` — confirmada contra una cuenta real. */
+interface VtexCollectionProductsResponse {
+  Data: { SkuId: number | string }[];
+  Page?: number;
+  Size?: number;
+  TotalPage?: number;
+  TotalRows?: number;
+}
 
 export interface FetchStoreOrdersResult {
   orders: VtexOrder[];
@@ -43,16 +57,24 @@ export interface FetchStoreOrdersResult {
 }
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
-const RATE_LIMIT_STATUS = 429;
+/**
+ * Códigos HTTP que se tratan con el backoff largo de "rate limit"
+ * (`rateLimitBackoffBaseMs`/`rateLimitMaxRetries`) en vez del backoff
+ * corto genérico. El 401 se suma a este set (no es solo el 429 clásico) —
+ * ver el comentario de la clase, sección 2, para la evidencia concreta
+ * que motivó esto.
+ */
+const RATE_LIMIT_LIKE_STATUS_CODES = new Set([429, 401]);
 /**
  * Códigos HTTP que indican un rechazo PERMANENTE de VTEX — la petición en
  * sí está mal formada o prohibida, no es un problema temporal de red o de
  * capacidad. Reintentar esto (incluso con más tiempo de espera) nunca va
  * a funcionar. El caso real que motivó esto: un HTTP 400 consistente a
  * partir de cierta página (paginación demasiado profunda para esa
- * cuenta VTEX específica) — ver `maxSafeOffset`.
+ * cuenta VTEX específica) — ver `maxSafeOffset`. NO incluye 401: ver
+ * `RATE_LIMIT_LIKE_STATUS_CODES`.
  */
-const PERMANENT_CLIENT_ERROR_CODES = new Set([400, 401, 403, 404, 422]);
+const PERMANENT_CLIENT_ERROR_CODES = new Set([400, 403, 404, 422]);
 
 /** Error con el código HTTP original preservado, para que quien lo reciba (ej. las rondas de reintento) pueda decidir si vale la pena reintentar. */
 class VtexRequestError extends Error {
@@ -83,17 +105,27 @@ class VtexRequestError extends Error {
  *    cortos por página (`maxRetries`) y, si no alcanza, rondas adicionales
  *    sobre las páginas pendientes (`pageRetrySweeps`).
  *
- * 2. RATE LIMIT (HTTP 429): se trata distinto a una falla genérica. Un
- *    429 significa "estás pidiendo más rápido de lo permitido", así que
- *    reintentar rápido (300-600ms) casi siempre vuelve a fallar — hay que
- *    esperar mucho más (backoff exponencial, `rateLimitBackoffBaseMs`) y
- *    se le da un presupuesto de reintentos más generoso
- *    (`rateLimitMaxRetries`) que a una falla genérica, porque esperar más
- *    tiempo no cuesta corrección, solo velocidad. Además, TODAS las
- *    peticiones a VTEX (sin importar de qué tienda o segmento vengan)
- *    pasan por un límite de concurrencia GLOBAL (`globalConcurrency`) —
- *    un límite que se resetea "por tienda" no sirve si VTEX en realidad
- *    limita a nivel de cuenta u organización.
+ * 2. RATE LIMIT (HTTP 429, y también HTTP 401): se tratan distinto a una
+ *    falla genérica. Un 429 significa "estás pidiendo más rápido de lo
+ *    permitido", así que reintentar rápido (300-600ms) casi siempre
+ *    vuelve a fallar — hay que esperar mucho más (backoff exponencial,
+ *    `rateLimitBackoffBaseMs`) y se le da un presupuesto de reintentos
+ *    más generoso (`rateLimitMaxRetries`) que a una falla genérica,
+ *    porque esperar más tiempo no cuesta corrección, solo velocidad.
+ *    El 401 se agregó a este mismo tratamiento (no a los permanentes)
+ *    tras observar en producción un 401 puntual, a media paginación, con
+ *    credenciales confirmadas correctas (la página 1 de esa misma
+ *    consulta había pasado sin problema) — evidencia de que VTEX puede
+ *    devolver 401 como señal de throttling/rechazo intermitente de la
+ *    cuenta, no solo como "credenciales inválidas". Si el 401 persiste
+ *    después de agotar `rateLimitMaxRetries`, sí se trata como fallo real
+ *    (se lanza el error hacia arriba igual que un 429 agotado) — un 401
+ *    consistente en TODAS las páginas desde el principio sigue siendo la
+ *    señal real de credenciales rotas. Además, TODAS las peticiones a
+ *    VTEX (sin importar de qué tienda o segmento vengan) pasan por un
+ *    límite de concurrencia GLOBAL (`globalConcurrency`) — un límite que
+ *    se resetea "por tienda" no sirve si VTEX en realidad limita a nivel
+ *    de cuenta u organización.
  *
  * 3. PAGINACIÓN PROFUNDA: VTEX (como muchos backends construidos sobre
  *    Elasticsearch) tiende a volverse inestable o a fallar de forma
@@ -401,6 +433,19 @@ export class VtexOrdersService {
     };
   }
 
+  /**
+   * Normaliza un valor monetario crudo de VTEX (`totalValue`, `price`,
+   * `sellingPrice`, etc.) con el mismo divisor configurado
+   * (`VTEX_MONEY_DIVISOR`) que ya usa `mergeOrders` para `totalValue`.
+   * Único punto de verdad para esta conversión — cualquier otro archivo
+   * que necesite normalizar dinero de VTEX (ej.
+   * `OrderCityEnrichmentService` al guardar precios de producto) debe
+   * llamar esto en vez de leer `VTEX_MONEY_DIVISOR` por su cuenta.
+   */
+  normalizeMoney(rawValue: number | null | undefined): number {
+    return normalizeVtexMoneyValue(rawValue ?? 0, this.moneyDivisor);
+  }
+
   private mergeOrders(target: Map<string, VtexOrder>, incoming: VtexOrder[] | null | undefined) {
     for (const order of incoming ?? []) {
       if (order?.orderId) {
@@ -411,7 +456,7 @@ export class VtexOrdersService {
         // archivo. Ver common/utils/money-normalizer.util.ts.
         target.set(order.orderId, {
           ...order,
-          totalValue: normalizeVtexMoneyValue(order.totalValue, this.moneyDivisor),
+          totalValue: this.normalizeMoney(order.totalValue),
         });
       }
     }
@@ -489,6 +534,76 @@ export class VtexOrdersService {
     );
   }
 
+  private buildCategoryTreeUrl(store: StoreConfig): string {
+    return `https://${store.accountName}.${store.environment}.com.br/api/catalog_system/pub/category/tree/5`;
+  }
+
+  private buildCollectionProductsUrl(store: StoreConfig, collectionId: number, page: number, pageSize: number): string {
+    return `https://${store.accountName}.${store.environment}.com.br/api/catalog/pvt/collection/${collectionId}/products?page=${page}&pageSize=${pageSize}`;
+  }
+
+  /**
+   * Árbol completo de categorías de la cuenta (usado SOLO para traducir el
+   * histórico de Excel, que trae categorías como IDs puros — ver
+   * `cli/import-historical-orders.ts`; el detalle de orden de la API ya
+   * trae el nombre directamente, no necesita esto). Se aplana
+   * recursivamente: cada nodo del árbol (sin importar su profundidad)
+   * aparece una vez en el resultado.
+   */
+  async fetchCategoryTree(store: StoreConfig): Promise<{ id: number; name: string }[]> {
+    const url = this.buildCategoryTreeUrl(store);
+    const tree = await this.requestWithRetry<VtexCategoryTreeNode[]>(
+      store,
+      url,
+      undefined,
+      'el árbol de categorías',
+    );
+    const flattened: { id: number; name: string }[] = [];
+    const visit = (nodes: VtexCategoryTreeNode[] | null | undefined) => {
+      for (const node of nodes ?? []) {
+        if (typeof node.id === 'number' && node.name) {
+          flattened.push({ id: node.id, name: node.name });
+        }
+        visit(node.children);
+      }
+    };
+    visit(tree);
+    return flattened;
+  }
+
+  /**
+   * Recorre TODAS las páginas de una colección hasta agotarla — usado por
+   * `collection-sync.service.ts` para poblar `collection_reference`.
+   * Respuesta real de VTEX (confirmada contra la cuenta de Pilatos):
+   * `{ Data: [{ SkuId, ProductId, ... }], Page, Size, TotalPage,
+   * TotalRows }` — NO un array plano de IDs. Se para cuando `Page >=
+   * TotalPage` o cuando una página viene vacía.
+   */
+  async fetchCollectionProducts(store: StoreConfig, collectionId: number): Promise<string[]> {
+    this.assertCredentials(store);
+    const pageSize = 100;
+    const skuIds: string[] = [];
+    let page = 1;
+
+    for (;;) {
+      const url = this.buildCollectionProductsUrl(store, collectionId, page, pageSize);
+      const response = await this.requestWithRetry<VtexCollectionProductsResponse>(
+        store,
+        url,
+        undefined,
+        `la colección ${collectionId} (página ${page})`,
+      );
+      const items = response?.Data ?? [];
+      if (items.length === 0) break;
+      skuIds.push(...items.map((item) => String(item.SkuId)));
+      if (response.TotalPage !== undefined && page >= response.TotalPage) break;
+      if (response.TotalPage === undefined && items.length < pageSize) break;
+      page += 1;
+    }
+
+    return skuIds;
+  }
+
   private async waitWhileListingBusy(): Promise<void> {
     while (this.activeListingRequests > 0) {
       await this.sleep(150);
@@ -552,11 +667,21 @@ export class VtexOrdersService {
             throw this.toDescriptiveError(error, store.id, context);
           }
           // Backoff exponencial (2s, 4s, 8s, 16s...) o el valor de
-          // `Retry-After` si VTEX lo envía — un 429 significa "más lento",
+          // `Retry-After` si VTEX lo envía — un 429 (o un 401 tratado
+          // como tal, ver comentario de la clase) significa "más lento",
           // reintentar rápido casi siempre vuelve a fallar.
           const backoffMs = this.computeRateLimitBackoffMs(error, rateLimitAttempt);
+          const status = (error as AxiosError)?.response?.status;
+          // Se distingue en el log para que, si en el futuro alguien ve
+          // un 401 acá, entienda de inmediato que se está reintentando a
+          // propósito (por la evidencia de throttling intermitente) y no
+          // piense que es un bug — sin tener que rastrear este historial.
+          const label =
+            status === 401
+              ? '401 (tratado como rate-limit: VTEX lo devolvió de forma intermitente con credenciales válidas, no como rechazo real de autenticación)'
+              : 'Rate limit (429)';
           this.logger.warn(
-            `[${store.id}] Rate limit (429) en ${context} (intento ${rateLimitAttempt}/${this.rateLimitMaxRetries}), esperando ${backoffMs}ms antes de reintentar.`,
+            `[${store.id}] ${label} en ${context} (intento ${rateLimitAttempt}/${this.rateLimitMaxRetries}), esperando ${backoffMs}ms antes de reintentar.`,
           );
           await this.sleep(backoffMs);
           continue;
@@ -603,7 +728,8 @@ export class VtexOrdersService {
 
   private isRateLimitError(error: unknown): boolean {
     const axiosError = error as AxiosError;
-    return axiosError?.response?.status === RATE_LIMIT_STATUS;
+    const status = axiosError?.response?.status;
+    return status !== undefined && RATE_LIMIT_LIKE_STATUS_CODES.has(status);
   }
 
   private isRetryableError(error: unknown): boolean {

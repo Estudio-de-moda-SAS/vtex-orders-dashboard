@@ -58,6 +58,22 @@ export interface AppConfig {
     cityEnrichmentBatchSize: number;
     /** Pausa (ms) entre lotes y mientras se espera a que `isListingBusy()` sea `false`. Ver `cityEnrichmentBatchSize`. */
     cityEnrichmentBatchPauseMs: number;
+    /**
+     * Cuántas veces reintentar una ventana COMPLETA (no solo páginas
+     * fallidas) cuando el conteo de órdenes obtenido no coincide con el
+     * total que VTEX reportó al iniciar, para una ventana ya CERRADA
+     * (`closedWindowBufferMinutes` en el pasado — los datos ya no pueden
+     * seguir cambiando). Confirmado en producción: VTEX (Elasticsearch)
+     * puede ser inestable justo en el límite entre dos páginas incluso
+     * para una ventana histórica ya cerrada, devolviendo una orden de más
+     * o de menos según el intento — algo que un simple reintento de la
+     * página fallida no soluciona (ninguna página "falla" con error, el
+     * conteo total simplemente no cuadra), así que hace falta repetir la
+     * consulta completa.
+     */
+    closedWindowRetries: number;
+    /** Cuántos minutos deben haber pasado desde el fin de la ventana para considerarla "cerrada" (ver `closedWindowRetries`). */
+    closedWindowBufferMinutes: number;
   };
   sync: {
     /** Cada cuántas horas corre el cron de sincronización con VTEX. */
@@ -116,6 +132,8 @@ export default (): { app: AppConfig } => ({
       // "1 de 4 slots ocupado por mala suerte de timing", nunca más.
       cityEnrichmentBatchSize: parseInt(process.env.VTEX_CITY_ENRICHMENT_BATCH_SIZE ?? '1', 10),
       cityEnrichmentBatchPauseMs: parseInt(process.env.VTEX_CITY_ENRICHMENT_BATCH_PAUSE_MS ?? '150', 10),
+      closedWindowRetries: parseInt(process.env.VTEX_CLOSED_WINDOW_RETRIES ?? '2', 10),
+      closedWindowBufferMinutes: parseInt(process.env.VTEX_CLOSED_WINDOW_BUFFER_MINUTES ?? '15', 10),
     },
     sync: {
       cronIntervalHours: parseInt(process.env.SYNC_CRON_INTERVAL_HOURS ?? '4', 10),

@@ -146,7 +146,11 @@ export class VtexSyncCronService implements OnModuleInit {
     let recordsRead = 0;
 
     try {
-      const { aggregation, recordsRead: read } = await this.fetchAndAggregate(store, range, collectionsBySkuAndStore);
+      const { aggregation, recordsRead: read, isComplete, missingOrders } = await this.fetchAndAggregate(
+        store,
+        range,
+        collectionsBySkuAndStore,
+      );
       recordsRead = read;
 
       const touchedDays: TouchedDay[] = enumerateDayBuckets(range.startIso, range.endIso).map((date) => ({
@@ -156,13 +160,25 @@ export class VtexSyncCronService implements OnModuleInit {
 
       await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays);
 
-      await this.syncLogsRepository.finish(syncLogId, 'success', {
+      await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
         recordsInserted: aggregation.salesDaily.length,
         recordsUpdated: 0,
-        recordsFailed: 0,
+        recordsFailed: missingOrders,
       });
-      this.logger.log(`[${store.id}] Sincronización completa: ${recordsRead} órdenes, ${touchedDays.length} día(s) recalculado(s).`);
+      if (isComplete) {
+        this.logger.log(`[${store.id}] Sincronización completa: ${recordsRead} órdenes, ${touchedDays.length} día(s) recalculado(s).`);
+      } else {
+        // VTEX reportó más órdenes de las que efectivamente se lograron traer
+        // (ver `FetchStoreOrdersResult.isComplete` — típicamente inestabilidad
+        // de paginación en el offset de un límite entre páginas, no un error
+        // de red) — se guarda igual (es mejor dato parcial que ninguno), pero
+        // marcado como 'partial' para que quede visible en vez de asumirse
+        // silenciosamente completo.
+        this.logger.warn(
+          `[${store.id}] Sincronización PARCIAL: ${recordsRead} órdenes obtenidas, ~${missingOrders} posiblemente faltantes (${touchedDays.length} día(s) recalculado(s)).`,
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'error desconocido';
       await this.syncLogsRepository.finish(
@@ -195,11 +211,15 @@ export class VtexSyncCronService implements OnModuleInit {
     };
 
     const collectionsBySkuAndStore = await this.referenceRepository.getAllCollections();
-    const { aggregation, recordsRead } = await this.fetchAndAggregate(store, range, collectionsBySkuAndStore);
+    const { aggregation, recordsRead, isComplete, missingOrders } = await this.fetchAndAggregate(
+      store,
+      range,
+      collectionsBySkuAndStore,
+    );
 
     // Fire-and-forget: la respuesta al dashboard no espera a que esto
     // termine de guardarse en Supabase — solo a que VTEX responda.
-    void this.persistOnDemandResult(store.id, range, aggregation, recordsRead);
+    void this.persistOnDemandResult(store.id, range, aggregation, recordsRead, isComplete, missingOrders);
 
     return aggregation;
   }
@@ -209,6 +229,8 @@ export class VtexSyncCronService implements OnModuleInit {
     range: SyncRange,
     aggregation: DailyAggregationResult,
     recordsRead: number,
+    isComplete: boolean,
+    missingOrders: number,
   ): Promise<void> {
     const syncLogId = await this.syncLogsRepository.start(storeId, 'vtex_api');
     try {
@@ -217,13 +239,19 @@ export class VtexSyncCronService implements OnModuleInit {
         storeId,
       }));
       await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays);
-      await this.syncLogsRepository.finish(syncLogId, 'success', {
+      await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
         recordsInserted: aggregation.salesDaily.length,
         recordsUpdated: 0,
-        recordsFailed: 0,
+        recordsFailed: missingOrders,
       });
-      this.logger.log(`[${storeId}] Guardado en segundo plano completo (consulta on-demand): ${recordsRead} órdenes.`);
+      if (isComplete) {
+        this.logger.log(`[${storeId}] Guardado en segundo plano completo (consulta on-demand): ${recordsRead} órdenes.`);
+      } else {
+        this.logger.warn(
+          `[${storeId}] Guardado en segundo plano PARCIAL (consulta on-demand): ${recordsRead} órdenes, ~${missingOrders} posiblemente faltantes.`,
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'error desconocido';
       await this.syncLogsRepository.finish(
@@ -246,7 +274,7 @@ export class VtexSyncCronService implements OnModuleInit {
     store: StoreConfig,
     range: SyncRange,
     collectionsBySkuAndStore: Map<string, string>,
-  ): Promise<{ aggregation: DailyAggregationResult; recordsRead: number }> {
+  ): Promise<{ aggregation: DailyAggregationResult; recordsRead: number; isComplete: boolean; missingOrders: number }> {
     const { startIso, endIso } = range;
 
     // Cada fuente es una consulta de listado independiente: 'main' (sin
@@ -258,6 +286,20 @@ export class VtexSyncCronService implements OnModuleInit {
     const sourceResults = await Promise.all(
       sources.map((source) => this.vtexOrdersService.fetchAllOrders(store, startIso, endIso, source.extraParams)),
     );
+
+    // VTEX (backend basado en Elasticsearch) puede ser inestable justo en
+    // el límite entre dos páginas cuando varias órdenes comparten un
+    // `creationDate` muy cercano — se confirmó en producción un caso real
+    // donde el total reportado por VTEX (`paging.total`) no coincidía con
+    // la cantidad de órdenes únicas efectivamente recibidas, incluso para
+    // una ventana de fechas ya cerrada (no explicable por "llegaron
+    // órdenes nuevas mientras paginábamos"). Si CUALQUIER fuente quedó
+    // incompleta, toda la corrida se marca como tal (`isComplete: false`)
+    // en vez de asumir éxito silenciosamente — ver `runSyncForStore`/
+    // `persistOnDemandResult`, que la reflejan como `sync_logs.status =
+    // 'partial'`.
+    const isComplete = sourceResults.every((r) => r.isComplete);
+    const missingOrders = sourceResults.reduce((sum, r) => sum + r.missingOrders, 0);
 
     const combinedOrdersById = new Map<string, VtexOrder>();
     const sellerLabelByOrderId = new Map<string, string>();
@@ -314,7 +356,7 @@ export class VtexSyncCronService implements OnModuleInit {
     );
 
     const aggregation = aggregateDailyRows(enrichedOrders, Boolean(store.isMultiBrand));
-    return { aggregation, recordsRead };
+    return { aggregation, recordsRead, isComplete, missingOrders };
   }
 
   /**

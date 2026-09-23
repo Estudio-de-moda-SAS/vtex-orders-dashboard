@@ -151,6 +151,8 @@ export class VtexOrdersService {
   private readonly maxSplitDepth: number;
   private readonly rateLimitBackoffBaseMs: number;
   private readonly rateLimitMaxRetries: number;
+  private readonly closedWindowRetries: number;
+  private readonly closedWindowBufferMs: number;
 
   /**
    * Límite de concurrencia GLOBAL: como esta clase es un singleton (una
@@ -192,6 +194,9 @@ export class VtexOrdersService {
     this.minChunkMs = minChunkMinutes * 60 * 1000;
     this.rateLimitBackoffBaseMs = this.configService.get<number>('app.vtex.rateLimitBackoffBaseMs', 2000);
     this.rateLimitMaxRetries = this.configService.get<number>('app.vtex.rateLimitMaxRetries', 5);
+    this.closedWindowRetries = this.configService.get<number>('app.vtex.closedWindowRetries', 2);
+    const closedWindowBufferMinutes = this.configService.get<number>('app.vtex.closedWindowBufferMinutes', 15);
+    this.closedWindowBufferMs = closedWindowBufferMinutes * 60 * 1000;
 
     const globalConcurrency = this.configService.get<number>('app.vtex.globalConcurrency', 4);
     this.globalLimit = pLimit(globalConcurrency);
@@ -264,7 +269,7 @@ export class VtexOrdersService {
     // La ventana ya es lo bastante chica según nuestro umbral configurado
     // (o no se puede partir más): paginar normalmente, con reintentos por
     // página y rondas adicionales para fallas transitorias.
-    const result = await this.fetchSingleWindow(
+    let result = await this.fetchSingleWindow(
       store,
       startDateIso,
       endDateIso,
@@ -273,6 +278,42 @@ export class VtexOrdersService {
       totalPages,
       totalReportedByVtex,
     );
+
+    // Ninguna página falló, pero el conteo final no coincide con el total
+    // que VTEX reportó al iniciar (`missingOrders > 0`): para una ventana
+    // ya CERRADA (los datos no pueden seguir cambiando), esto es
+    // inestabilidad real de VTEX en el límite entre páginas, no "drift"
+    // esperado de una ventana en vivo — confirmado en producción con
+    // conteos distintos (de más y de menos) entre corridas consecutivas
+    // de la MISMA ventana histórica. Repetir la consulta completa (no solo
+    // la página fallida, porque ninguna falló) suele converger a un
+    // conteo consistente.
+    if (result.pagesFailed === 0 && result.missingOrders > 0 && this.isWindowClosed(endDateIso)) {
+      for (let attempt = 1; attempt <= this.closedWindowRetries && result.missingOrders > 0; attempt += 1) {
+        this.logger.warn(
+          `[${store.id}] Ventana cerrada ${startDateIso} → ${endDateIso}: ${result.missingOrders} orden(es) de diferencia con el total reportado por VTEX (ninguna página falló — probable inestabilidad de paginación en el límite entre páginas). Reintentando la ventana completa (intento ${attempt}/${this.closedWindowRetries}).`,
+        );
+        await this.sleep(500 * attempt);
+        const retryFirstPage = await this.fetchPage(store, startDateIso, endDateIso, 1, extraParams);
+        const retryResult = await this.fetchSingleWindow(
+          store,
+          startDateIso,
+          endDateIso,
+          extraParams,
+          retryFirstPage,
+          Math.max(retryFirstPage.paging.pages, 1),
+          retryFirstPage.paging.total,
+        );
+        if (retryResult.missingOrders < result.missingOrders) result = retryResult;
+      }
+      if (result.missingOrders === 0) {
+        this.logger.log(`[${store.id}] Ventana ${startDateIso} → ${endDateIso}: conteo consistente tras reintentar.`);
+      } else {
+        this.logger.warn(
+          `[${store.id}] Ventana ${startDateIso} → ${endDateIso}: persiste una diferencia de ${result.missingOrders} orden(es) tras ${this.closedWindowRetries} reintento(s) — se continúa con el mejor resultado obtenido.`,
+        );
+      }
+    }
 
     // Salvaguarda reactiva: si a pesar de que el offset parecía seguro
     // según `maxSafeOffset`, VTEX igual rechazó alguna página con un error
@@ -414,6 +455,11 @@ export class VtexOrdersService {
       missingOrders,
       hadPermanentFailure: permanentlyFailedPages.size > 0,
     };
+  }
+
+  /** `true` si el final de la ventana ya quedó suficientemente en el pasado (ver `closedWindowBufferMinutes`) — los datos de una ventana cerrada ya no pueden seguir cambiando, así que reintentar toda la consulta tiene sentido ante un conteo inconsistente. */
+  private isWindowClosed(endDateIso: string): boolean {
+    return new Date(endDateIso).getTime() < Date.now() - this.closedWindowBufferMs;
   }
 
   /** Combina los resultados de dos sub-ventanas de fecha (no solapadas), deduplicando por `orderId`. */

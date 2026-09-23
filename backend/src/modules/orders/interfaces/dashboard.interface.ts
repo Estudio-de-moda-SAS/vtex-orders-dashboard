@@ -65,6 +65,19 @@ export interface StoreDashboardData {
   cityBreakdown: Record<string, CityBreakdown>;
   /** Igual que `cityBreakdown`, pero solo con órdenes "contabilizadas" — ver `CityRevenueBreakdown`. */
   cityRevenueBreakdown: Record<string, CityRevenueBreakdown>;
+  /**
+   * "Compras reales": VTEX parte una misma compra en varias órdenes
+   * cuando sus productos se despachan por separado (mismo número base de
+   * orden, sufijo final `-01`/`-02`... distinto — confirmado con datos
+   * reales). Este número agrupa esos fragmentos en UNA sola compra, así
+   * que es menor o igual a `totalOrders` — útil para ver el tamaño real
+   * de la canasta (¿compran más de un producto por compra?). NO
+   * reemplaza `totalOrders`/`revenueOrders` en ningún otro cálculo del
+   * dashboard, es un número aparte solo para esta card.
+   */
+  realOrders: number;
+  /** Igual que `realOrders`, pero solo las compras donde ALGÚN fragmento calificó como venta contabilizada. */
+  realRevenueOrders: number;
   responseTimeMs: number;
   isConsistent: boolean;
   /**
@@ -79,6 +92,17 @@ export interface StoreDashboardData {
   lastSyncedAt: string | null;
   /** Status de la corrida más RECIENTE del cron para esta tienda (exitosa o no), o `null` si nunca corrió. */
   lastSyncStatus: 'success' | 'error' | 'partial' | null;
+  /**
+   * Días (YYYY-MM-DD) DENTRO del rango consultado (`filters.startDate`–
+   * `filters.endDate`) cuya última sincronización no logró obtener el
+   * conteo completo que VTEX reportó — a diferencia de `lastSyncStatus`
+   * (que es sobre la corrida más reciente de TODA la tienda, sin importar
+   * si tocó estas fechas), esto está ligado exactamente al rango que se
+   * está mostrando. Vacío = sin duda conocida para estas fechas
+   * específicas (puede seguir habiendo un desfase si nunca se detectó,
+   * pero no hay evidencia positiva de uno).
+   */
+  incompleteDays: string[];
 }
 
 /** Forma reducida de `StoreDashboardData` usada por los segmentos (sellers/marketplaces) — es todo lo que `SegmentComparisonTable` necesita. */
@@ -145,4 +169,6 @@ export interface DashboardResponse {
    */
   segments: SegmentDashboardResult[];
   generatedAt: string;
+  /** Cada cuántas horas corre el cron de sincronización — el frontend lo usa para estimar la próxima sincronización a partir de `lastSyncedAt` de cada tienda. */
+  cronIntervalHours: number;
 }

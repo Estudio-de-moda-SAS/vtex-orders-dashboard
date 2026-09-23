@@ -94,6 +94,11 @@ export class VtexSyncCronService implements OnModuleInit {
     this.logger.log(`Cron de sincronización VTEX programado cada ${hours}h (+ corrida inicial al boot).`);
   }
 
+  /** Cada cuántas horas corre el cron — expuesto para que el dashboard pueda mostrar una estimación de la próxima sincronización junto a `lastSyncedAt`. */
+  getCronIntervalHours(): number {
+    return this.configService.get<number>('app.sync.cronIntervalHours', 4);
+  }
+
   async runSyncAllStores(): Promise<void> {
     const todayDay = todayColombia();
     const startDay = subtractDaysUtc(todayDay, this.recalcWindowDays);
@@ -158,7 +163,7 @@ export class VtexSyncCronService implements OnModuleInit {
         storeId: store.id,
       }));
 
-      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays);
+      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete);
 
       await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
@@ -238,7 +243,7 @@ export class VtexSyncCronService implements OnModuleInit {
         date,
         storeId,
       }));
-      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays);
+      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete);
       await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
         recordsInserted: aggregation.salesDaily.length,

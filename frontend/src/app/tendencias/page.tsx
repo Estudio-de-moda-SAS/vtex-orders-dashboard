@@ -45,13 +45,16 @@ interface StoredFilters {
 /**
  * El navbar enlaza a `/tendencias` sin query params (a diferencia de un
  * link compartido, que sí los trae) — sin esto, volver por el navbar
- * después de visitar otra ruta reiniciaba el filtro cada vez. `localStorage`
- * puede fallar (modo privado, storage bloqueado) — nunca debe romper la
- * página por eso, de ahí el try/catch.
+ * después de visitar otra ruta reiniciaba el filtro cada vez dentro de la
+ * misma sesión. `sessionStorage` (no `localStorage` a propósito): se borra
+ * solo al cerrar la pestaña/navegador, así que una sesión nueva siempre
+ * arranca con el filtro por defecto en vez de arrastrar la última
+ * búsqueda para siempre. Puede fallar (modo privado, storage bloqueado) —
+ * nunca debe romper la página por eso, de ahí el try/catch.
  */
 function readStoredFilters(): StoredFilters | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as StoredFilters;
   } catch {
@@ -61,7 +64,7 @@ function readStoredFilters(): StoredFilters | null {
 
 function writeStoredFilters(filters: StoredFilters): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
   } catch {
     // Ignorado a propósito — perder la preferencia guardada no debe romper nada.
   }

@@ -9,12 +9,14 @@ interface StoreCardProps {
   categoryRanking?: CategoryRanking[];
   /** Marca top por categoría — solo definido/aplicable para tiendas multimarca. */
   brandRanking?: CategoryBrandRankingResult;
+  /** Cada cuántas horas corre el cron — se usa para estimar la próxima sincronización. */
+  cronIntervalHours: number;
 }
 
 const TOP_CITIES_LIMIT = 10;
 const TOP_BRANDS_LIMIT = 5;
 
-export function StoreCard({ store, categoryRanking, brandRanking }: StoreCardProps) {
+export function StoreCard({ store, categoryRanking, brandRanking, cronIntervalHours }: StoreCardProps) {
   return (
     <div
       className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel"
@@ -43,9 +45,13 @@ export function StoreCard({ store, categoryRanking, brandRanking }: StoreCardPro
               <Metric label="Total órdenes" value={formatNumber(store.data.totalOrders)} />
               <Metric label="Contabilizadas" value={formatNumber(store.data.revenueOrders)} />
               <Metric
+                label="Compras reales"
+                value={formatNumber(store.data.realRevenueOrders)}
+                hint="Agrupa los -01/-02 de una misma compra partida por VTEX en un solo envío"
+              />
+              <Metric
                 label="Valor contabilizado"
                 value={formatCOP(store.data.revenueTotalValue)}
-                span
               />
             </div>
 
@@ -82,7 +88,7 @@ export function StoreCard({ store, categoryRanking, brandRanking }: StoreCardPro
               </Section>
             )}
 
-            <DataConsistencyIndicator data={store.data} />
+            <DataConsistencyIndicator data={store.data} cronIntervalHours={cronIntervalHours} />
           </>
         )
       )}
@@ -90,9 +96,9 @@ export function StoreCard({ store, categoryRanking, brandRanking }: StoreCardPro
   );
 }
 
-function Metric({ label, value, span }: { label: string; value: string; span?: boolean }) {
+function Metric({ label, value, span, hint }: { label: string; value: string; span?: boolean; hint?: string }) {
   return (
-    <div className={span ? 'col-span-2' : undefined}>
+    <div className={span ? 'col-span-2' : undefined} title={hint}>
       <p className="text-xs text-ink-faint">{label}</p>
       <p className="mt-0.5 font-display text-lg font-semibold tabular-nums text-ink">{value}</p>
     </div>
@@ -148,7 +154,9 @@ function TopCategory({ categoryRanking }: { categoryRanking?: CategoryRanking[] 
     <div>
       <p className="text-xs text-ink-faint">Categoría top</p>
       <p className="mt-0.5 font-display text-lg font-semibold text-ink">{top.category}</p>
-      <p className="text-xs text-ink-faint">{formatCOP(top.value)}</p>
+      <p className="text-xs text-ink-faint">
+        {formatCOP(top.value)} · {formatPercentage(top.percentage)} de la tienda
+      </p>
     </div>
   );
 }

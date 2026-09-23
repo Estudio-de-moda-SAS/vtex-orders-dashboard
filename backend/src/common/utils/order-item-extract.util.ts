@@ -50,9 +50,22 @@ export interface ExtractedOrderDetail {
 export function extractOrderDetail(detail: VtexOrderDetailResponse): ExtractedOrderDetail {
   const city = normalizeCityName(detail.shippingData?.address?.city) ?? UNKNOWN_CITY;
   const items = mergeDuplicateItems((detail.items ?? []).map(toExtractedItem));
-  const discountCampaignNames = (detail.ratesAndBenefitsData?.rateAndBenefitsIdentifiers ?? [])
-    .map((identifier) => identifier.name?.trim())
-    .filter((name): name is string => Boolean(name));
+  // `Array.from(new Set(...))`: VTEX puede listar el mismo identificador
+  // más de una vez si aplicó a varios ítems de la orden por separado (no
+  // confirmado en la muestra real revisada, pero `daily-aggregator.ts`
+  // itera este arreglo UNA vez por nombre para sumar `orders`/`sales` de
+  // esa campaña — un nombre repetido contaría la misma orden dos veces
+  // dentro de SU PROPIA fila, no solo entre campañas distintas). Este
+  // arreglo es "a nivel de orden completa" por diseño (ver doc de
+  // `ExtractedOrderDetail.discountCampaignNames`), así que debe ser un
+  // conjunto de nombres únicos, nunca una lista con repetidos.
+  const discountCampaignNames = Array.from(
+    new Set(
+      (detail.ratesAndBenefitsData?.rateAndBenefitsIdentifiers ?? [])
+        .map((identifier) => identifier.name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  );
 
   return { city, items, discountCampaignNames };
 }

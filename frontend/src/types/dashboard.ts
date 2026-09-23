@@ -62,6 +62,17 @@ export interface StoreDashboardData {
   cityBreakdown: Record<string, CityBreakdown>;
   /** Igual que `cityBreakdown`, pero solo con órdenes "contabilizadas" — ver `CityRevenueBreakdown`. */
   cityRevenueBreakdown: Record<string, CityRevenueBreakdown>;
+  /**
+   * "Compras reales": VTEX parte una misma compra en varias órdenes
+   * cuando sus productos se despachan por separado (mismo número base de
+   * orden, sufijo final `-01`/`-02`... distinto). Este número agrupa esos
+   * fragmentos en UNA sola compra — útil para ver el tamaño real de la
+   * canasta. No reemplaza `totalOrders`/`revenueOrders` en ningún otro
+   * cálculo, es solo para esta card.
+   */
+  realOrders: number;
+  /** Igual que `realOrders`, pero solo las compras donde algún fragmento calificó como venta contabilizada. */
+  realRevenueOrders: number;
   responseTimeMs: number;
   isConsistent: boolean;
   /**
@@ -76,6 +87,15 @@ export interface StoreDashboardData {
   lastSyncedAt: string | null;
   /** Status de la corrida más reciente del cron (exitosa o no), o `null` si nunca corrió. */
   lastSyncStatus: 'success' | 'error' | 'partial' | null;
+  /**
+   * Días (YYYY-MM-DD) DENTRO del rango consultado cuya última
+   * sincronización no logró el conteo completo que VTEX reportó — a
+   * diferencia de `lastSyncStatus` (sobre la corrida más reciente de toda
+   * la tienda, sin relación con estas fechas), esto está ligado
+   * exactamente al rango que se está mostrando. Vacío = sin duda conocida
+   * para este rango específico.
+   */
+  incompleteDays: string[];
 }
 
 /** Forma reducida de `StoreDashboardData` para segmentos (sellers/marketplaces) — todo lo que `SegmentComparisonTable` necesita. */
@@ -126,6 +146,8 @@ export interface DashboardResponse {
   stores: StoreDashboardResult[];
   segments: SegmentDashboardResult[];
   generatedAt: string;
+  /** Cada cuántas horas corre el cron de sincronización — usado para estimar la próxima sincronización a partir de `lastSyncedAt` de cada tienda. */
+  cronIntervalHours: number;
 }
 
 export type DashboardRequestState =

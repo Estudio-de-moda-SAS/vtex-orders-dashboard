@@ -135,3 +135,18 @@ export interface StoreHighlight {
 
 /** Respuesta de GET /api/analytics/store-highlights. */
 export type StoreHighlightsByStore = Record<string, StoreHighlight>;
+
+/**
+ * Total REAL (sin doble conteo) de un conjunto de campañas de descuento
+ * seleccionadas, para UNA tienda. "Ventas" = solo estados contabilizados
+ * (revenueOrders/revenueSales), mismo criterio que el resto del dashboard.
+ */
+export interface CampaignComboTotal {
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+
+/** Respuesta de GET /api/analytics/campaign-combo-total, indexado por storeId. */
+export type CampaignComboTotalsByStore = Record<string, CampaignComboTotal>;

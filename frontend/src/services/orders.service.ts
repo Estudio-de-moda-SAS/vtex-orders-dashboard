@@ -6,6 +6,8 @@ import {
   DiscountAnalyticsResponse,
   StoreHighlightsByStore,
 } from '@/types/product-analytics';
+import { PilatosMixResponse } from '@/types/pilatos-mix';
+import { TrendsResponse } from '@/types/trends';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
@@ -101,5 +103,20 @@ export const ordersService = {
   getStoreHighlights(startDate: string, endDate: string): Promise<StoreHighlightsByStore> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<StoreHighlightsByStore>(`/api/analytics/store-highlights?${params.toString()}`);
+  },
+
+  /** Comparativo año contra año (módulo `/tendencias`) — `startMonth`/`endMonth`/`storeId` opcionales (`startMonth === endMonth` aísla un solo mes). */
+  getTrends(year: number, startMonth?: number, endMonth?: number, storeId?: string): Promise<TrendsResponse> {
+    const params = new URLSearchParams({ year: String(year) });
+    if (startMonth) params.set('startMonth', String(startMonth));
+    if (endMonth) params.set('endMonth', String(endMonth));
+    if (storeId) params.set('storeId', storeId);
+    return request<TrendsResponse>(`/api/analytics/trends?${params.toString()}`);
+  },
+
+  /** Mezcla de venta directa vs. sellers/marketplaces en el tiempo (módulo `/pilatos`) — exclusivo Pilatos. */
+  getPilatosMix(startDate: string, endDate: string): Promise<PilatosMixResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<PilatosMixResponse>(`/api/analytics/pilatos-mix?${params.toString()}`);
   },
 };

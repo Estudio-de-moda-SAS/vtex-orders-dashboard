@@ -65,3 +65,45 @@ test('una orden cancelada suma a orders/sales pero NO a revenue_orders/revenue_s
   assert.equal(city?.revenueOrders, 0, 'canceled NO debe contar en revenue_orders');
   assert.equal(city?.revenueSales, 0, 'canceled NO debe contar en revenue_sales');
 });
+
+test('"compras reales": dos fragmentos con el mismo número base (-01/-02) cuentan como UNA sola compra', () => {
+  const fragment1 = baseOrder({ orderId: '1663751104761-01', status: 'invoiced' });
+  const fragment2 = baseOrder({ orderId: '1663751104761-02', status: 'invoiced' });
+  const result = aggregateDailyRows([fragment1, fragment2], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.orders, 2, 'orders SIN deduplicar debe seguir contando los 2 fragmentos');
+  assert.equal(daily?.realOrders, 1, 'compras reales debe agrupar los fragmentos en 1 sola compra');
+  assert.equal(daily?.realRevenueOrders, 1);
+});
+
+test('"compras reales": si UN fragmento está contabilizado y el otro no, la compra agrupada SÍ cuenta como venta', () => {
+  const fragment1 = baseOrder({ orderId: '1663751104761-01', status: 'invoiced' });
+  const fragment2 = baseOrder({ orderId: '1663751104761-02', status: 'canceled' });
+  const result = aggregateDailyRows([fragment1, fragment2], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.realOrders, 1);
+  assert.equal(daily?.realRevenueOrders, 1, 'basta con que un fragmento esté contabilizado para contar la compra completa');
+});
+
+test('"compras reales": una orden con prefijo (ej. "DDD-123-01") se agrupa por su número base completo, no solo el sufijo', () => {
+  const fragment1 = baseOrder({ orderId: 'DDD-1661985538153-01', status: 'invoiced' });
+  const fragment2 = baseOrder({ orderId: 'DDD-1661985538153-02', status: 'invoiced' });
+  const otroPrefijo = baseOrder({ orderId: 'XYZ-1661985538153-01', status: 'invoiced' });
+  const result = aggregateDailyRows([fragment1, fragment2, otroPrefijo], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.orders, 3);
+  assert.equal(daily?.realOrders, 2, 'DDD-...-01/02 se agrupan entre sí; XYZ-...-01 es una compra distinta');
+});
+
+test('"compras reales": órdenes sin ningún fragmento hermano no se agrupan con nada (realOrders === orders)', () => {
+  const orderA = baseOrder({ orderId: 'ORD-A-01', status: 'invoiced' });
+  const orderB = baseOrder({ orderId: 'ORD-B-01', status: 'invoiced' });
+  const result = aggregateDailyRows([orderA, orderB], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.orders, 2);
+  assert.equal(daily?.realOrders, 2, 'sin número base compartido, cada orden sigue siendo su propia compra');
+});

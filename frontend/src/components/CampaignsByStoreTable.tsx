@@ -1,6 +1,6 @@
 import { StoreDashboardResult } from '@/types/dashboard';
-import { StoreHighlightsByStore } from '@/types/product-analytics';
-import { formatCOP, formatNumber } from '@/lib/format';
+import { CampaignComboTotalsByStore, StoreHighlightsByStore } from '@/types/product-analytics';
+import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 
 const NO_CAMPAIGN_LABEL = 'Sin campaña';
 
@@ -9,6 +9,9 @@ interface CampaignsByStoreTableProps {
   highlights: StoreHighlightsByStore;
   /** Si se pasa con al menos una campaña, cada tienda muestra SOLO esas campañas en vez de la lista completa. */
   selectedCampaigns?: string[];
+  /** Total EXACTO (sin doble conteo) de `selectedCampaigns`, por tienda — ver `CampaignsSection`. `null` mientras no hay filtro o todavía no llegó la respuesta. */
+  comboTotals?: CampaignComboTotalsByStore | null;
+  comboTotalsLoading?: boolean;
 }
 
 /**
@@ -21,19 +24,30 @@ interface CampaignsByStoreTableProps {
  * "Descuento más aplicado por tienda"), no como tabla de una sola fila
  * por tienda.
  *
- * IMPORTANTE — por qué NO se muestra "suma de todas las filas de
- * campaña" como número de referencia: una orden puede calificar para
- * VARIOS beneficios a la vez (confirmado con datos reales: una orden de
- * Pilatos tenía "SALE 60%" + "Envío gratis área metropolitana" + "Cobro
- * máximo de flete", los tres simultáneos) — cada uno se cuenta en su
- * propia fila, así que esa ÚNICA orden aporta a 3 filas distintas.
+ * IMPORTANTE — por qué la vista SIN filtro no muestra "suma de todas las
+ * filas de campaña" como número de referencia: una orden puede calificar
+ * para VARIOS beneficios a la vez (confirmado con datos reales: una orden
+ * de Pilatos tenía "SALE 60%" + "Envío gratis área metropolitana" +
+ * "Cobro máximo de flete", los tres simultáneos) — cada uno se cuenta en
+ * su propia fila, así que esa ÚNICA orden aporta a 3 filas distintas.
  * Sumar las filas de la lista NUNCA va a cuadrar con el total (ni en
  * órdenes ni en valor), así que en vez de eso se muestra un desglose que
  * SÍ reconcilia exacto: "con alguna campaña" + "Sin campaña" = total de
- * la tienda, sin doble conteo (cada orden solo se cuenta una vez en esa
- * partición, sin importar cuántas campañas tenga).
+ * la tienda, sin doble conteo.
+ *
+ * Con filtro SÍ se puede dar un total exacto de las campañas elegidas,
+ * aunque haya traslape entre ellas: `comboTotals` (pedido por
+ * `CampaignsSection` a `GET /api/analytics/campaign-combo-total`) agrupa
+ * las órdenes por su combinación EXACTA de campañas, así que cada orden
+ * solo se cuenta una vez sin importar cuántas de las seleccionadas tenga.
  */
-export function CampaignsByStoreTable({ stores, highlights, selectedCampaigns = [] }: CampaignsByStoreTableProps) {
+export function CampaignsByStoreTable({
+  stores,
+  highlights,
+  selectedCampaigns = [],
+  comboTotals,
+  comboTotalsLoading,
+}: CampaignsByStoreTableProps) {
   const isFiltered = selectedCampaigns.length > 0;
 
   return (
@@ -55,6 +69,10 @@ export function CampaignsByStoreTable({ stores, highlights, selectedCampaigns = 
           const sinCampañaOrders = highlight?.campaigns.find((c) => c.campaignName === NO_CAMPAIGN_LABEL)?.orders ?? 0;
           const withCampaignOrders = highlight ? highlight.totals.orders - sinCampañaOrders : 0;
 
+          const combo = comboTotals?.[store.id];
+          const comboParticipation =
+            combo && highlight && highlight.totals.sales > 0 ? (combo.revenueSales / highlight.totals.sales) * 100 : 0;
+
           return (
             <div key={store.id} className="rounded-xl border border-surface-border bg-surface p-3.5">
               <p className="mb-1 flex items-center gap-2 text-sm font-medium text-ink">
@@ -69,6 +87,26 @@ export function CampaignsByStoreTable({ stores, highlights, selectedCampaigns = 
                   <br />
                   Con alguna campaña: {formatNumber(withCampaignOrders)} ord. · Sin campaña:{' '}
                   {formatNumber(sinCampañaOrders)} ord.
+                </p>
+              )}
+
+              {store.success && highlight && isFiltered && campaigns.length > 0 && (
+                <p className="mb-2 rounded-lg bg-accent/5 px-2.5 py-2 text-xs tabular-nums text-ink">
+                  {comboTotalsLoading ? (
+                    <span className="text-ink-faint">Calculando total exacto…</span>
+                  ) : !combo ? (
+                    <span className="text-danger">
+                      No se pudo calcular el total exacto (verifica que el backend esté corriendo).
+                    </span>
+                  ) : (
+                    <>
+                      Total real {selectedCampaigns.length === 1 ? 'de esta campaña' : 'de las campañas filtradas'}{' '}
+                      (sin doble conteo): <span className="font-semibold">{formatCOP(combo.revenueSales)}</span> ·{' '}
+                      {formatNumber(combo.revenueOrders)} ord. ·{' '}
+                      <span className="font-semibold">{formatPercentage(comboParticipation)}</span> del total de la
+                      tienda ({formatCOP(highlight.totals.sales)})
+                    </>
+                  )}
                 </p>
               )}
 

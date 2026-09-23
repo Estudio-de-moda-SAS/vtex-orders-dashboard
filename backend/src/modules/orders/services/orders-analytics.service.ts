@@ -18,6 +18,9 @@ export interface StoreTotalsRow {
   units: number;
   sales: number;
   discounts: number;
+  /** "Compras reales" (deduplicadas por número base de orden) — ver `daily-aggregator.ts`. Solo para la card. */
+  realOrders: number;
+  realRevenueOrders: number;
 }
 export interface ByStatusRow {
   status: string;
@@ -43,6 +46,8 @@ export interface StoreDataMeta {
   responseTimeMs: number;
   lastSyncedAt: string | null;
   lastSyncStatus: 'success' | 'error' | 'partial' | null;
+  /** Días (YYYY-MM-DD) DENTRO del rango consultado cuya última sincronización quedó `is_complete = false` — ver `DashboardQueryRepository.findIncompleteDays`. */
+  incompleteDays: string[];
 }
 
 /**
@@ -124,11 +129,14 @@ export class OrdersAnalyticsService {
       paymentMethods,
       cityBreakdown,
       cityRevenueBreakdown,
+      realOrders: totals.realOrders,
+      realRevenueOrders: totals.realRevenueOrders,
       responseTimeMs: meta.responseTimeMs,
       isConsistent,
       isComplete: meta.lastSyncStatus === 'success',
       lastSyncedAt: meta.lastSyncedAt,
       lastSyncStatus: meta.lastSyncStatus,
+      incompleteDays: meta.incompleteDays,
     };
   }
 

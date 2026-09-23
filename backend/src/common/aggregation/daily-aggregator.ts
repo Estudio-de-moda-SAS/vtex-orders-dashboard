@@ -5,6 +5,7 @@ import {
   EnrichedOrder,
   SalesDailyByBrandDiscountBucketRow,
   SalesDailyByBrandRow,
+  SalesDailyByCampaignComboRow,
   SalesDailyByCategoryBrandRow,
   SalesDailyByCategoryRow,
   SalesDailyByCityRow,
@@ -42,6 +43,7 @@ const NO_CAMPAIGN_LABEL = 'Sin campaña';
  */
 export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolean): DailyAggregationResult {
   const revenueDefinitions = getRevenueStatusDefinitions();
+  const realOrdersByDay = countRealOrdersByDay(orders, revenueDefinitions);
 
   const salesDaily = new Map<string, SalesDailyRow>();
   const byStatus = new Map<string, SalesDailyByStatusRow>();
@@ -53,6 +55,7 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
   const byCollectionCategory = new Map<string, SalesDailyByCollectionCategoryRow>();
   const byCollection = new Map<string, SalesDailyByCollectionRow>();
   const byDiscountCampaign = new Map<string, SalesDailyByDiscountCampaignRow>();
+  const byCampaignCombo = new Map<string, SalesDailyByCampaignComboRow>();
   const byDiscountBucket = new Map<string, SalesDailyByDiscountBucketRow>();
   const byBrandDiscountBucket = new Map<string, SalesDailyByBrandDiscountBucketRow>();
   const bySeller = new Map<string, SalesDailyBySellerRow>();
@@ -69,7 +72,9 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
 
     // sales_daily (base, sin revenue_*)
     const dailyKey = `${date}::${storeId}`;
-    const daily = salesDaily.get(dailyKey) ?? { date, storeId, orders: 0, units: 0, sales: 0, discounts: 0 };
+    const daily =
+      salesDaily.get(dailyKey) ??
+      { date, storeId, orders: 0, units: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 };
     daily.orders += 1;
     daily.units += units;
     daily.sales += order.totalValue;
@@ -147,6 +152,28 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       }
       byDiscountCampaign.set(key, row);
     }
+
+    // sales_daily_by_campaign_combo: a diferencia de arriba (una fila por
+    // CADA campaña individual, con el traslape ya documentado), acá cada
+    // orden aporta a UNA sola fila — la de su combinación EXACTA de
+    // campañas (ordenadas para que el mismo conjunto siempre produzca la
+    // misma clave, sin importar el orden en que VTEX las haya listado).
+    // Esto permite calcular el total REAL de un conjunto de campañas
+    // elegidas (`campaign_names && seleccionadas` en SQL) sin doble
+    // conteo, algo que sumar `byDiscountCampaign` no puede garantizar.
+    const comboNames = [...order.discountCampaignNames].sort((a, b) => a.localeCompare(b, 'es'));
+    const comboKey = comboNames.length === 0 ? NO_CAMPAIGN_LABEL : comboNames.join('||');
+    const comboMapKey = `${date}::${storeId}::${comboKey}`;
+    const comboRow =
+      byCampaignCombo.get(comboMapKey) ??
+      { date, storeId, comboKey, campaignNames: comboNames, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+    comboRow.orders += 1;
+    comboRow.sales += order.totalValue;
+    if (isRevenue) {
+      comboRow.revenueOrders += 1;
+      comboRow.revenueSales += order.totalValue;
+    }
+    byCampaignCombo.set(comboMapKey, comboRow);
 
     // sales_daily_by_seller / sales_daily_by_marketplace (a nivel de ORDEN completa)
     if (order.sellerLabel) {
@@ -257,6 +284,12 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     }
   }
 
+  for (const daily of salesDaily.values()) {
+    const counts = realOrdersByDay.get(`${daily.date}::${daily.storeId}`);
+    daily.realOrders = counts?.orders ?? 0;
+    daily.realRevenueOrders = counts?.revenueOrders ?? 0;
+  }
+
   return {
     salesDaily: Array.from(salesDaily.values()),
     byStatus: Array.from(byStatus.values()),
@@ -268,11 +301,74 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     byCollectionCategory: Array.from(byCollectionCategory.values()),
     byCollection: Array.from(byCollection.values()),
     byDiscountCampaign: Array.from(byDiscountCampaign.values()),
+    byCampaignCombo: Array.from(byCampaignCombo.values()),
     byDiscountBucket: Array.from(byDiscountBucket.values()),
     byBrandDiscountBucket: Array.from(byBrandDiscountBucket.values()),
     bySeller: Array.from(bySeller.values()),
     byMarketplace: Array.from(byMarketplace.values()),
   };
+}
+
+/**
+ * VTEX parte una misma compra en varias órdenes cuando sus productos se
+ * despachan por separado (ej. bodegas o sellers distintos) — comparten el
+ * mismo número base y solo difieren en el sufijo final (`-01`, `-02`...).
+ * El pago se hace una sola vez por la compra COMPLETA al inicio; el
+ * desglose en fragmentos ocurre después, por logística — así que si
+ * CUALQUIER fragmento cae en un estado "contabilizado", la compra
+ * completa se cuenta como una venta real. Quita solo el ÚLTIMO sufijo
+ * numérico (con o sin guion de por medio en el resto del id, ej.
+ * "DDD-1661985538153-01" → "DDD-1661985538153") — un id sin ese sufijo
+ * queda como su propia clave (no se agrupa con nada).
+ */
+function extractOrderBaseId(orderId: string): string {
+  const match = orderId.match(/^(.+)-\d+$/);
+  return match ? match[1] : orderId;
+}
+
+/**
+ * "Compras reales" — ver `extractOrderBaseId`. Agrupa las órdenes del
+ * lote por (tienda, número base), asigna cada grupo al día CALENDARIO
+ * MÁS TEMPRANO entre sus fragmentos (el momento en que se hizo la
+ * compra), y cuenta cuántos grupos distintos hay por día — tanto en
+ * total como los que calificaron como venta contabilizada (basta con que
+ * UN fragmento del grupo haya contado). Deliberadamente NO reemplaza
+ * `orders`/`revenueOrders` en ninguna otra tabla — es un número aparte,
+ * solo para la card de cada tienda (ver `StoreDashboardData.realOrders`).
+ */
+function countRealOrdersByDay(
+  orders: EnrichedOrder[],
+  revenueDefinitions: ReturnType<typeof getRevenueStatusDefinitions>,
+): Map<string, { orders: number; revenueOrders: number }> {
+  interface PurchaseGroup {
+    dayBucket: string;
+    storeId: string;
+    isRevenue: boolean;
+  }
+  const groups = new Map<string, PurchaseGroup>();
+
+  for (const order of orders) {
+    const baseId = extractOrderBaseId(order.orderId);
+    const key = `${order.storeId}::${baseId}`;
+    const isRevenue = matchRevenueStatusDefinition(order, revenueDefinitions) !== undefined;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { dayBucket: order.dayBucket, storeId: order.storeId, isRevenue });
+    } else {
+      if (order.dayBucket < existing.dayBucket) existing.dayBucket = order.dayBucket;
+      if (isRevenue) existing.isRevenue = true;
+    }
+  }
+
+  const byDay = new Map<string, { orders: number; revenueOrders: number }>();
+  for (const group of groups.values()) {
+    const dayKey = `${group.dayBucket}::${group.storeId}`;
+    const acc = byDay.get(dayKey) ?? { orders: 0, revenueOrders: 0 };
+    acc.orders += 1;
+    if (group.isRevenue) acc.revenueOrders += 1;
+    byDay.set(dayKey, acc);
+  }
+  return byDay;
 }
 
 /**

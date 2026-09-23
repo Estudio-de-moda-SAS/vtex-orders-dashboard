@@ -1,5 +1,6 @@
 import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
 
+import { CampaignComboQueryDto } from '../dto/campaign-combo-query.dto';
 import { ProductAnalyticsQueryDto } from '../dto/product-analytics-query.dto';
 import { ProductAnalyticsService } from '../services/product-analytics.service';
 
@@ -87,5 +88,23 @@ export class ProductAnalyticsController {
   ) {
     ProductAnalyticsQueryDto.assertRange(query.startDate, query.endDate);
     return this.productAnalyticsService.getStoreHighlightsBulk(query.startDate, query.endDate);
+  }
+
+  /**
+   * GET /api/analytics/campaign-combo-total?startDate=...&endDate=...&campaigns=["A","B"]
+   *
+   * Total REAL (órdenes/venta contabilizada) de las campañas pedidas, por
+   * tienda — SIN doble conteo cuando una orden calificó para varias de
+   * ellas a la vez. `campaigns` es un arreglo JSON codificado en un solo
+   * parámetro (ver `CampaignComboQueryDto` para por qué no es una lista
+   * separada por comas ni un parámetro repetido).
+   */
+  @Get('campaign-combo-total')
+  getCampaignComboTotal(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: CampaignComboQueryDto,
+  ) {
+    CampaignComboQueryDto.assertRange(query.startDate, query.endDate);
+    return this.productAnalyticsService.getCampaignComboTotal(query.startDate, query.endDate, query.parseCampaigns());
   }
 }

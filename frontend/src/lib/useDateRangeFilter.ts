@@ -11,12 +11,12 @@ interface StoredDateRange {
 }
 
 /**
- * `localStorage` puede fallar (modo privado, storage bloqueado) — nunca
+ * `sessionStorage` puede fallar (modo privado, storage bloqueado) — nunca
  * debe romper la página por eso, de ahí el try/catch en ambas funciones.
  */
 function readStored(key: string): StoredDateRange | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw) as StoredDateRange;
   } catch {
@@ -26,7 +26,7 @@ function readStored(key: string): StoredDateRange | null {
 
 function writeStored(key: string, value: StoredDateRange): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    sessionStorage.setItem(key, JSON.stringify(value));
   } catch {
     // Ignorado a propósito — perder la preferencia guardada no debe romper nada.
   }
@@ -34,10 +34,13 @@ function writeStored(key: string, value: StoredDateRange): void {
 
 /**
  * Rango de fechas (`startDate`/`endDate`) persistido en la URL (query
- * params, para que un link filtrado sea compartible) y en `localStorage`
+ * params, para que un link filtrado sea compartible) y en `sessionStorage`
  * (para que volver por un link del navbar — que no lleva query string —
- * no reinicie el filtro a los últimos 7 días). Mismo patrón ya probado
- * en `/tendencias`.
+ * no reinicie el filtro a los últimos 7 días DENTRO de la misma sesión del
+ * navegador). A propósito NO es `localStorage`: al cerrar la pestaña/
+ * navegador, `sessionStorage` se borra solo, así que la siguiente sesión
+ * siempre arranca limpia con el rango por defecto (últimos 7 días) en vez
+ * de arrastrar para siempre la última búsqueda de días/semanas atrás.
  *
  * `storageKey` debe ser único por página (ej. "vica-dashboard-range",
  * "vica-descuentos-range") para que cada ruta recuerde su propio filtro

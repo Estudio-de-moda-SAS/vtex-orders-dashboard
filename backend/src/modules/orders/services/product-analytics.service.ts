@@ -7,6 +7,7 @@ import { getStoresConfig, StoreConfig } from '../../../config/stores.config';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
 import {
   CampaignBreakdown,
+  CampaignComboTotalsByStore,
   CategoryBrandRankingResult,
   CategoryBrandTop,
   CategoryBreakdown,
@@ -139,6 +140,29 @@ export class ProductAnalyticsService {
       };
     }
     return result;
+  }
+
+  /**
+   * Total REAL (sin doble conteo) de las campañas de descuento pedidas,
+   * por tienda — ver `DashboardQueryRepository.getCampaignComboTotals`.
+   * A diferencia de sumar filas de `StoreHighlight.campaigns` (donde una
+   * orden con varias campañas a la vez se cuenta una vez por cada una),
+   * esto SÍ da el total exacto sin importar el traslape entre las
+   * campañas elegidas.
+   */
+  async getCampaignComboTotal(startDate: string, endDate: string, campaignNames: string[]): Promise<CampaignComboTotalsByStore> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+    const rows = await this.dashboardQueryRepository.getCampaignComboTotals(startDay, endDay, campaignNames);
+    const byStore: CampaignComboTotalsByStore = {};
+    for (const row of rows) {
+      byStore[row.storeId] = {
+        orders: row.orders,
+        sales: row.sales,
+        revenueOrders: row.revenueOrders,
+        revenueSales: row.revenueSales,
+      };
+    }
+    return byStore;
   }
 
   async getDiscountAnalyticsBulk(startDate: string, endDate: string): Promise<DiscountAnalyticsResponse> {

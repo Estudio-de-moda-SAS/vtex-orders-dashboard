@@ -59,7 +59,7 @@ export class OrdersService {
     // concurrente para el mismo hueco ya alcanzó a guardarlos en segundo
     // plano, esta petición no los cuenta dos veces (una por SQL, otra
     // desde su propio resultado en vivo).
-    const [totalsRows, statusRows, paymentRows, cityRows, sellerRows, marketplaceRows, syncStatusByStore] =
+    const [totalsRows, statusRows, paymentRows, cityRows, sellerRows, marketplaceRows, syncStatusByStore, incompleteDaysByStore] =
       await Promise.all([
         this.dashboardQueryRepository.getStoreTotals(startDay, endDay, undefined, excludedStoreDates),
         this.dashboardQueryRepository.queryGrouped(
@@ -108,6 +108,7 @@ export class OrdersService {
           excludedStoreDates,
         ),
         this.syncLogsRepository.getLatestStatusByStore(),
+        this.dashboardQueryRepository.findIncompleteDaysByStore(startDay, endDay),
       ]);
 
     const responseTimeMs = Date.now() - startedAt;
@@ -116,7 +117,8 @@ export class OrdersService {
       const onDemand = onDemandByStore.get(store.id);
 
       const totals = mergeTotals(
-        totalsRows.find((r) => r.storeId === store.id) ?? { orders: 0, units: 0, sales: 0, discounts: 0 },
+        totalsRows.find((r) => r.storeId === store.id) ??
+          { orders: 0, units: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 },
         onDemand,
       );
       const byStatus = mergeByStatus(
@@ -155,6 +157,7 @@ export class OrdersService {
         responseTimeMs,
         lastSyncedAt: syncStatus?.lastSyncedAt ?? null,
         lastSyncStatus: syncStatus?.lastSyncStatus ?? null,
+        incompleteDays: incompleteDaysByStore[store.id] ?? [],
       });
 
       return { id: store.id, name: store.name, color: store.color, success: true, data };
@@ -173,6 +176,7 @@ export class OrdersService {
       stores: storeResults,
       segments,
       generatedAt: new Date().toISOString(),
+      cronIntervalHours: this.vtexSyncCronService.getCronIntervalHours(),
     };
   }
 
@@ -308,6 +312,7 @@ function combineAggregations(results: DailyAggregationResult[]): DailyAggregatio
     byCollectionCategory: results.flatMap((r) => r.byCollectionCategory),
     byCollection: results.flatMap((r) => r.byCollection),
     byDiscountCampaign: results.flatMap((r) => r.byDiscountCampaign),
+    byCampaignCombo: results.flatMap((r) => r.byCampaignCombo),
     byDiscountBucket: results.flatMap((r) => r.byDiscountBucket),
     byBrandDiscountBucket: results.flatMap((r) => r.byBrandDiscountBucket),
     bySeller: results.flatMap((r) => r.bySeller),
@@ -323,6 +328,8 @@ function mergeTotals(base: StoreTotalsRow, onDemand: DailyAggregationResult | un
     merged.units += row.units;
     merged.sales += row.sales;
     merged.discounts += row.discounts;
+    merged.realOrders += row.realOrders;
+    merged.realRevenueOrders += row.realRevenueOrders;
   }
   return merged;
 }

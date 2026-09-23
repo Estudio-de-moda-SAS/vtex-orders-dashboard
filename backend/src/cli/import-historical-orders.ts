@@ -101,7 +101,10 @@ async function main(): Promise<void> {
         storeId: parsed.store.id,
       }));
 
-      await salesAggregatesRepository.replaceAggregates(aggregation, touchedDays);
+      // El Excel es un volcado directo, no una paginación contra VTEX —
+      // siempre `isComplete: true` (no aplica la duda de conteo que sí
+      // existe para `vtex-sync-cron.service.ts`).
+      await salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, true);
       await syncLogsRepository.finish(syncLogId, 'success', {
         recordsRead: rows.length,
         recordsInserted: aggregation.salesDaily.length,

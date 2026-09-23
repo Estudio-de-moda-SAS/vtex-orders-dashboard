@@ -57,6 +57,7 @@ function DashboardContent() {
   const [categoryContribution, setCategoryContribution] = useState<CategoryContributionResponse | null>(null);
   const [categoryBrandRanking, setCategoryBrandRanking] = useState<CategoryBrandRankingByStore | null>(null);
   const [storeHighlights, setStoreHighlights] = useState<StoreHighlightsByStore | null>(null);
+  const [resyncState, setResyncState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
 
   const runQuery = useCallback(async () => {
     setRequestState({ status: 'loading' });
@@ -95,6 +96,23 @@ function DashboardContent() {
 
   const isLoading = requestState.status === 'loading';
 
+  /**
+   * Recalcula EN VIVO (todas las tiendas) el rango consultado y vuelve a
+   * cargar el dashboard — escape manual para cuando el conteo de VTEX no
+   * cuadra con lo que muestra el dashboard (ver `resync` en
+   * `orders.service.ts`). Puede tardar varios minutos en rangos largos.
+   */
+  const handleResync = useCallback(async () => {
+    setResyncState('loading');
+    try {
+      await ordersService.resync(startDate, endDate);
+      setResyncState('done');
+      await runQuery();
+    } catch {
+      setResyncState('error');
+    }
+  }, [startDate, endDate, runQuery]);
+
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <DashboardHeader />
@@ -107,6 +125,23 @@ function DashboardContent() {
         onSubmit={() => runQuery()}
         isLoading={isLoading}
       />
+
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-surface-border bg-surface-panel px-4 py-3 text-sm">
+        <button
+          type="button"
+          onClick={handleResync}
+          disabled={resyncState === 'loading' || !startDate || !endDate}
+          className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 font-medium text-accent transition hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {resyncState === 'loading' ? 'Resincronizando…' : 'Resincronizar este rango con VTEX'}
+        </button>
+        <span className="text-ink-faint">
+          Si un número no cuadra contra VTEX, esto vuelve a consultar en vivo el rango de fechas de arriba y
+          recalcula los datos guardados (puede tardar varios minutos).
+        </span>
+        {resyncState === 'done' && <span className="font-medium text-positive">✓ Resincronización completa</span>}
+        {resyncState === 'error' && <span className="font-medium text-danger">✗ Falló la resincronización</span>}
+      </div>
 
       {requestState.status === 'idle' && (
         <p className="rounded-2xl border border-surface-border bg-surface-panel p-6 text-sm text-ink-muted">
@@ -132,6 +167,7 @@ function DashboardContent() {
                 store={store}
                 categoryRanking={categoryRanking?.[store.id]?.categories}
                 brandRanking={categoryBrandRanking?.[store.id]}
+                cronIntervalHours={requestState.data.cronIntervalHours}
               />
             ))}
           </div>
@@ -155,7 +191,12 @@ function DashboardContent() {
 
           {storeHighlights && (
             <>
-              <CampaignsSection stores={requestState.data.stores} highlights={storeHighlights} />
+              <CampaignsSection
+                stores={requestState.data.stores}
+                highlights={storeHighlights}
+                startDate={startDate}
+                endDate={endDate}
+              />
               <CollectionsByStoreTable stores={requestState.data.stores} highlights={storeHighlights} />
             </>
           )}

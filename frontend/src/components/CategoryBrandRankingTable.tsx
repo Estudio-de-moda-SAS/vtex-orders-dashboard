@@ -1,6 +1,6 @@
 import { StoreDashboardResult } from '@/types/dashboard';
 import { CategoryBrandRankingByStore, CategoryRankingByStore } from '@/types/product-analytics';
-import { formatCOP, formatNumber } from '@/lib/format';
+import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 
 interface CategoryBrandRankingTableProps {
   stores: StoreDashboardResult[];
@@ -64,7 +64,9 @@ export function CategoryBrandRankingTable({ stores, categoryRanking, categoryBra
                         </span>
                         <span className="font-medium tabular-nums text-ink">
                           {formatNumber(entry.quantity)}{' '}
-                          <span className="text-ink-faint">· {formatCOP(entry.value)}</span>
+                          <span className="text-ink-faint">
+                            · {formatCOP(entry.value)} ({formatPercentage(entry.percentage)})
+                          </span>
                         </span>
                       </li>
                     );

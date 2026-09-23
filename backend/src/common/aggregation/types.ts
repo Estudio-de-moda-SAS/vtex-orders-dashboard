@@ -66,6 +66,16 @@ export interface SalesDailyRow {
   units: number;
   sales: number;
   discounts: number;
+  /**
+   * "Compras reales": `orders` deduplicado agrupando fragmentos de una
+   * misma compra que VTEX partió por logística de envío (mismo número
+   * base, sufijo `-01`/`-02`... distinto) — ver `extractOrderBaseId` en
+   * `daily-aggregator.ts`. Solo se usa en la card de cada tienda, nunca
+   * reemplaza `orders` en ninguna otra tabla/cálculo.
+   */
+  realOrders: number;
+  /** Igual que `realOrders`, pero solo los grupos donde ALGÚN fragmento calificó como venta contabilizada. */
+  realRevenueOrders: number;
 }
 
 export interface SalesDailyByStatusRow {
@@ -130,6 +140,29 @@ export interface SalesDailyByDiscountCampaignRow {
   date: string;
   storeId: string;
   campaignName: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+
+/**
+ * Una orden aporta a UNA sola fila de esta tabla: la de la combinación
+ * EXACTA de campañas que tuvo (ordenadas y sin repetir, ver
+ * `buildCampaignComboKey`), no una fila por cada campaña individual como
+ * `SalesDailyByDiscountCampaignRow`. Por construcción, cada orden cae en
+ * EXACTAMENTE un combo — así, sumar `orders`/`sales` de todos los combos
+ * que contienen ALGUNA campaña de un conjunto elegido (`campaignNames &&
+ * seleccionadas`) da el total REAL de esas campañas, sin doble conteo,
+ * sin importar cuántas campañas de la selección tenga cada combo.
+ */
+export interface SalesDailyByCampaignComboRow {
+  date: string;
+  storeId: string;
+  /** Clave canónica estable (nombres ordenados y unidos) — PK junto con date/storeId, ver migración 0005. */
+  comboKey: string;
+  /** Mismos nombres que `comboKey`, como arreglo — para consultar con el operador `&&` de Postgres. */
+  campaignNames: string[];
   orders: number;
   sales: number;
   revenueOrders: number;
@@ -204,6 +237,7 @@ export interface DailyAggregationResult {
   byCollectionCategory: SalesDailyByCollectionCategoryRow[];
   byCollection: SalesDailyByCollectionRow[];
   byDiscountCampaign: SalesDailyByDiscountCampaignRow[];
+  byCampaignCombo: SalesDailyByCampaignComboRow[];
   byDiscountBucket: SalesDailyByDiscountBucketRow[];
   byBrandDiscountBucket: SalesDailyByBrandDiscountBucketRow[];
   bySeller: SalesDailyBySellerRow[];

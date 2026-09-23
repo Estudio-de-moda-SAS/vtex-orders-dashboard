@@ -1,5 +1,6 @@
 import { DashboardResponse, StoreInfo } from '@/types/dashboard';
 import {
+  CampaignComboTotalsByStore,
   CategoryBrandRankingByStore,
   CategoryContributionResponse,
   CategoryRankingByStore,
@@ -22,6 +23,30 @@ async function request<T>(path: string): Promise<T> {
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error(
+      'No fue posible conectarse con el backend. Verifique que esté en ejecución y que NEXT_PUBLIC_API_BASE_URL sea correcta.',
+    );
+  }
+
+  if (!response.ok) {
+    const body = await safeParseJson(response);
+    const message = extractErrorMessage(body) ?? `Error ${response.status} consultando el backend`;
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+/** Igual que `request`, pero POST sin body — usado por `resync`, que puede tardar varios minutos (recalcula EN VIVO contra VTEX), así que no lleva timeout propio: se deja correr hasta que el backend responda. */
+async function postRequest<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
@@ -105,6 +130,25 @@ export const ordersService = {
     return request<StoreHighlightsByStore>(`/api/analytics/store-highlights?${params.toString()}`);
   },
 
+  /**
+   * Total REAL (sin doble conteo) de las campañas de descuento dadas, por
+   * tienda — a diferencia de sumar filas de `getStoreHighlights`, esto sí
+   * es exacto aunque una orden haya calificado para varias campañas a la
+   * vez. `campaignNames` no puede venir vacío (ver `CampaignComboQueryDto`).
+   *
+   * `campaigns` va como UN SOLO parámetro con el arreglo codificado en
+   * JSON — ni unido por comas (varios nombres reales traen una coma
+   * dentro de sí, ej. "BAZAR bermudas girbaud $69,900") ni repetido como
+   * `campaigns=A&campaigns=B` (con más de 20 valores, `qs` — el parser de
+   * query strings de Express — los convierte en un objeto con índices en
+   * vez de un arreglo). Ambos casos confirmados como bugs reales en
+   * producción con el filtro "bazar" (27 campañas).
+   */
+  getCampaignComboTotal(startDate: string, endDate: string, campaignNames: string[]): Promise<CampaignComboTotalsByStore> {
+    const params = new URLSearchParams({ startDate, endDate, campaigns: JSON.stringify(campaignNames) });
+    return request<CampaignComboTotalsByStore>(`/api/analytics/campaign-combo-total?${params.toString()}`);
+  },
+
   /** Comparativo año contra año (módulo `/tendencias`) — `startMonth`/`endMonth`/`storeId` opcionales (`startMonth === endMonth` aísla un solo mes). */
   getTrends(year: number, startMonth?: number, endMonth?: number, storeId?: string): Promise<TrendsResponse> {
     const params = new URLSearchParams({ year: String(year) });
@@ -118,5 +162,16 @@ export const ordersService = {
   getPilatosMix(startDate: string, endDate: string): Promise<PilatosMixResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<PilatosMixResponse>(`/api/analytics/pilatos-mix?${params.toString()}`);
+  },
+
+  /**
+   * Recalcula EN VIVO (todas las tiendas) el rango de fechas dado —
+   * escape manual para cuando el conteo de VTEX no cuadra con el
+   * dashboard (ver `SyncStatusController.resync`). Puede tardar varios
+   * minutos en rangos largos; el caller debe mostrar un estado de carga.
+   */
+  resync(startDate: string, endDate: string): Promise<{ ok: true }> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return postRequest<{ ok: true }>(`/api/sync/resync?${params.toString()}`);
   },
 };

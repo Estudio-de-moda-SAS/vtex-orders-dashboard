@@ -29,14 +29,33 @@ const BATCH_SIZE = 1000;
 export class SalesAggregatesRepository {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async replaceAggregates(result: DailyAggregationResult, touchedDays: TouchedDay[]): Promise<void> {
+  /**
+   * `isComplete` viene de `VtexOrdersService.fetchAllOrders` (a través de
+   * `fetchAndAggregate`) — si el conteo obtenido no coincidió con el total
+   * que VTEX reportó, se guarda `false` para CADA día tocado, para que el
+   * dashboard pueda avisar sobre el rango exacto que el usuario está
+   * viendo (ver `sync_day_status` en la migración 0004) en vez de un
+   * indicador global de "la tienda" sin relación con las fechas
+   * consultadas.
+   */
+  async replaceAggregates(
+    result: DailyAggregationResult,
+    touchedDays: TouchedDay[],
+    isComplete: boolean,
+  ): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
 
       await this.deleteDays(client, touchedDays);
+      await this.upsertDayStatus(client, touchedDays, isComplete);
 
-      await this.insertRows(client, 'sales_daily', ['date', 'store_id', 'orders', 'units', 'sales', 'discounts'], result.salesDaily.map((r) => [r.date, r.storeId, r.orders, r.units, r.sales, r.discounts]));
+      await this.insertRows(
+        client,
+        'sales_daily',
+        ['date', 'store_id', 'orders', 'units', 'sales', 'discounts', 'real_orders', 'real_revenue_orders'],
+        result.salesDaily.map((r) => [r.date, r.storeId, r.orders, r.units, r.sales, r.discounts, r.realOrders, r.realRevenueOrders]),
+      );
 
       await this.insertRows(client, 'sales_daily_by_status', ['date', 'store_id', 'status', 'orders', 'sales'], result.byStatus.map((r) => [r.date, r.storeId, r.status, r.orders, r.sales]));
 
@@ -80,6 +99,22 @@ export class SalesAggregatesRepository {
         'sales_daily_by_discount_campaign',
         ['date', 'store_id', 'campaign_name', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
         result.byDiscountCampaign.map((r) => [r.date, r.storeId, r.campaignName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+
+      await this.insertRows(
+        client,
+        'sales_daily_by_campaign_combo',
+        ['date', 'store_id', 'combo_key', 'campaign_names', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.byCampaignCombo.map((r) => [
+          r.date,
+          r.storeId,
+          r.comboKey,
+          r.campaignNames,
+          r.orders,
+          r.sales,
+          r.revenueOrders,
+          r.revenueSales,
+        ]),
       );
 
       await this.insertRows(
@@ -159,6 +194,7 @@ export class SalesAggregatesRepository {
       'sales_daily_by_collection_category',
       'sales_daily_by_collection',
       'sales_daily_by_discount_campaign',
+      'sales_daily_by_campaign_combo',
       'sales_daily_by_discount_bucket',
       'sales_daily_by_brand_discount_bucket',
       'sales_daily_by_seller',
@@ -167,6 +203,23 @@ export class SalesAggregatesRepository {
     for (const table of tables) {
       await client.query(`DELETE FROM ${table} WHERE store_id = $1 AND date = ANY($2::date[])`, [storeId, dates]);
     }
+  }
+
+  private async upsertDayStatus(client: PoolClient, touchedDays: TouchedDay[], isComplete: boolean): Promise<void> {
+    if (touchedDays.length === 0) return;
+    const params: unknown[] = [];
+    const valuesSql = touchedDays
+      .map((d) => {
+        params.push(d.storeId, d.date, isComplete);
+        return `($${params.length - 2}, $${params.length - 1}, $${params.length}, now())`;
+      })
+      .join(', ');
+    await client.query(
+      `INSERT INTO sync_day_status (store_id, date, is_complete, synced_at)
+       VALUES ${valuesSql}
+       ON CONFLICT (store_id, date) DO UPDATE SET is_complete = EXCLUDED.is_complete, synced_at = EXCLUDED.synced_at`,
+      params,
+    );
   }
 
   /**

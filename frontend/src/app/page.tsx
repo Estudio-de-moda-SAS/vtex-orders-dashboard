@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 
 import { BrandDiscountBreakdown } from '@/components/BrandDiscountBreakdown';
 import { CampaignsSection } from '@/components/CampaignsSection';
@@ -22,7 +22,7 @@ import { StatusChart } from '@/components/StatusChart';
 import { StoreCard } from '@/components/StoreCard';
 import { StoreComparisonTable } from '@/components/StoreComparisonTable';
 import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
-import { getDefaultDateRange } from '@/lib/date';
+import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { DashboardRequestState } from '@/types/dashboard';
 import {
@@ -35,10 +35,17 @@ import {
 
 const STORE_NAMES = ['Pilatos', 'Kipling', 'Diesel', 'Superdry', 'Girbaud', 'Replay'];
 
+/** `useSearchParams` (dentro de `useDateRangeFilter`) exige un límite `<Suspense>` en Next.js App Router. */
 export default function DashboardPage() {
-  const defaultRange = getDefaultDateRange();
-  const [startDate, setStartDate] = useState(defaultRange.startDate);
-  const [endDate, setEndDate] = useState(defaultRange.endDate);
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-dashboard-range');
   const [requestState, setRequestState] = useState<DashboardRequestState>({ status: 'idle' });
 
   // Analítica de producto (descuentos, categorías, marca) — se consulta en
@@ -76,6 +83,15 @@ export default function DashboardPage() {
       });
     }
   }, [startDate, endDate]);
+
+  // Auto-consulta el rango por defecto (últimos 7 días) al entrar a la
+  // página, igual que /descuentos y /tendencias — antes había que
+  // presionar "Consultar" manualmente la primera vez.
+  useEffect(() => {
+    runQuery();
+    // Deliberadamente solo al montar: cambiar de fecha sigue requiriendo el botón "Consultar", no dispara la consulta sola.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isLoading = requestState.status === 'loading';
 

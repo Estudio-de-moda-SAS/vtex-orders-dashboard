@@ -18,6 +18,15 @@ export function getDefaultDateRange(): { startDate: string; endDate: string } {
   };
 }
 
+/** Rango por defecto para vistas que analizan tendencias del año en curso (ej. `/pilatos`): 1 de enero a hoy. */
+export function getYearToDateRange(): { startDate: string; endDate: string } {
+  const today = new Date();
+  return {
+    startDate: `${today.getFullYear()}-01-01`,
+    endDate: toDateInputValue(today),
+  };
+}
+
 /** Formatea una fecha YYYY-MM-DD para mostrarla de forma legible, ej. "1 jun 2026". */
 export function formatDisplayDate(dateOnly: string): string {
   const [year, month, day] = dateOnly.split('-').map(Number);

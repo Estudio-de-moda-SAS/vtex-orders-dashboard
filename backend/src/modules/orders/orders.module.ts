@@ -3,11 +3,15 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { SyncModule } from '../sync/sync.module';
 import { OrdersController } from './controllers/orders.controller';
+import { PilatosMixController } from './controllers/pilatos-mix.controller';
 import { ProductAnalyticsController } from './controllers/product-analytics.controller';
 import { SyncStatusController } from './controllers/sync-status.controller';
+import { TrendsController } from './controllers/trends.controller';
 import { OrdersAnalyticsService } from './services/orders-analytics.service';
 import { OrdersService } from './services/orders.service';
+import { PilatosMixService } from './services/pilatos-mix.service';
 import { ProductAnalyticsService } from './services/product-analytics.service';
+import { TrendsService } from './services/trends.service';
 
 /**
  * Importa `SyncModule` para que `OrdersService` pueda usar
@@ -18,7 +22,7 @@ import { ProductAnalyticsService } from './services/product-analytics.service';
  */
 @Module({
   imports: [DatabaseModule, SyncModule],
-  controllers: [OrdersController, SyncStatusController, ProductAnalyticsController],
-  providers: [OrdersService, OrdersAnalyticsService, ProductAnalyticsService],
+  controllers: [OrdersController, SyncStatusController, ProductAnalyticsController, TrendsController, PilatosMixController],
+  providers: [OrdersService, OrdersAnalyticsService, ProductAnalyticsService, TrendsService, PilatosMixService],
 })
 export class OrdersModule {}

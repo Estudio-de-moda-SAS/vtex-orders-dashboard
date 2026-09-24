@@ -126,6 +126,9 @@ export function buildEnrichedOrder(
     discountCampaignNames,
     sellerLabel,
     marketplaceLabel,
+    // El Excel histórico nunca trajo `utmiCampaign` (campo agregado
+    // después) — sin histórico a propósito, ver `EnrichedOrder.utmiCampaign`.
+    utmiCampaign: null,
   };
 }
 

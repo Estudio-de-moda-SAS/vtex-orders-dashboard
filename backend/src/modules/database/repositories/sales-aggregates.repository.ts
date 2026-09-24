@@ -159,6 +159,56 @@ export class SalesAggregatesRepository {
         result.byMarketplace.map((r) => [r.date, r.storeId, r.marketplaceName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
       );
 
+      // Canal SmartSale (ver `config/smartsale.config.ts`) — tablas paralelas, ver migración 0007.
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_person',
+        ['date', 'store_id', 'utmi_campaign', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleByPerson.map((r) => [r.date, r.storeId, r.utmiCampaign, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_discount_bucket',
+        ['date', 'store_id', 'discount_percentage', 'units', 'sales'],
+        result.smartSaleByDiscountBucket.map((r) => [r.date, r.storeId, r.discountPercentage, r.units, r.sales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_discount_campaign',
+        ['date', 'store_id', 'campaign_name', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleByDiscountCampaign.map((r) => [r.date, r.storeId, r.campaignName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_category',
+        ['date', 'store_id', 'category_name', 'units', 'sales', 'revenue_units', 'revenue_sales'],
+        result.smartSaleByCategory.map((r) => [r.date, r.storeId, r.categoryName, r.units, r.sales, r.revenueUnits, r.revenueSales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_category_brand',
+        ['date', 'store_id', 'category_name', 'brand_name', 'units', 'sales'],
+        result.smartSaleByCategoryBrand.map((r) => [r.date, r.storeId, r.categoryName, r.brandName, r.units, r.sales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_city',
+        ['date', 'store_id', 'city', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleByCity.map((r) => [r.date, r.storeId, r.city, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_seller',
+        ['date', 'store_id', 'seller_name', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleBySeller.map((r) => [r.date, r.storeId, r.sellerName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_marketplace',
+        ['date', 'store_id', 'marketplace_name', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleByMarketplace.map((r) => [r.date, r.storeId, r.marketplaceName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+      );
+
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -199,6 +249,14 @@ export class SalesAggregatesRepository {
       'sales_daily_by_brand_discount_bucket',
       'sales_daily_by_seller',
       'sales_daily_by_marketplace',
+      'smartsale_daily_by_person',
+      'smartsale_daily_by_discount_bucket',
+      'smartsale_daily_by_discount_campaign',
+      'smartsale_daily_by_category',
+      'smartsale_daily_by_category_brand',
+      'smartsale_daily_by_city',
+      'smartsale_daily_by_seller',
+      'smartsale_daily_by_marketplace',
     ];
     for (const table of tables) {
       await client.query(`DELETE FROM ${table} WHERE store_id = $1 AND date = ANY($2::date[])`, [storeId, dates]);

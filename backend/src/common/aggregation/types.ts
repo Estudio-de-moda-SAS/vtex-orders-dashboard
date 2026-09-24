@@ -56,6 +56,14 @@ export interface EnrichedOrder {
    * marketplace configurada.
    */
   marketplaceLabel?: string | null;
+  /**
+   * `marketingData.utmiCampaign` de VTEX — identifica al vendedor del
+   * canal SmartSale que originó la orden, o `null` si no vino de ese
+   * canal (ver `config/smartsale.config.ts`). Sin histórico a propósito:
+   * nunca se guardó antes de agregar este campo, así que solo existe
+   * para órdenes sincronizadas de aquí en adelante.
+   */
+  utmiCampaign: string | null;
 }
 
 /** Fila de `sales_daily` — sin columnas revenue_*, ver nota en la migración. */
@@ -225,6 +233,82 @@ export interface SalesDailyByMarketplaceRow {
   revenueSales: number;
 }
 
+/**
+ * Filas del canal SmartSale (`config/smartsale.config.ts`) — mismo shape
+ * que su tabla `by_*` general correspondiente, pero solo para órdenes
+ * cuyo `utmiCampaign` coincide con un vendedor configurado. Tablas
+ * PARALELAS, no una columna nueva en las generales — ver migración 0007.
+ */
+export interface SmartSaleByPersonRow {
+  date: string;
+  storeId: string;
+  utmiCampaign: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+export interface SmartSaleByDiscountBucketRow {
+  date: string;
+  storeId: string;
+  discountPercentage: number;
+  units: number;
+  sales: number;
+}
+export interface SmartSaleByDiscountCampaignRow {
+  date: string;
+  storeId: string;
+  campaignName: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+export interface SmartSaleByCategoryRow {
+  date: string;
+  storeId: string;
+  categoryName: string;
+  units: number;
+  sales: number;
+  revenueUnits: number;
+  revenueSales: number;
+}
+export interface SmartSaleByCategoryBrandRow {
+  date: string;
+  storeId: string;
+  categoryName: string;
+  brandName: string;
+  units: number;
+  sales: number;
+}
+export interface SmartSaleByCityRow {
+  date: string;
+  storeId: string;
+  city: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+export interface SmartSaleBySellerRow {
+  date: string;
+  storeId: string;
+  sellerName: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+export interface SmartSaleByMarketplaceRow {
+  date: string;
+  storeId: string;
+  marketplaceName: string;
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+
 /** Todas las filas producidas por `aggregateDailyRows` para un lote de órdenes. */
 export interface DailyAggregationResult {
   salesDaily: SalesDailyRow[];
@@ -242,4 +326,13 @@ export interface DailyAggregationResult {
   byBrandDiscountBucket: SalesDailyByBrandDiscountBucketRow[];
   bySeller: SalesDailyBySellerRow[];
   byMarketplace: SalesDailyByMarketplaceRow[];
+  /** Canal SmartSale — ver `SmartSaleByPersonRow` y migración 0007. */
+  smartSaleByPerson: SmartSaleByPersonRow[];
+  smartSaleByDiscountBucket: SmartSaleByDiscountBucketRow[];
+  smartSaleByDiscountCampaign: SmartSaleByDiscountCampaignRow[];
+  smartSaleByCategory: SmartSaleByCategoryRow[];
+  smartSaleByCategoryBrand: SmartSaleByCategoryBrandRow[];
+  smartSaleByCity: SmartSaleByCityRow[];
+  smartSaleBySeller: SmartSaleBySellerRow[];
+  smartSaleByMarketplace: SmartSaleByMarketplaceRow[];
 }

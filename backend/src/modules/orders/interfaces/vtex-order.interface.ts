@@ -89,6 +89,15 @@ export interface VtexOrderDetailResponse {
   ratesAndBenefitsData?: {
     rateAndBenefitsIdentifiers?: VtexRateAndBenefitsIdentifier[] | null;
   } | null;
+  /**
+   * `utmiCampaign` identifica al vendedor de SmartSale que originó la
+   * orden (ej. "1011397082") — confirmado con datos reales de Pilatos.
+   * Los demás campos UTM (`utmSource`/`utmCampaign`/etc.) no se usan hoy,
+   * se tipan solo para dejar constancia de la forma real del objeto.
+   */
+  marketingData?: {
+    utmiCampaign?: string | null;
+  } | null;
 }
 
 /** Un nodo del árbol de categorías (`catalog_system/pub/category/tree`). Aplanado recursivamente por `fetchCategoryTree`. */

@@ -1,5 +1,6 @@
 import { matchRevenueStatusDefinition } from '../utils/revenue-status.util';
 import { getRevenueStatusDefinitions } from '../../config/revenue-status.config';
+import { getSmartSaleCampaignIds } from '../../config/smartsale.config';
 import {
   DailyAggregationResult,
   EnrichedOrder,
@@ -18,6 +19,14 @@ import {
   SalesDailyBySellerRow,
   SalesDailyByStatusRow,
   SalesDailyRow,
+  SmartSaleByCategoryBrandRow,
+  SmartSaleByCategoryRow,
+  SmartSaleByCityRow,
+  SmartSaleByDiscountBucketRow,
+  SmartSaleByDiscountCampaignRow,
+  SmartSaleByMarketplaceRow,
+  SmartSaleByPersonRow,
+  SmartSaleBySellerRow,
 } from './types';
 
 const UNKNOWN_PAYMENT_LABEL = 'Otro';
@@ -44,6 +53,7 @@ const NO_CAMPAIGN_LABEL = 'Sin campaña';
 export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolean): DailyAggregationResult {
   const revenueDefinitions = getRevenueStatusDefinitions();
   const realOrdersByDay = countRealOrdersByDay(orders, revenueDefinitions);
+  const smartSaleCampaignIds = new Set(getSmartSaleCampaignIds());
 
   const salesDaily = new Map<string, SalesDailyRow>();
   const byStatus = new Map<string, SalesDailyByStatusRow>();
@@ -61,10 +71,40 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
   const bySeller = new Map<string, SalesDailyBySellerRow>();
   const byMarketplace = new Map<string, SalesDailyByMarketplaceRow>();
 
+  // Canal SmartSale (ver `config/smartsale.config.ts`) — tablas paralelas,
+  // solo se llenan para órdenes cuyo `utmiCampaign` es uno de los
+  // vendedores configurados (ver `isSmartSale` dentro del loop).
+  const smartSaleByPerson = new Map<string, SmartSaleByPersonRow>();
+  const smartSaleByDiscountBucket = new Map<string, SmartSaleByDiscountBucketRow>();
+  const smartSaleByDiscountCampaign = new Map<string, SmartSaleByDiscountCampaignRow>();
+  const smartSaleByCategory = new Map<string, SmartSaleByCategoryRow>();
+  const smartSaleByCategoryBrand = new Map<string, SmartSaleByCategoryBrandRow>();
+  const smartSaleByCity = new Map<string, SmartSaleByCityRow>();
+  const smartSaleBySeller = new Map<string, SmartSaleBySellerRow>();
+  const smartSaleByMarketplace = new Map<string, SmartSaleByMarketplaceRow>();
+
   for (const order of orders) {
     const { date, storeId } = { date: order.dayBucket, storeId: order.storeId };
     const isRevenue = matchRevenueStatusDefinition(order, revenueDefinitions) !== undefined;
+    const isSmartSale = order.utmiCampaign !== null && smartSaleCampaignIds.has(order.utmiCampaign);
     const units = order.items.reduce((acc, item) => acc + item.quantity, 0);
+
+    // smartsale_daily_by_person (a nivel de ORDEN completa — un pedido
+    // tiene UN solo utmiCampaign, a diferencia de las campañas de
+    // descuento, así que no hay riesgo de doble conteo acá).
+    if (isSmartSale) {
+      const personKey = `${date}::${storeId}::${order.utmiCampaign}`;
+      const personRow =
+        smartSaleByPerson.get(personKey) ??
+        { date, storeId, utmiCampaign: order.utmiCampaign as string, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+      personRow.orders += 1;
+      personRow.sales += order.totalValue;
+      if (isRevenue) {
+        personRow.revenueOrders += 1;
+        personRow.revenueSales += order.totalValue;
+      }
+      smartSaleByPerson.set(personKey, personRow);
+    }
     const discounts = order.items.reduce(
       (acc, item) => acc + (item.listPrice - item.sellingPrice) * item.quantity,
       0,
@@ -116,6 +156,20 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     }
     byCity.set(cityKey, cityRow);
 
+    if (isSmartSale) {
+      const ssCityKey = `${date}::${storeId}::${order.city}`;
+      const ssCityRow =
+        smartSaleByCity.get(ssCityKey) ??
+        { date, storeId, city: order.city, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+      ssCityRow.orders += 1;
+      ssCityRow.sales += order.totalValue;
+      if (isRevenue) {
+        ssCityRow.revenueOrders += 1;
+        ssCityRow.revenueSales += order.totalValue;
+      }
+      smartSaleByCity.set(ssCityKey, ssCityRow);
+    }
+
     // sales_daily_by_discount_campaign (a nivel de ORDEN completa, no de
     // producto). Una orden puede calificar para VARIOS beneficios a la
     // vez (ej. un % de descuento + una regla de envío gratis + un tope
@@ -153,6 +207,23 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       byDiscountCampaign.set(key, row);
     }
 
+    if (isSmartSale) {
+      const ssCampaignNames = order.discountCampaignNames.length === 0 ? [NO_CAMPAIGN_LABEL] : order.discountCampaignNames;
+      for (const campaignName of ssCampaignNames) {
+        const key = `${date}::${storeId}::${campaignName}`;
+        const row =
+          smartSaleByDiscountCampaign.get(key) ??
+          { date, storeId, campaignName, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+        row.orders += 1;
+        row.sales += order.totalValue;
+        if (isRevenue) {
+          row.revenueOrders += 1;
+          row.revenueSales += order.totalValue;
+        }
+        smartSaleByDiscountCampaign.set(key, row);
+      }
+    }
+
     // sales_daily_by_campaign_combo: a diferencia de arriba (una fila por
     // CADA campaña individual, con el traslape ya documentado), acá cada
     // orden aporta a UNA sola fila — la de su combinación EXACTA de
@@ -187,6 +258,19 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
         row.revenueSales += order.totalValue;
       }
       bySeller.set(key, row);
+
+      if (isSmartSale) {
+        const ssRow =
+          smartSaleBySeller.get(key) ??
+          { date, storeId, sellerName: order.sellerLabel, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+        ssRow.orders += 1;
+        ssRow.sales += order.totalValue;
+        if (isRevenue) {
+          ssRow.revenueOrders += 1;
+          ssRow.revenueSales += order.totalValue;
+        }
+        smartSaleBySeller.set(key, ssRow);
+      }
     }
     if (order.marketplaceLabel) {
       const key = `${date}::${storeId}::${order.marketplaceLabel}`;
@@ -200,6 +284,19 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
         row.revenueSales += order.totalValue;
       }
       byMarketplace.set(key, row);
+
+      if (isSmartSale) {
+        const ssRow =
+          smartSaleByMarketplace.get(key) ??
+          { date, storeId, marketplaceName: order.marketplaceLabel, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+        ssRow.orders += 1;
+        ssRow.sales += order.totalValue;
+        if (isRevenue) {
+          ssRow.revenueOrders += 1;
+          ssRow.revenueSales += order.totalValue;
+        }
+        smartSaleByMarketplace.set(key, ssRow);
+      }
     }
 
     // Desgloses a nivel de PRODUCTO (categoría/marca/colección/descuento):
@@ -219,6 +316,19 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
         categoryRow.revenueSales += itemValue;
       }
       byCategory.set(categoryKey, categoryRow);
+
+      if (isSmartSale) {
+        const ssCategoryRow =
+          smartSaleByCategory.get(categoryKey) ??
+          { date, storeId, categoryName: item.category, units: 0, sales: 0, revenueUnits: 0, revenueSales: 0 };
+        ssCategoryRow.units += item.quantity;
+        ssCategoryRow.sales += itemValue;
+        if (isRevenue) {
+          ssCategoryRow.revenueUnits += item.quantity;
+          ssCategoryRow.revenueSales += itemValue;
+        }
+        smartSaleByCategory.set(categoryKey, ssCategoryRow);
+      }
 
       if (isMultiBrand) {
         const brandKey = `${date}::${storeId}::${item.brand}`;
@@ -240,6 +350,15 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
         categoryBrandRow.units += item.quantity;
         categoryBrandRow.sales += itemValue;
         byCategoryBrand.set(categoryBrandKey, categoryBrandRow);
+
+        if (isSmartSale) {
+          const ssCategoryBrandRow =
+            smartSaleByCategoryBrand.get(categoryBrandKey) ??
+            { date, storeId, categoryName: item.category, brandName: item.brand, units: 0, sales: 0 };
+          ssCategoryBrandRow.units += item.quantity;
+          ssCategoryBrandRow.sales += itemValue;
+          smartSaleByCategoryBrand.set(categoryBrandKey, ssCategoryBrandRow);
+        }
 
         const brandBucketKey = `${date}::${storeId}::${item.brand}::${item.discountPercentage}`;
         const brandBucketRow =
@@ -281,6 +400,15 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       bucketRow.units += item.quantity;
       bucketRow.sales += itemValue;
       byDiscountBucket.set(bucketKey, bucketRow);
+
+      if (isSmartSale) {
+        const ssBucketRow =
+          smartSaleByDiscountBucket.get(bucketKey) ??
+          { date, storeId, discountPercentage: item.discountPercentage, units: 0, sales: 0 };
+        ssBucketRow.units += item.quantity;
+        ssBucketRow.sales += itemValue;
+        smartSaleByDiscountBucket.set(bucketKey, ssBucketRow);
+      }
     }
   }
 
@@ -306,6 +434,14 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     byBrandDiscountBucket: Array.from(byBrandDiscountBucket.values()),
     bySeller: Array.from(bySeller.values()),
     byMarketplace: Array.from(byMarketplace.values()),
+    smartSaleByPerson: Array.from(smartSaleByPerson.values()),
+    smartSaleByDiscountBucket: Array.from(smartSaleByDiscountBucket.values()),
+    smartSaleByDiscountCampaign: Array.from(smartSaleByDiscountCampaign.values()),
+    smartSaleByCategory: Array.from(smartSaleByCategory.values()),
+    smartSaleByCategoryBrand: Array.from(smartSaleByCategoryBrand.values()),
+    smartSaleByCity: Array.from(smartSaleByCity.values()),
+    smartSaleBySeller: Array.from(smartSaleBySeller.values()),
+    smartSaleByMarketplace: Array.from(smartSaleByMarketplace.values()),
   };
 }
 

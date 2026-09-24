@@ -419,6 +419,7 @@ export class VtexSyncCronService implements OnModuleInit {
       discountCampaignNames: extracted.discountCampaignNames,
       sellerLabel,
       marketplaceLabel,
+      utmiCampaign: extracted.utmiCampaign,
     };
   }
 }

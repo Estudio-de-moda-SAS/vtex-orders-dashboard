@@ -5,12 +5,14 @@ import { SyncModule } from '../sync/sync.module';
 import { OrdersController } from './controllers/orders.controller';
 import { PilatosMixController } from './controllers/pilatos-mix.controller';
 import { ProductAnalyticsController } from './controllers/product-analytics.controller';
+import { SmartSaleController } from './controllers/smartsale.controller';
 import { SyncStatusController } from './controllers/sync-status.controller';
 import { TrendsController } from './controllers/trends.controller';
 import { OrdersAnalyticsService } from './services/orders-analytics.service';
 import { OrdersService } from './services/orders.service';
 import { PilatosMixService } from './services/pilatos-mix.service';
 import { ProductAnalyticsService } from './services/product-analytics.service';
+import { SmartSaleService } from './services/smartsale.service';
 import { TrendsService } from './services/trends.service';
 
 /**
@@ -22,7 +24,7 @@ import { TrendsService } from './services/trends.service';
  */
 @Module({
   imports: [DatabaseModule, SyncModule],
-  controllers: [OrdersController, SyncStatusController, ProductAnalyticsController, TrendsController, PilatosMixController],
-  providers: [OrdersService, OrdersAnalyticsService, ProductAnalyticsService, TrendsService, PilatosMixService],
+  controllers: [OrdersController, SyncStatusController, ProductAnalyticsController, TrendsController, PilatosMixController, SmartSaleController],
+  providers: [OrdersService, OrdersAnalyticsService, ProductAnalyticsService, TrendsService, PilatosMixService, SmartSaleService],
 })
 export class OrdersModule {}

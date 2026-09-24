@@ -27,6 +27,12 @@ export function getYearToDateRange(): { startDate: string; endDate: string } {
   };
 }
 
+/** Rango por defecto para vistas sin histórico (ej. `/smartsale`, que solo tiene datos desde que se empezó a capturar): hoy únicamente. */
+export function getTodayRange(): { startDate: string; endDate: string } {
+  const today = new Date();
+  return { startDate: toDateInputValue(today), endDate: toDateInputValue(today) };
+}
+
 /** Formatea una fecha YYYY-MM-DD para mostrarla de forma legible, ej. "1 jun 2026". */
 export function formatDisplayDate(dateOnly: string): string {
   const [year, month, day] = dateOnly.split('-').map(Number);

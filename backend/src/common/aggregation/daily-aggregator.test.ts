@@ -18,6 +18,7 @@ function baseOrder(overrides: Partial<EnrichedOrder>): EnrichedOrder {
     discountCampaignNames: [],
     sellerLabel: null,
     marketplaceLabel: null,
+    utmiCampaign: null,
     ...overrides,
   };
 }
@@ -106,4 +107,41 @@ test('"compras reales": órdenes sin ningún fragmento hermano no se agrupan con
   const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
   assert.equal(daily?.orders, 2);
   assert.equal(daily?.realOrders, 2, 'sin número base compartido, cada orden sigue siendo su propia compra');
+});
+
+test('SmartSale: una orden con utmiCampaign de un vendedor configurado aporta a smartSaleByPerson/Category/City', () => {
+  const order = baseOrder({
+    utmiCampaign: '1011397082', // Juana Pinilla
+    status: 'invoiced',
+    city: 'Bogotá',
+    items: [
+      { skuId: 'sku-a', ean: '', category: 'Camisetas', brand: 'Marca A', collectionName: 'Línea', quantity: 2, listPrice: 40000, sellingPrice: 30000, discountPercentage: 25 },
+    ],
+  });
+  const result = aggregateDailyRows([order], false);
+
+  const person = result.smartSaleByPerson.find((r) => r.utmiCampaign === '1011397082');
+  assert.equal(person?.orders, 1);
+  assert.equal(person?.revenueOrders, 1);
+
+  const city = result.smartSaleByCity.find((r) => r.city === 'Bogotá');
+  assert.equal(city?.orders, 1);
+
+  const category = result.smartSaleByCategory.find((r) => r.categoryName === 'Camisetas');
+  assert.equal(category?.units, 2);
+
+  const bucket = result.smartSaleByDiscountBucket.find((r) => r.discountPercentage === 25);
+  assert.equal(bucket?.units, 2);
+});
+
+test('SmartSale: una orden sin utmiCampaign (o con uno no configurado) NO aporta a ninguna tabla de SmartSale', () => {
+  const sinCampaign = baseOrder({ utmiCampaign: null, status: 'invoiced' });
+  const otroUtmi = baseOrder({ orderId: 'ORD-2', utmiCampaign: '999999999', status: 'invoiced' });
+  const result = aggregateDailyRows([sinCampaign, otroUtmi], false);
+
+  assert.equal(result.smartSaleByPerson.length, 0);
+  assert.equal(result.smartSaleByCity.length, 0);
+  // Pero SÍ deben seguir contando en las tablas generales, sin verse afectadas.
+  const city = result.byCity.find((r) => r.city === 'Bogotá');
+  assert.equal(city?.orders, 2);
 });

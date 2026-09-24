@@ -317,6 +317,14 @@ function combineAggregations(results: DailyAggregationResult[]): DailyAggregatio
     byBrandDiscountBucket: results.flatMap((r) => r.byBrandDiscountBucket),
     bySeller: results.flatMap((r) => r.bySeller),
     byMarketplace: results.flatMap((r) => r.byMarketplace),
+    smartSaleByPerson: results.flatMap((r) => r.smartSaleByPerson),
+    smartSaleByDiscountBucket: results.flatMap((r) => r.smartSaleByDiscountBucket),
+    smartSaleByDiscountCampaign: results.flatMap((r) => r.smartSaleByDiscountCampaign),
+    smartSaleByCategory: results.flatMap((r) => r.smartSaleByCategory),
+    smartSaleByCategoryBrand: results.flatMap((r) => r.smartSaleByCategoryBrand),
+    smartSaleByCity: results.flatMap((r) => r.smartSaleByCity),
+    smartSaleBySeller: results.flatMap((r) => r.smartSaleBySeller),
+    smartSaleByMarketplace: results.flatMap((r) => r.smartSaleByMarketplace),
   };
 }
 

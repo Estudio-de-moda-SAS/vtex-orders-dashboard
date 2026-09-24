@@ -32,6 +32,8 @@ export interface ExtractedOrderDetail {
   items: ExtractedOrderItem[];
   /** Nombres de campaña de descuento a nivel de orden completa (puede venir vacío). */
   discountCampaignNames: string[];
+  /** `marketingData.utmiCampaign` — identifica al vendedor de SmartSale que originó la orden, o `null` si no vino de ese canal. */
+  utmiCampaign: string | null;
 }
 
 /**
@@ -67,7 +69,9 @@ export function extractOrderDetail(detail: VtexOrderDetailResponse): ExtractedOr
     ),
   );
 
-  return { city, items, discountCampaignNames };
+  const utmiCampaign = detail.marketingData?.utmiCampaign?.trim() || null;
+
+  return { city, items, discountCampaignNames, utmiCampaign };
 }
 
 function toExtractedItem(item: VtexOrderDetailItem): ExtractedOrderItem {

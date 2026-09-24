@@ -1,4 +1,4 @@
-import { DashboardResponse, StoreInfo } from '@/types/dashboard';
+import { CityBreakdown, DashboardResponse, StoreInfo } from '@/types/dashboard';
 import {
   CampaignComboTotalsByStore,
   CategoryBrandRankingByStore,
@@ -8,6 +8,12 @@ import {
   StoreHighlightsByStore,
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
+import {
+  SmartSaleCampaignsByStore,
+  SmartSaleMonthlyTrendPoint,
+  SmartSaleSegmentsResponse,
+  SmartSaleSummaryByStore,
+} from '@/types/smartsale';
 import { TrendsResponse } from '@/types/trends';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
@@ -173,5 +179,51 @@ export const ordersService = {
   resync(startDate: string, endDate: string): Promise<{ ok: true }> {
     const params = new URLSearchParams({ startDate, endDate });
     return postRequest<{ ok: true }>(`/api/sync/resync?${params.toString()}`);
+  },
+
+  /** Card de tienda + total del canal SmartSale + desglose por persona (módulo `/smartsale`). */
+  getSmartSaleSummary(startDate: string, endDate: string): Promise<SmartSaleSummaryByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<SmartSaleSummaryByStore>(`/api/analytics/smartsale/summary?${params.toString()}`);
+  },
+
+  /** Tendencia de ventas del canal SmartSale (general, todas las tiendas), mes a mes del año en curso — sin filtro de fechas, siempre año completo. */
+  getSmartSaleMonthlyTrend(): Promise<SmartSaleMonthlyTrendPoint[]> {
+    return request<SmartSaleMonthlyTrendPoint[]>('/api/analytics/smartsale/monthly-trend');
+  },
+
+  getSmartSaleDiscounts(startDate: string, endDate: string): Promise<DiscountAnalyticsResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<DiscountAnalyticsResponse>(`/api/analytics/smartsale/discounts?${params.toString()}`);
+  },
+
+  getSmartSaleCampaigns(startDate: string, endDate: string): Promise<SmartSaleCampaignsByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<SmartSaleCampaignsByStore>(`/api/analytics/smartsale/campaigns?${params.toString()}`);
+  },
+
+  getSmartSaleCategories(startDate: string, endDate: string): Promise<CategoryRankingByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryRankingByStore>(`/api/analytics/smartsale/categories?${params.toString()}`);
+  },
+
+  getSmartSaleCategoryContribution(startDate: string, endDate: string): Promise<CategoryContributionResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryContributionResponse>(`/api/analytics/smartsale/category-contribution?${params.toString()}`);
+  },
+
+  getSmartSaleCategoryBrands(startDate: string, endDate: string): Promise<CategoryBrandRankingByStore> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<CategoryBrandRankingByStore>(`/api/analytics/smartsale/category-brands?${params.toString()}`);
+  },
+
+  getSmartSaleCities(startDate: string, endDate: string): Promise<Record<string, Record<string, CityBreakdown>>> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request(`/api/analytics/smartsale/cities?${params.toString()}`);
+  },
+
+  getSmartSaleSegments(startDate: string, endDate: string): Promise<SmartSaleSegmentsResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<SmartSaleSegmentsResponse>(`/api/analytics/smartsale/segments?${params.toString()}`);
   },
 };

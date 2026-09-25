@@ -1,12 +1,13 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { ErrorState } from '@/components/ErrorState';
 import { OverallGrowthCard } from '@/components/OverallGrowthCard';
 import { StoreGrowthTable } from '@/components/StoreGrowthTable';
 import { TrendLineChart } from '@/components/TrendLineChart';
+import { useCachedQuery } from '@/lib/useCachedQuery';
 import { ordersService } from '@/services/orders.service';
 import { TrendsResponse } from '@/types/trends';
 
@@ -27,12 +28,6 @@ const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
-
-type RequestState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; data: TrendsResponse }
-  | { status: 'error'; message: string };
 
 const STORAGE_KEY = 'tendencias-filters';
 
@@ -112,7 +107,6 @@ function TendenciasContent() {
     if (searchParams.has('month')) return searchParams.get('month') ?? '';
     return !hasUrlFilters ? readStoredFilters()?.month ?? '' : '';
   });
-  const [requestState, setRequestState] = useState<RequestState>({ status: 'idle' });
 
   const lastAvailableMonth = year === CURRENT_YEAR ? CURRENT_MONTH : 12;
 
@@ -130,23 +124,16 @@ function TendenciasContent() {
     writeStoredFilters({ year, month, storeId });
   }, [year, month, storeId, pathname, router]);
 
-  const runQuery = useCallback(async () => {
-    setRequestState({ status: 'loading' });
-    try {
+  // Cacheado en sessionStorage por combinación de filtros: volver a
+  // /tendencias con el mismo año/mes/tienda ya consultado (ej. después de
+  // visitar otra página del navbar) lo muestra al instante.
+  const { state: requestState, refetch: runQuery } = useCachedQuery<TrendsResponse>(
+    `tendencias:${year}:${month}:${storeId}`,
+    () => {
       const monthNumber = month ? Number(month) : undefined;
-      const data = await ordersService.getTrends(year, monthNumber, monthNumber, storeId || undefined);
-      setRequestState({ status: 'success', data });
-    } catch (error) {
-      setRequestState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Error inesperado consultando tendencias.',
-      });
-    }
-  }, [year, month, storeId]);
-
-  useEffect(() => {
-    runQuery();
-  }, [runQuery]);
+      return ordersService.getTrends(year, monthNumber, monthNumber, storeId || undefined);
+    },
+  );
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">

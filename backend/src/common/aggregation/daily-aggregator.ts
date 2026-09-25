@@ -19,6 +19,7 @@ import {
   SalesDailyBySellerRow,
   SalesDailyByStatusRow,
   SalesDailyRow,
+  SmartSaleByCampaignComboRow,
   SmartSaleByCategoryBrandRow,
   SmartSaleByCategoryRow,
   SmartSaleByCityRow,
@@ -82,6 +83,7 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
   const smartSaleByCity = new Map<string, SmartSaleByCityRow>();
   const smartSaleBySeller = new Map<string, SmartSaleBySellerRow>();
   const smartSaleByMarketplace = new Map<string, SmartSaleByMarketplaceRow>();
+  const smartSaleByCampaignCombo = new Map<string, SmartSaleByCampaignComboRow>();
 
   for (const order of orders) {
     const { date, storeId } = { date: order.dayBucket, storeId: order.storeId };
@@ -245,6 +247,19 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       comboRow.revenueSales += order.totalValue;
     }
     byCampaignCombo.set(comboMapKey, comboRow);
+
+    if (isSmartSale) {
+      const ssComboRow =
+        smartSaleByCampaignCombo.get(comboMapKey) ??
+        { date, storeId, comboKey, campaignNames: comboNames, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+      ssComboRow.orders += 1;
+      ssComboRow.sales += order.totalValue;
+      if (isRevenue) {
+        ssComboRow.revenueOrders += 1;
+        ssComboRow.revenueSales += order.totalValue;
+      }
+      smartSaleByCampaignCombo.set(comboMapKey, ssComboRow);
+    }
 
     // sales_daily_by_seller / sales_daily_by_marketplace (a nivel de ORDEN completa)
     if (order.sellerLabel) {
@@ -442,6 +457,7 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     smartSaleByCity: Array.from(smartSaleByCity.values()),
     smartSaleBySeller: Array.from(smartSaleBySeller.values()),
     smartSaleByMarketplace: Array.from(smartSaleByMarketplace.values()),
+    smartSaleByCampaignCombo: Array.from(smartSaleByCampaignCombo.values()),
   };
 }
 

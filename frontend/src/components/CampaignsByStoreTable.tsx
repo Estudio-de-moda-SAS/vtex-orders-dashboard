@@ -62,9 +62,15 @@ export function CampaignsByStoreTable({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {stores.map((store) => {
           const highlight = highlights[store.id];
-          const campaigns = isFiltered
+          // El backend entrega `campaigns` ordenadas por cantidad de órdenes, no
+          // por venta — se reordena acá por venta descendente (mayor a menor)
+          // para que se lea de arriba hacia abajo igual con o sin filtro.
+          const campaigns = (isFiltered
             ? (highlight?.campaigns ?? []).filter((c) => selectedCampaigns.includes(c.campaignName))
-            : (highlight?.campaigns ?? []);
+            : (highlight?.campaigns ?? [])
+          )
+            .slice()
+            .sort((a, b) => b.sales - a.sales);
 
           const sinCampañaOrders = highlight?.campaigns.find((c) => c.campaignName === NO_CAMPAIGN_LABEL)?.orders ?? 0;
           const withCampaignOrders = highlight ? highlight.totals.orders - sinCampañaOrders : 0;

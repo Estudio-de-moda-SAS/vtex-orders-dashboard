@@ -1,5 +1,6 @@
 import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
 
+import { CampaignComboQueryDto } from '../dto/campaign-combo-query.dto';
 import { SmartSaleQueryDto } from '../dto/smartsale-query.dto';
 import { SmartSaleService } from '../services/smartsale.service';
 
@@ -36,6 +37,16 @@ export class SmartSaleController {
   getCampaigns(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: SmartSaleQueryDto) {
     SmartSaleQueryDto.assertRange(query.startDate, query.endDate);
     return this.smartSaleService.getCampaigns(query.startDate, query.endDate);
+  }
+
+  /**
+   * GET /api/analytics/smartsale/campaign-combo-total?startDate=...&endDate=...&campaigns=["A","B"]
+   * Total real (sin doble conteo) de las campañas de SmartSale pedidas, por tienda — ver `CampaignComboQueryDto`.
+   */
+  @Get('campaign-combo-total')
+  getCampaignComboTotal(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: CampaignComboQueryDto) {
+    CampaignComboQueryDto.assertRange(query.startDate, query.endDate);
+    return this.smartSaleService.getCampaignComboTotal(query.startDate, query.endDate, query.parseCampaigns());
   }
 
   @Get('categories')

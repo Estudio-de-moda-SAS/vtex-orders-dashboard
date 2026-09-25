@@ -117,16 +117,20 @@ export class DashboardQueryRepository {
 
   /**
    * Total REAL (sin doble conteo) de las campañas de descuento
-   * seleccionadas, por tienda — lee `sales_daily_by_campaign_combo` (ver
-   * migración 0005), donde cada orden aporta a UNA sola fila (la de su
-   * combinación exacta de campañas), así que sumar las filas cuyo
-   * `campaign_names` intersecta (`&&`) `campaignNames` da el total real
-   * de esas campañas sin importar cuántas de ellas tenga cada orden.
+   * seleccionadas, por tienda — lee una tabla `*_by_campaign_combo` (ver
+   * migración 0005 para la general, 0008 para la de SmartSale), donde
+   * cada orden aporta a UNA sola fila (la de su combinación exacta de
+   * campañas), así que sumar las filas cuyo `campaign_names` intersecta
+   * (`&&`) `campaignNames` da el total real de esas campañas sin importar
+   * cuántas de ellas tenga cada orden. `table` siempre viene de una
+   * constante fija en el código llamador (nunca de un query param del
+   * usuario), igual que en `queryGrouped`.
    */
   async getCampaignComboTotals(
     startDay: string,
     endDay: string,
     campaignNames: string[],
+    table: string = 'sales_daily_by_campaign_combo',
   ): Promise<{ storeId: string; orders: number; sales: number; revenueOrders: number; revenueSales: number }[]> {
     const result = await this.pool.query<{
       store_id: string;
@@ -137,7 +141,7 @@ export class DashboardQueryRepository {
     }>(
       `SELECT store_id, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(sales), 0) AS sales,
               COALESCE(SUM(revenue_orders), 0) AS revenue_orders, COALESCE(SUM(revenue_sales), 0) AS revenue_sales
-       FROM sales_daily_by_campaign_combo
+       FROM ${table}
        WHERE date BETWEEN $1 AND $2 AND campaign_names && $3::text[]
        GROUP BY store_id`,
       [startDay, endDay, campaignNames],

@@ -202,6 +202,12 @@ export const ordersService = {
     return request<SmartSaleCampaignsByStore>(`/api/analytics/smartsale/campaigns?${params.toString()}`);
   },
 
+  /** Total EXACTO (sin doble conteo) de las campañas de SmartSale seleccionadas, por tienda — mismo mecanismo que `getCampaignComboTotal` del dashboard general. */
+  getSmartSaleCampaignComboTotal(startDate: string, endDate: string, campaignNames: string[]): Promise<CampaignComboTotalsByStore> {
+    const params = new URLSearchParams({ startDate, endDate, campaigns: JSON.stringify(campaignNames) });
+    return request<CampaignComboTotalsByStore>(`/api/analytics/smartsale/campaign-combo-total?${params.toString()}`);
+  },
+
   getSmartSaleCategories(startDate: string, endDate: string): Promise<CategoryRankingByStore> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<CategoryRankingByStore>(`/api/analytics/smartsale/categories?${params.toString()}`);

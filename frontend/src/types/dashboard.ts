@@ -149,9 +149,3 @@ export interface DashboardResponse {
   /** Cada cuántas horas corre el cron de sincronización — usado para estimar la próxima sincronización a partir de `lastSyncedAt` de cada tienda. */
   cronIntervalHours: number;
 }
-
-export type DashboardRequestState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; data: DashboardResponse }
-  | { status: 'error'; message: string };

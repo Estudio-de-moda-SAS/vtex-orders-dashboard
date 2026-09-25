@@ -145,3 +145,29 @@ test('SmartSale: una orden sin utmiCampaign (o con uno no configurado) NO aporta
   const city = result.byCity.find((r) => r.city === 'Bogotá');
   assert.equal(city?.orders, 2);
 });
+
+test('SmartSale: una orden con varias campañas a la vez aporta a UN SOLO combo (sin doble conteo al sumar la selección)', () => {
+  const order = baseOrder({
+    utmiCampaign: '1011397082', // Juana Pinilla
+    status: 'invoiced',
+    discountCampaignNames: ['BAZAR Jeans Diesel', 'Envío gratis'],
+  });
+  const result = aggregateDailyRows([order], false);
+
+  assert.equal(result.smartSaleByCampaignCombo.length, 1);
+  const combo = result.smartSaleByCampaignCombo[0];
+  assert.equal(combo.orders, 1);
+  assert.equal(combo.revenueOrders, 1);
+  assert.deepEqual([...combo.campaignNames].sort(), ['BAZAR Jeans Diesel', 'Envío gratis']);
+
+  // La tabla general (no SmartSale) sigue aportando su propio combo, sin mezclarse.
+  assert.equal(result.byCampaignCombo.length, 1);
+});
+
+test('SmartSale: una orden fuera del canal (utmiCampaign no configurado) NO aporta a smartSaleByCampaignCombo', () => {
+  const order = baseOrder({ utmiCampaign: null, status: 'invoiced', discountCampaignNames: ['BAZAR Jeans Diesel'] });
+  const result = aggregateDailyRows([order], false);
+
+  assert.equal(result.smartSaleByCampaignCombo.length, 0);
+  assert.equal(result.byCampaignCombo.length, 1);
+});

@@ -1,30 +1,26 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
 
 import { BrandDiscountBreakdown } from '@/components/BrandDiscountBreakdown';
 import { CampaignsSection } from '@/components/CampaignsSection';
 import { CategoriesSection } from '@/components/CategoriesSection';
 import { CategoryBrandRankingTable } from '@/components/CategoryBrandRankingTable';
 import { CitiesSection } from '@/components/CitiesSection';
-import { CityChart } from '@/components/CityChart';
 import { CollectionsByStoreTable } from '@/components/CollectionsByStoreTable';
 import { DashboardHeader } from '@/components/DashboardHeader';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
-import { DiscountDistributionChart } from '@/components/DiscountDistributionChart';
 import { ErrorState } from '@/components/ErrorState';
 import { GlobalSummary } from '@/components/GlobalSummary';
-import { RevenueValueChart } from '@/components/RevenueValueChart';
 import { LoadingState } from '@/components/LoadingState';
-import { OrdersByStoreChart } from '@/components/OrdersByStoreChart';
 import { SegmentComparisonTable } from '@/components/SegmentComparisonTable';
-import { StatusChart } from '@/components/StatusChart';
 import { StoreCard } from '@/components/StoreCard';
 import { StoreComparisonTable } from '@/components/StoreComparisonTable';
 import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
+import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
-import { DashboardRequestState } from '@/types/dashboard';
+import { DashboardResponse } from '@/types/dashboard';
 import {
   CategoryBrandRankingByStore,
   CategoryContributionResponse,
@@ -34,6 +30,15 @@ import {
 } from '@/types/product-analytics';
 
 const STORE_NAMES = ['Pilatos', 'Kipling', 'Diesel', 'Superdry', 'Girbaud', 'Replay'];
+
+interface DashboardPageData {
+  dashboard: DashboardResponse;
+  discountAnalytics: DiscountAnalyticsResponse;
+  categoryRanking: CategoryRankingByStore;
+  categoryContribution: CategoryContributionResponse;
+  categoryBrandRanking: CategoryBrandRankingByStore;
+  storeHighlights: StoreHighlightsByStore;
+}
 
 /** `useSearchParams` (dentro de `useDateRangeFilter`) exige un límite `<Suspense>` en Next.js App Router. */
 export default function DashboardPage() {
@@ -46,53 +51,27 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-dashboard-range');
-  const [requestState, setRequestState] = useState<DashboardRequestState>({ status: 'idle' });
-
-  // Analítica de producto (descuentos, categorías, marca) — se consulta en
-  // paralelo al dashboard principal, pero es supletoria: no tiene su propia
-  // máquina de estados idle/loading/error, simplemente se renderiza en
-  // cuanto llega y se ignora mientras tanto (`null`).
-  const [discountAnalytics, setDiscountAnalytics] = useState<DiscountAnalyticsResponse | null>(null);
-  const [categoryRanking, setCategoryRanking] = useState<CategoryRankingByStore | null>(null);
-  const [categoryContribution, setCategoryContribution] = useState<CategoryContributionResponse | null>(null);
-  const [categoryBrandRanking, setCategoryBrandRanking] = useState<CategoryBrandRankingByStore | null>(null);
-  const [storeHighlights, setStoreHighlights] = useState<StoreHighlightsByStore | null>(null);
   const [resyncState, setResyncState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
 
-  const runQuery = useCallback(async () => {
-    setRequestState({ status: 'loading' });
-    try {
-      const [data, discount, catRanking, catContribution, catBrandRanking, highlights] = await Promise.all([
-        ordersService.getDashboardData(startDate, endDate),
-        ordersService.getDiscountAnalytics(startDate, endDate),
-        ordersService.getCategoryRanking(startDate, endDate),
-        ordersService.getCategoryContribution(startDate, endDate),
-        ordersService.getCategoryBrandRanking(startDate, endDate),
-        ordersService.getStoreHighlights(startDate, endDate),
-      ]);
-      setRequestState({ status: 'success', data });
-      setDiscountAnalytics(discount);
-      setCategoryRanking(catRanking);
-      setCategoryContribution(catContribution);
-      setCategoryBrandRanking(catBrandRanking);
-      setStoreHighlights(highlights);
-    } catch (error) {
-      setRequestState({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Error inesperado consultando el dashboard.',
-      });
-    }
-  }, [startDate, endDate]);
-
-  // Auto-consulta el rango por defecto (últimos 7 días) al entrar a la
-  // página, igual que /descuentos y /tendencias — antes había que
-  // presionar "Consultar" manualmente la primera vez.
-  useEffect(() => {
-    runQuery();
-    // Deliberadamente solo al montar: cambiar de fecha sigue requiriendo el botón "Consultar", no dispara la consulta sola.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Cacheado en sessionStorage por rango de fechas (ver `useCachedQuery`):
+  // volver del navbar (ej. después de visitar /tendencias) muestra este
+  // mismo rango al instante, sin volver a consultar el backend. Solo
+  // "Consultar" o "Resincronizar" fuerzan una consulta nueva.
+  const { state: requestState, refetch: runQuery } = useCachedQuery<DashboardPageData>(
+    `dashboard:${startDate}:${endDate}`,
+    async () => {
+      const [dashboard, discountAnalytics, categoryRanking, categoryContribution, categoryBrandRanking, storeHighlights] =
+        await Promise.all([
+          ordersService.getDashboardData(startDate, endDate),
+          ordersService.getDiscountAnalytics(startDate, endDate),
+          ordersService.getCategoryRanking(startDate, endDate),
+          ordersService.getCategoryContribution(startDate, endDate),
+          ordersService.getCategoryBrandRanking(startDate, endDate),
+          ordersService.getStoreHighlights(startDate, endDate),
+        ]);
+      return { dashboard, discountAnalytics, categoryRanking, categoryContribution, categoryBrandRanking, storeHighlights };
+    },
+  );
 
   const isLoading = requestState.status === 'loading';
 
@@ -143,13 +122,6 @@ function DashboardContent() {
         {resyncState === 'error' && <span className="font-medium text-danger">✗ Falló la resincronización</span>}
       </div>
 
-      {requestState.status === 'idle' && (
-        <p className="rounded-2xl border border-surface-border bg-surface-panel p-6 text-sm text-ink-muted">
-          Selecciona un rango de fechas y presiona <strong className="text-ink">Consultar</strong>{' '}
-          para ver el consolidado de las seis tiendas.
-        </p>
-      )}
-
       {requestState.status === 'loading' && <LoadingState storeNames={STORE_NAMES} />}
 
       {requestState.status === 'error' && (
@@ -158,79 +130,62 @@ function DashboardContent() {
 
       {requestState.status === 'success' && (
         <>
-          <GlobalSummary summary={requestState.data.summary} />
+          <GlobalSummary summary={requestState.data.dashboard.summary} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {requestState.data.stores.map((store) => (
+            {requestState.data.dashboard.stores.map((store) => (
               <StoreCard
                 key={store.id}
                 store={store}
-                categoryRanking={categoryRanking?.[store.id]?.categories}
-                brandRanking={categoryBrandRanking?.[store.id]}
-                cronIntervalHours={requestState.data.cronIntervalHours}
+                categoryRanking={requestState.data.categoryRanking[store.id]?.categories}
+                brandRanking={requestState.data.categoryBrandRanking[store.id]}
+                cronIntervalHours={requestState.data.dashboard.cronIntervalHours}
               />
             ))}
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <OrdersByStoreChart stores={requestState.data.stores} />
-            <RevenueValueChart stores={requestState.data.stores} />
-            <StatusChart stores={requestState.data.stores} />
-            <CityChart stores={requestState.data.stores} />
-            {discountAnalytics && (
-              <DiscountDistributionChart stores={requestState.data.stores} discountAnalytics={discountAnalytics} />
-            )}
-          </div>
+          <StoreDiscountBreakdown
+            stores={requestState.data.dashboard.stores}
+            discountAnalytics={requestState.data.discountAnalytics}
+          />
+          <BrandDiscountBreakdown discountAnalytics={requestState.data.discountAnalytics} />
 
-          {discountAnalytics && (
-            <StoreDiscountBreakdown stores={requestState.data.stores} discountAnalytics={discountAnalytics} />
-          )}
-          {discountAnalytics && <BrandDiscountBreakdown discountAnalytics={discountAnalytics} />}
+          <StoreComparisonTable stores={requestState.data.dashboard.stores} />
 
-          <StoreComparisonTable stores={requestState.data.stores} />
+          <CampaignsSection
+            stores={requestState.data.dashboard.stores}
+            highlights={requestState.data.storeHighlights}
+            startDate={startDate}
+            endDate={endDate}
+          />
+          <CollectionsByStoreTable stores={requestState.data.dashboard.stores} highlights={requestState.data.storeHighlights} />
 
-          {storeHighlights && (
-            <>
-              <CampaignsSection
-                stores={requestState.data.stores}
-                highlights={storeHighlights}
-                startDate={startDate}
-                endDate={endDate}
-              />
-              <CollectionsByStoreTable stores={requestState.data.stores} highlights={storeHighlights} />
-            </>
-          )}
-
-          {categoryRanking && categoryBrandRanking && (
-            <CategoryBrandRankingTable
-              stores={requestState.data.stores}
-              categoryRanking={categoryRanking}
-              categoryBrandRanking={categoryBrandRanking}
-            />
-          )}
+          <CategoryBrandRankingTable
+            stores={requestState.data.dashboard.stores}
+            categoryRanking={requestState.data.categoryRanking}
+            categoryBrandRanking={requestState.data.categoryBrandRanking}
+          />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SegmentComparisonTable
               title="Comparativo de sellers (Pilatos)"
               emptyLabel="No hay sellers configurados para el rango consultado."
-              segments={requestState.data.segments.filter((s) => s.type === 'seller')}
+              segments={requestState.data.dashboard.segments.filter((s) => s.type === 'seller')}
             />
             <SegmentComparisonTable
               title="Comparativo de marketplaces (Pilatos)"
               emptyLabel="No hay marketplaces configurados para el rango consultado."
-              segments={requestState.data.segments.filter((s) => s.type === 'marketplace')}
+              segments={requestState.data.dashboard.segments.filter((s) => s.type === 'marketplace')}
             />
           </div>
 
-          <CitiesSection stores={requestState.data.stores} />
+          <CitiesSection stores={requestState.data.dashboard.stores} />
 
-          {categoryContribution && categoryRanking && (
-            <CategoriesSection
-              stores={requestState.data.stores}
-              contribution={categoryContribution}
-              categoryRanking={categoryRanking}
-            />
-          )}
+          <CategoriesSection
+            stores={requestState.data.dashboard.stores}
+            contribution={requestState.data.categoryContribution}
+            categoryRanking={requestState.data.categoryRanking}
+          />
         </>
       )}
     </main>

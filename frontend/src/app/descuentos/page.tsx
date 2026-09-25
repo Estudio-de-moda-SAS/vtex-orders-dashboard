@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense } from 'react';
 
 import { BrandDiscountBreakdown } from '@/components/BrandDiscountBreakdown';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
@@ -9,6 +9,7 @@ import { ErrorState } from '@/components/ErrorState';
 import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
 import { topBucketStats } from '@/lib/discount';
 import { formatPercentage } from '@/lib/format';
+import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { DashboardResponse } from '@/types/dashboard';
@@ -17,11 +18,10 @@ import { DiscountAnalyticsResponse, DiscountDistribution } from '@/types/product
 /** A partir de este % de descuento se considera "alto" para el indicador de dependencia. */
 const HIGH_DISCOUNT_THRESHOLD = 40;
 
-type RequestState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; dashboard: DashboardResponse; discounts: DiscountAnalyticsResponse }
-  | { status: 'error'; message: string };
+interface DescuentosData {
+  dashboard: DashboardResponse;
+  discounts: DiscountAnalyticsResponse;
+}
 
 /**
  * % de unidades a precio normal (0%) y % con descuento alto (>=
@@ -55,31 +55,21 @@ export default function DescuentosPage() {
 
 function DescuentosContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-descuentos-range');
-  const [requestState, setRequestState] = useState<RequestState>({ status: 'idle' });
 
-  const runQuery = useCallback(async () => {
-    setRequestState({ status: 'loading' });
-    try {
+  const { state: requestState, refetch: runQuery } = useCachedQuery<DescuentosData>(
+    `descuentos:${startDate}:${endDate}`,
+    async () => {
       const [dashboard, discounts] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
         ordersService.getDiscountAnalytics(startDate, endDate),
       ]);
-      setRequestState({ status: 'success', dashboard, discounts });
-    } catch (error) {
-      setRequestState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Error inesperado consultando descuentos.',
-      });
-    }
-  }, [startDate, endDate]);
-
-  useEffect(() => {
-    runQuery();
-  }, [runQuery]);
+      return { dashboard, discounts };
+    },
+  );
 
   const isLoading = requestState.status === 'loading';
-  const summary = requestState.status === 'success' ? healthSummary(requestState.discounts.global) : null;
-  const topBucket = requestState.status === 'success' ? topBucketStats(requestState.discounts.global) : null;
+  const summary = requestState.status === 'success' ? healthSummary(requestState.data.discounts.global) : null;
+  const topBucket = requestState.status === 'success' ? topBucketStats(requestState.data.discounts.global) : null;
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -149,9 +139,9 @@ function DescuentosContent() {
             </div>
           )}
 
-          <DiscountDistributionChart stores={requestState.dashboard.stores} discountAnalytics={requestState.discounts} />
-          <StoreDiscountBreakdown stores={requestState.dashboard.stores} discountAnalytics={requestState.discounts} />
-          <BrandDiscountBreakdown discountAnalytics={requestState.discounts} />
+          <DiscountDistributionChart stores={requestState.data.dashboard.stores} discountAnalytics={requestState.data.discounts} />
+          <StoreDiscountBreakdown stores={requestState.data.dashboard.stores} discountAnalytics={requestState.data.discounts} />
+          <BrandDiscountBreakdown discountAnalytics={requestState.data.discounts} />
         </>
       )}
     </main>

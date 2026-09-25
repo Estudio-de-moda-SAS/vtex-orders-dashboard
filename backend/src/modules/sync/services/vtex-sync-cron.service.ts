@@ -46,6 +46,7 @@ export class VtexSyncCronService implements OnModuleInit {
   private readonly logger = new Logger(VtexSyncCronService.name);
   private readonly storeConcurrency: number;
   private readonly recalcWindowDays: number;
+  private readonly orderEnrichConcurrency: number;
 
   constructor(
     private readonly vtexOrdersService: VtexOrdersService,
@@ -58,6 +59,7 @@ export class VtexSyncCronService implements OnModuleInit {
   ) {
     this.storeConcurrency = this.configService.get<number>('app.vtex.storeConcurrency', 3);
     this.recalcWindowDays = this.configService.get<number>('app.sync.recalcWindowDays', 3);
+    this.orderEnrichConcurrency = this.configService.get<number>('app.vtex.orderEnrichConcurrency', 20);
   }
 
   async onModuleInit(): Promise<void> {
@@ -335,22 +337,33 @@ export class VtexSyncCronService implements OnModuleInit {
     const newBrandsBySkuId = new Map<string, string>();
     let detailsCompleted = 0;
     const logEvery = Math.max(50, Math.floor(combinedOrders.length / 10));
+    // `pLimit` acá (no solo el `globalLimit` de `VtexOrdersService`) evita
+    // que un día pesado (Pilatos ha llegado a 900+ órdenes en una sola
+    // ventana) dispare TODAS sus promesas de enriquecimiento de una vez —
+    // `globalLimit` acota cuántas peticiones HTTP van en vuelo, pero no
+    // cuántos resultados YA completos (orden + items + descuentos) quedan
+    // acumulados en memoria mientras las demás siguen esperando turno.
+    // Confirmado como uno de los dos factores detrás de un
+    // `heap out of memory` en producción (ver `orderEnrichConcurrency`).
+    const enrichLimit = pLimit(this.orderEnrichConcurrency);
     const enrichedOrders = await Promise.all(
       combinedOrders.map((order) =>
-        this.enrichOrder(
-          store,
-          order,
-          sellerLabelByOrderId.get(order.orderId) ?? null,
-          marketplaceLabelByOrderId.get(order.orderId) ?? null,
-          collectionsBySkuAndStore,
-          newBrandsBySkuId,
-        ).then((result) => {
-          detailsCompleted += 1;
-          if (detailsCompleted % logEvery === 0 || detailsCompleted === combinedOrders.length) {
-            this.logger.log(`[${store.id}] ${detailsCompleted}/${combinedOrders.length} detalles procesados.`);
-          }
-          return result;
-        }),
+        enrichLimit(() =>
+          this.enrichOrder(
+            store,
+            order,
+            sellerLabelByOrderId.get(order.orderId) ?? null,
+            marketplaceLabelByOrderId.get(order.orderId) ?? null,
+            collectionsBySkuAndStore,
+            newBrandsBySkuId,
+          ).then((result) => {
+            detailsCompleted += 1;
+            if (detailsCompleted % logEvery === 0 || detailsCompleted === combinedOrders.length) {
+              this.logger.log(`[${store.id}] ${detailsCompleted}/${combinedOrders.length} detalles procesados.`);
+            }
+            return result;
+          }),
+        ),
       ),
     );
 

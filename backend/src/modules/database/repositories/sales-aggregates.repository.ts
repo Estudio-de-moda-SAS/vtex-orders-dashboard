@@ -208,6 +208,21 @@ export class SalesAggregatesRepository {
         ['date', 'store_id', 'marketplace_name', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
         result.smartSaleByMarketplace.map((r) => [r.date, r.storeId, r.marketplaceName, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
       );
+      await this.insertRows(
+        client,
+        'smartsale_daily_by_campaign_combo',
+        ['date', 'store_id', 'combo_key', 'campaign_names', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
+        result.smartSaleByCampaignCombo.map((r) => [
+          r.date,
+          r.storeId,
+          r.comboKey,
+          r.campaignNames,
+          r.orders,
+          r.sales,
+          r.revenueOrders,
+          r.revenueSales,
+        ]),
+      );
 
       await client.query('COMMIT');
     } catch (error) {
@@ -257,6 +272,7 @@ export class SalesAggregatesRepository {
       'smartsale_daily_by_city',
       'smartsale_daily_by_seller',
       'smartsale_daily_by_marketplace',
+      'smartsale_daily_by_campaign_combo',
     ];
     for (const table of tables) {
       await client.query(`DELETE FROM ${table} WHERE store_id = $1 AND date = ANY($2::date[])`, [storeId, dates]);

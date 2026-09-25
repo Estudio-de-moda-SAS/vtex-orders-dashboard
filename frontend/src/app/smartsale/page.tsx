@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense } from 'react';
 
 import { CategoriesSection } from '@/components/CategoriesSection';
 import { CategoryBrandRankingTable } from '@/components/CategoryBrandRankingTable';
@@ -13,6 +13,7 @@ import { SmartSaleSummarySection } from '@/components/SmartSaleSummarySection';
 import { SmartSaleTrendSection } from '@/components/SmartSaleTrendSection';
 import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
 import { getTodayRange } from '@/lib/date';
+import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { CityBreakdown, SegmentDashboardResult, StoreDashboardResult } from '@/types/dashboard';
@@ -41,11 +42,6 @@ interface SmartSaleData {
   cities: Record<string, Record<string, CityBreakdown>>;
   segments: SmartSaleSegmentsResponse;
 }
-
-type RequestState =
-  | { status: 'loading' }
-  | { status: 'success'; data: SmartSaleData }
-  | { status: 'error'; message: string };
 
 /** Convierte "sellers"/"marketplaces" de SmartSale al shape de `SegmentDashboardResult` para reusar `SegmentComparisonTable` tal cual. */
 /**
@@ -84,11 +80,10 @@ export default function SmartSalePage() {
 
 function SmartSaleContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-range', getTodayRange);
-  const [requestState, setRequestState] = useState<RequestState>({ status: 'loading' });
 
-  const runQuery = useCallback(async () => {
-    setRequestState({ status: 'loading' });
-    try {
+  const { state: requestState, refetch: runQuery } = useCachedQuery<SmartSaleData>(
+    `smartsale:${startDate}:${endDate}`,
+    async () => {
       const [dashboard, summary, monthlyTrend, discounts, campaigns, categories, categoryContribution, categoryBrands, cities, segments] =
         await Promise.all([
           ordersService.getDashboardData(startDate, endDate),
@@ -102,32 +97,20 @@ function SmartSaleContent() {
           ordersService.getSmartSaleCities(startDate, endDate),
           ordersService.getSmartSaleSegments(startDate, endDate),
         ]);
-      setRequestState({
-        status: 'success',
-        data: {
-          stores: dashboard.stores,
-          summary,
-          monthlyTrend,
-          discounts,
-          campaigns,
-          categories,
-          categoryContribution,
-          categoryBrands,
-          cities,
-          segments,
-        },
-      });
-    } catch (error) {
-      setRequestState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Error inesperado consultando SmartSale.',
-      });
-    }
-  }, [startDate, endDate]);
-
-  useEffect(() => {
-    runQuery();
-  }, [runQuery]);
+      return {
+        stores: dashboard.stores,
+        summary,
+        monthlyTrend,
+        discounts,
+        campaigns,
+        categories,
+        categoryContribution,
+        categoryBrands,
+        cities,
+        segments,
+      };
+    },
+  );
 
   const isLoading = requestState.status === 'loading';
 
@@ -178,6 +161,8 @@ function SmartSaleContent() {
             stores={requestState.data.stores}
             campaigns={requestState.data.campaigns}
             summary={requestState.data.summary}
+            startDate={startDate}
+            endDate={endDate}
           />
 
           <CategoryBrandRankingTable

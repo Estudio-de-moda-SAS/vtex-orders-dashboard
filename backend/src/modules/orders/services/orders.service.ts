@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { DailyAggregationResult } from '../../../common/aggregation/types';
 import {
   groupConsecutiveDayRuns,
   normalizeEndDate,
   normalizeStartDate,
+  subtractDaysUtc,
   toDayBucketColombia,
+  todayColombia,
 } from '../../../common/utils/date-range.util';
 import { getStoresConfig } from '../../../config/stores.config';
 import { DashboardQueryRepository, ExcludedStoreDate } from '../../database/repositories/dashboard-query.repository';
@@ -31,13 +34,17 @@ import { OrdersAnalyticsService, ByCityRow, ByPaymentRow, ByStatusRow, StoreTota
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+  private readonly onDemandLookbackDays: number;
 
   constructor(
     private readonly dashboardQueryRepository: DashboardQueryRepository,
     private readonly syncLogsRepository: SyncLogsRepository,
     private readonly analyticsService: OrdersAnalyticsService,
     private readonly vtexSyncCronService: VtexSyncCronService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.onDemandLookbackDays = this.configService.get<number>('app.sync.onDemandLookbackDays', 7);
+  }
 
   async getDashboard(rawStartDate: string, rawEndDate: string): Promise<DashboardResponse> {
     const startedAt = Date.now();
@@ -205,6 +212,17 @@ export class OrdersService {
    * otra desde el resultado en vivo de ESTA petición) — es la misma
    * familia de bug que el de los tramos no contiguos, pero entre dos
    * peticiones distintas en vez de dentro de una sola.
+   *
+   * El chequeo en vivo solo mira los últimos `onDemandLookbackDays` días
+   * (ver `AppConfig.sync.onDemandLookbackDays`) — más allá de esa
+   * ventana, el histórico se considera "congelado": un día sin fila en
+   * `sales_daily` se lee como 0 en las consultas SQL normales, sin volver
+   * a preguntarle a VTEX. Sin este corte, un día de venta genuinamente
+   * cero (frecuente en tiendas de bajo volumen) nunca llega a tener fila
+   * propia, así que CADA petición que tocara esa fecha repetía la
+   * consulta en vivo para siempre — la causa real detrás de un
+   * `heap out of memory` visto en producción (el cron normal + este
+   * fallback pidiendo huecos desde enero, corriendo a la vez).
    */
   private async fillMissingDays(
     stores: ReturnType<typeof getStoresConfig>,
@@ -214,9 +232,13 @@ export class OrdersService {
     const onDemandByStore = new Map<string, DailyAggregationResult>();
     const excludedStoreDates: ExcludedStoreDate[] = [];
 
+    const lookbackStart = subtractDaysUtc(todayColombia(), this.onDemandLookbackDays);
+    const liveCheckStart = startDay < lookbackStart ? lookbackStart : startDay;
+    if (liveCheckStart > endDay) return { onDemandByStore, excludedStoreDates };
+
     await Promise.all(
       stores.map(async (store) => {
-        const missingDays = await this.dashboardQueryRepository.findMissingDays(store.id, startDay, endDay);
+        const missingDays = await this.dashboardQueryRepository.findMissingDays(store.id, liveCheckStart, endDay);
         if (missingDays.length === 0) return;
 
         const runs = groupConsecutiveDayRuns(missingDays);
@@ -325,6 +347,7 @@ function combineAggregations(results: DailyAggregationResult[]): DailyAggregatio
     smartSaleByCity: results.flatMap((r) => r.smartSaleByCity),
     smartSaleBySeller: results.flatMap((r) => r.smartSaleBySeller),
     smartSaleByMarketplace: results.flatMap((r) => r.smartSaleByMarketplace),
+    smartSaleByCampaignCombo: results.flatMap((r) => r.smartSaleByCampaignCombo),
   };
 }
 

@@ -309,6 +309,18 @@ export interface SmartSaleByMarketplaceRow {
   revenueSales: number;
 }
 
+/** Igual que `SalesDailyByCampaignComboRow`, pero solo para órdenes del canal SmartSale — ver migración 0008. */
+export interface SmartSaleByCampaignComboRow {
+  date: string;
+  storeId: string;
+  comboKey: string;
+  campaignNames: string[];
+  orders: number;
+  sales: number;
+  revenueOrders: number;
+  revenueSales: number;
+}
+
 /** Todas las filas producidas por `aggregateDailyRows` para un lote de órdenes. */
 export interface DailyAggregationResult {
   salesDaily: SalesDailyRow[];
@@ -335,4 +347,5 @@ export interface DailyAggregationResult {
   smartSaleByCity: SmartSaleByCityRow[];
   smartSaleBySeller: SmartSaleBySellerRow[];
   smartSaleByMarketplace: SmartSaleByMarketplaceRow[];
+  smartSaleByCampaignCombo: SmartSaleByCampaignComboRow[];
 }

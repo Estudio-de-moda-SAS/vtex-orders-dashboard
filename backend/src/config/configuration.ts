@@ -74,6 +74,21 @@ export interface AppConfig {
     closedWindowRetries: number;
     /** Cuántos minutos deben haber pasado desde el fin de la ventana para considerarla "cerrada" (ver `closedWindowRetries`). */
     closedWindowBufferMinutes: number;
+    /**
+     * Cuántas órdenes de UNA MISMA tienda se enriquecen (detalle +
+     * cálculo de items/descuentos) EN VUELO a la vez dentro de
+     * `VtexSyncCronService.fetchAndAggregate` — ver el `pLimit` ahí. Sin
+     * este techo, un `Promise.all` disparaba las 900+ órdenes de un día
+     * pesado (ej. Pilatos) de una sola vez, manteniendo todos sus
+     * resultados completos en memoria simultáneamente hasta que la
+     * última terminara — uno de los dos factores confirmados detrás de
+     * un `heap out of memory` visto en producción (el otro fue el
+     * fallback de días faltantes, ver `onDemandLookbackDays`). No
+     * reemplaza a `globalConcurrency` (que sigue acotando las peticiones
+     * HTTP reales a VTEX) — este límite es sobre cuántos resultados YA
+     * completos se acumulan a la vez antes de la agregación final.
+     */
+    orderEnrichConcurrency: number;
   };
   sync: {
     /** Cada cuántas horas corre el cron de sincronización con VTEX. */
@@ -84,6 +99,20 @@ export interface AppConfig {
      * Los días fuera de esta ventana nunca se vuelven a tocar.
      */
     recalcWindowDays: number;
+    /**
+     * Hasta cuántos días hacia atrás (desde hoy) el dashboard sale a
+     * VTEX en vivo cuando encuentra un día sin sincronizar (ver
+     * `OrdersService.fillMissingDays`). Más allá de esta ventana, un día
+     * sin fila en `sales_daily` se lee como 0 órdenes/ventas — nunca se
+     * vuelve a consultar en vivo. Sin este corte, un día de venta
+     * genuinamente cero (frecuente en tiendas de bajo volumen, ej.
+     * Replay) nunca llega a tener fila propia, así que cada petición que
+     * tocara esa fecha repetía la consulta en vivo PARA SIEMPRE — el
+     * disparador real detrás de un `heap out of memory` observado en
+     * producción (dos sincronizaciones completas corriendo a la vez: el
+     * cron normal + este fallback pidiendo huecos desde enero).
+     */
+    onDemandLookbackDays: number;
   };
 }
 
@@ -134,10 +163,12 @@ export default (): { app: AppConfig } => ({
       cityEnrichmentBatchPauseMs: parseInt(process.env.VTEX_CITY_ENRICHMENT_BATCH_PAUSE_MS ?? '150', 10),
       closedWindowRetries: parseInt(process.env.VTEX_CLOSED_WINDOW_RETRIES ?? '2', 10),
       closedWindowBufferMinutes: parseInt(process.env.VTEX_CLOSED_WINDOW_BUFFER_MINUTES ?? '15', 10),
+      orderEnrichConcurrency: parseInt(process.env.VTEX_ORDER_ENRICH_CONCURRENCY ?? '20', 10),
     },
     sync: {
       cronIntervalHours: parseInt(process.env.SYNC_CRON_INTERVAL_HOURS ?? '4', 10),
       recalcWindowDays: parseInt(process.env.SYNC_RECALC_WINDOW_DAYS ?? '3', 10),
+      onDemandLookbackDays: parseInt(process.env.SYNC_ON_DEMAND_LOOKBACK_DAYS ?? '7', 10),
     },
   },
 });

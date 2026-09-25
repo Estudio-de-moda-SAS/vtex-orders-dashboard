@@ -9,6 +9,7 @@ import { getStoresConfig, StoreConfig } from '../../../config/stores.config';
 import { CityBreakdown } from '../../../modules/orders/interfaces/dashboard.interface';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
 import {
+  CampaignComboTotalsByStore,
   CategoryBrandRankingResult,
   CategoryBrandTop,
   CategoryBreakdown,
@@ -160,6 +161,34 @@ export class SmartSaleService {
         .sort((a, b) => b.orders - a.orders);
     }
     return result;
+  }
+
+  /**
+   * Total REAL (sin doble conteo) de las campañas de descuento de
+   * SmartSale seleccionadas, por tienda — igual que
+   * `ProductAnalyticsService.getCampaignComboTotal` del dashboard
+   * general, pero sobre `smartsale_daily_by_campaign_combo` (migración
+   * 0008). Necesario porque sumar filas de `getCampaigns` sobrecuenta
+   * cuando una orden calificó para varias campañas seleccionadas a la vez.
+   */
+  async getCampaignComboTotal(startDate: string, endDate: string, campaignNames: string[]): Promise<CampaignComboTotalsByStore> {
+    const { startDay, endDay } = this.toDayRange(startDate, endDate);
+    const rows = await this.dashboardQueryRepository.getCampaignComboTotals(
+      startDay,
+      endDay,
+      campaignNames,
+      'smartsale_daily_by_campaign_combo',
+    );
+    const byStore: CampaignComboTotalsByStore = {};
+    for (const row of rows) {
+      byStore[row.storeId] = {
+        orders: row.orders,
+        sales: row.sales,
+        revenueOrders: row.revenueOrders,
+        revenueSales: row.revenueSales,
+      };
+    }
+    return byStore;
   }
 
   async getTopCategoryBulk(startDate: string, endDate: string): Promise<Record<string, CategoryRankingResult>> {

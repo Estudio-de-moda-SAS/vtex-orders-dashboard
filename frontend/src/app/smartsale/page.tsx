@@ -110,6 +110,7 @@ function SmartSaleContent() {
         segments,
       };
     },
+    { autoFetchOnKeyChange: false },
   );
 
   const isLoading = requestState.status === 'loading';

@@ -22,10 +22,14 @@ function todayKey(): string {
  * consultar — el botón "Actualizar" fuerza una consulta nueva igual.
  */
 export default function PilatosPage() {
-  const { state: requestState, refetch: runQuery } = useCachedQuery<PilatosMixResponse>(`pilatos:${todayKey()}`, () => {
-    const { startDate, endDate } = getYearToDateRange();
-    return ordersService.getPilatosMix(startDate, endDate);
-  });
+  const { state: requestState, refetch: runQuery } = useCachedQuery<PilatosMixResponse>(
+    `pilatos:${todayKey()}`,
+    () => {
+      const { startDate, endDate } = getYearToDateRange();
+      return ordersService.getPilatosMix(startDate, endDate);
+    },
+    { autoFetchOnKeyChange: false },
+  );
 
   const isLoading = requestState.status === 'loading';
 

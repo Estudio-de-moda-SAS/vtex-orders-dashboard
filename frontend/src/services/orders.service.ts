@@ -1,3 +1,11 @@
+import {
+  BudgetRangeSummaryResponse,
+  BudgetSummaryResponse,
+  GetBudgetsResponse,
+  MultiplierResponse,
+  SaveBulkResponse,
+  SetMultiplierResponse,
+} from '@/types/budgets';
 import { CityBreakdown, DashboardResponse, StoreInfo } from '@/types/dashboard';
 import {
   CampaignComboTotalsByStore,
@@ -47,6 +55,31 @@ async function request<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** Igual que `request`, pero POST con body JSON — usado por los endpoints de `/api/budgets` que escriben (`needsConfirmation`/`needsMultiplier` vienen como 200 normal, con esa forma en el body; solo un error real de verdad lanza). */
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error(
+      'No fue posible conectarse con el backend. Verifique que esté en ejecución y que NEXT_PUBLIC_API_BASE_URL sea correcta.',
+    );
+  }
+
+  if (!response.ok) {
+    const responseBody = await safeParseJson(response);
+    const message = extractErrorMessage(responseBody) ?? `Error ${response.status} consultando el backend`;
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 /** Igual que `request`, pero POST sin body — usado por `resync`, que puede tardar varios minutos (recalcula EN VIVO contra VTEX), así que no lleva timeout propio: se deja correr hasta que el backend responda. */
 async function postRequest<T>(path: string): Promise<T> {
   let response: Response;
@@ -79,11 +112,25 @@ async function safeParseJson(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * `AllExceptionsFilter` (backend) envuelve la respuesta de Nest
+ * (`exception.getResponse()`, que para un `BadRequestException('texto')`
+ * ya es `{message: 'texto', error, statusCode}`) bajo su PROPIO campo
+ * `message` — así que el mensaje real queda DOBLEMENTE anidado:
+ * `body.message.message`, no `body.message`. Se revisan ambas formas (la
+ * plana y la anidada) para no perder el texto específico del backend
+ * (ej. "Código incorrecto.", "Se esperaban 30 valores...") y caer siempre
+ * en el mensaje genérico de más abajo.
+ */
 function extractErrorMessage(body: unknown): string | undefined {
-  if (body && typeof body === 'object' && 'message' in body) {
-    const message = (body as { message: unknown }).message;
-    if (typeof message === 'string') return message;
-    if (Array.isArray(message)) return message.join(', ');
+  if (!body || typeof body !== 'object') return undefined;
+  const message = (body as { message?: unknown }).message;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message)) return message.join(', ');
+  if (message && typeof message === 'object') {
+    const inner = (message as { message?: unknown }).message;
+    if (typeof inner === 'string') return inner;
+    if (Array.isArray(inner)) return inner.join(', ');
   }
   return undefined;
 }
@@ -231,5 +278,53 @@ export const ordersService = {
   getSmartSaleSegments(startDate: string, endDate: string): Promise<SmartSaleSegmentsResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<SmartSaleSegmentsResponse>(`/api/analytics/smartsale/segments?${params.toString()}`);
+  },
+
+  /** Presupuesto (canal VTEX, `/presupuesto`) — herramienta manual protegida por código compartido, sin relación con el pipeline de VTEX. */
+  verifyBudgetCode(code: string): Promise<{ ok: true }> {
+    return postJson<{ ok: true }>('/api/budgets/verify-code', { code });
+  },
+
+  getBudgetMultiplier(year: number, month: number): Promise<MultiplierResponse> {
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    return request<MultiplierResponse>(`/api/budgets/multiplier?${params.toString()}`);
+  },
+
+  /** Resumen público (sin código) por marca + total de canal, para las cards de `/presupuesto`. */
+  getBudgetsSummary(year: number, month: number): Promise<BudgetSummaryResponse> {
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    return request<BudgetSummaryResponse>(`/api/budgets/summary?${params.toString()}`);
+  },
+
+  /** Presupuesto de un rango arbitrario de fechas (puede cruzar de mes) — para "venta real vs. presupuesto". */
+  getBudgetRangeSummary(startDate: string, endDate: string): Promise<BudgetRangeSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<BudgetRangeSummaryResponse>(`/api/budgets/range-summary?${params.toString()}`);
+  },
+
+  setBudgetMultiplier(
+    year: number,
+    month: number,
+    code: string,
+    multiplier: number,
+    confirmOverwrite = false,
+  ): Promise<SetMultiplierResponse> {
+    return postJson<SetMultiplierResponse>('/api/budgets/multiplier', { year, month, code, multiplier, confirmOverwrite });
+  },
+
+  getBudgets(storeId: string, year: number, month: number): Promise<GetBudgetsResponse> {
+    const params = new URLSearchParams({ storeId, year: String(year), month: String(month) });
+    return request<GetBudgetsResponse>(`/api/budgets?${params.toString()}`);
+  },
+
+  saveBudgetsBulk(
+    storeId: string,
+    year: number,
+    month: number,
+    code: string,
+    rawValues: number[],
+    confirmOverwrite = false,
+  ): Promise<SaveBulkResponse> {
+    return postJson<SaveBulkResponse>('/api/budgets/bulk', { storeId, year, month, code, rawValues, confirmOverwrite });
   },
 };

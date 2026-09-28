@@ -114,6 +114,15 @@ export interface AppConfig {
      */
     onDemandLookbackDays: number;
   };
+  budgets: {
+    /**
+     * Código compartido simple (no un sistema de usuarios) que protege
+     * las escrituras de `/api/budgets` (`verify-code`, `POST /multiplier`,
+     * `POST /bulk`) — ver `BudgetCodeGuard`, que también limita intentos
+     * por IP. Rotarlo si se comparte con muchas personas.
+     */
+    accessCode: string | null;
+  };
 }
 
 /**
@@ -169,6 +178,9 @@ export default (): { app: AppConfig } => ({
       cronIntervalHours: parseInt(process.env.SYNC_CRON_INTERVAL_HOURS ?? '4', 10),
       recalcWindowDays: parseInt(process.env.SYNC_RECALC_WINDOW_DAYS ?? '3', 10),
       onDemandLookbackDays: parseInt(process.env.SYNC_ON_DEMAND_LOOKBACK_DAYS ?? '7', 10),
+    },
+    budgets: {
+      accessCode: process.env.BUDGET_ACCESS_CODE ?? null,
     },
   },
 });

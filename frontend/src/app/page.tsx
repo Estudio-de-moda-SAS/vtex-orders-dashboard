@@ -57,6 +57,11 @@ function DashboardContent() {
   // volver del navbar (ej. después de visitar /tendencias) muestra este
   // mismo rango al instante, sin volver a consultar el backend. Solo
   // "Consultar" o "Resincronizar" fuerzan una consulta nueva.
+  //
+  // `autoFetchOnKeyChange: false` — con dos campos de fecha, cambiar SOLO
+  // el "Desde" no debe disparar la consulta antes de que el usuario
+  // alcance a cambiar también el "Hasta": la consulta espera al botón
+  // "Consultar".
   const { state: requestState, refetch: runQuery } = useCachedQuery<DashboardPageData>(
     `dashboard:${startDate}:${endDate}`,
     async () => {
@@ -71,6 +76,7 @@ function DashboardContent() {
         ]);
       return { dashboard, discountAnalytics, categoryRanking, categoryContribution, categoryBrandRanking, storeHighlights };
     },
+    { autoFetchOnKeyChange: false },
   );
 
   const isLoading = requestState.status === 'loading';

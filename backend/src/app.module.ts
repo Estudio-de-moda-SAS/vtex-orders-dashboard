@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import configuration from './config/configuration';
+import { BudgetsModule } from './modules/budgets/budgets.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { OrdersModule } from './modules/orders/orders.module';
@@ -21,6 +22,7 @@ import { SyncModule } from './modules/sync/sync.module';
     CatalogModule,
     OrdersModule,
     StoresModule,
+    BudgetsModule,
   ],
 })
 export class AppModule {}

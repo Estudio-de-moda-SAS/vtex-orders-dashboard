@@ -65,6 +65,7 @@ function DescuentosContent() {
       ]);
       return { dashboard, discounts };
     },
+    { autoFetchOnKeyChange: false },
   );
 
   const isLoading = requestState.status === 'loading';

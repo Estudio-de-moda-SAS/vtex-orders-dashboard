@@ -7,6 +7,20 @@ export type CachedQueryState<T> =
   | { status: 'success'; data: T }
   | { status: 'error'; message: string };
 
+export interface UseCachedQueryOptions {
+  /**
+   * `true` (default): cambiar `key` (ej. el usuario elige otro filtro)
+   * dispara una consulta nueva automáticamente — para filtros de una sola
+   * elección (selects), como `/tendencias`. `false`: cambiar `key` por sí
+   * solo NO hace nada — solo un `refetch()` explícito (botón "Consultar")
+   * dispara la consulta. Necesario en páginas con DOS campos de fecha: sin
+   * esto, cambiar el "Desde" ya dispara una consulta con el "Hasta"
+   * todavía viejo, antes de que el usuario alcance a terminar de ajustar
+   * ambos campos.
+   */
+  autoFetchOnKeyChange?: boolean;
+}
+
 const PREFIX = 'vica-query-cache:';
 
 function readCache<T>(key: string): T | undefined {
@@ -38,31 +52,39 @@ function writeCache<T>(key: string, value: T): void {
  *
  * `refetch()` fuerza una consulta nueva contra el backend y sobrescribe
  * la caché — es lo que debe llamar cualquier botón "Consultar" o
- * "Actualizar": la única forma de refrescar es pedirlo explícitamente.
+ * "Actualizar".
  *
- * Cambiar `key` (ej. el usuario elige otro rango de fechas) dispara una
- * consulta nueva automáticamente SI esa combinación no estaba ya en
- * caché; si ya se había consultado antes en esta misma sesión, se sirve
- * de ahí también.
+ * El primer render SIEMPRE revisa la caché (o consulta si no hay nada) —
+ * eso es lo que hace que volver a una página ya visitada muestre datos de
+ * inmediato. Después de eso, `autoFetchOnKeyChange` decide si un cambio
+ * de `key` (ej. el usuario edita un filtro) dispara otra consulta sola, o
+ * si hace falta un `refetch()` explícito (ver `UseCachedQueryOptions`).
  */
-export function useCachedQuery<T>(key: string, fetcher: () => Promise<T>) {
+export function useCachedQuery<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  options: UseCachedQueryOptions = {},
+) {
+  const autoFetchOnKeyChange = options.autoFetchOnKeyChange ?? true;
+
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  // `refetch` necesita SIEMPRE la key más reciente al momento en que se
+  // llama (ej. el usuario cambió el rango y recién ahí aprieta
+  // "Consultar") — de ahí el ref en vez de depender de `key` en el
+  // `useCallback` (que dejaría `refetch` con una key vieja entre el
+  // cambio de filtro y el siguiente render).
+  const keyRef = useRef(key);
+  keyRef.current = key;
 
-  // SIEMPRE arranca en 'loading', nunca leyendo `sessionStorage` acá — el
-  // servidor (SSR) no tiene `sessionStorage`, así que si este inicializador
-  // dependiera de la caché, el HTML del servidor y el primer render del
-  // cliente podrían diferir (uno en "loading", el otro ya en "success"),
-  // lo que React reporta como error de hidratación. La caché se revisa en
-  // el `useEffect` de abajo, que solo corre en el cliente, después de que
-  // el primer render ya coincidió con el del servidor.
   const [state, setState] = useState<CachedQueryState<T>>({ status: 'loading' });
 
   const refetch = useCallback(async () => {
+    const currentKey = keyRef.current;
     setState({ status: 'loading' });
     try {
       const data = await fetcherRef.current();
-      writeCache(key, data);
+      writeCache(currentKey, data);
       setState({ status: 'success', data });
     } catch (error) {
       setState({
@@ -70,20 +92,24 @@ export function useCachedQuery<T>(key: string, fetcher: () => Promise<T>) {
         message: error instanceof Error ? error.message : 'Error inesperado consultando la información.',
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, []);
+
+  const isFirstRun = useRef(true);
 
   useEffect(() => {
-    const cached = readCache<T>(key);
+    if (!isFirstRun.current && !autoFetchOnKeyChange) {
+      // El usuario cambió un filtro pero todavía no aprieta "Consultar" —
+      // se deja el resultado anterior en pantalla tal cual, sin recargar.
+      return;
+    }
+    isFirstRun.current = false;
+
+    const cached = readCache<T>(keyRef.current);
     if (cached !== undefined) {
       setState({ status: 'success', data: cached });
     } else {
       refetch();
     }
-    // Deliberadamente solo depende de `key`: cambiar de filtro (que cambia
-    // la key) sí dispara una consulta nueva si hace falta, pero un
-    // `fetcher` recreado en cada render (closures sobre props/estado) no
-    // debe volver a disparar nada por sí solo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 

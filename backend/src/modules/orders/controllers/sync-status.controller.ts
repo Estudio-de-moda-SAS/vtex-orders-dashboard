@@ -23,6 +23,19 @@ export class SyncStatusController {
   }
 
   /**
+   * GET /api/sync/resync-progress
+   *
+   * Snapshot en memoria del backfill manual en curso (ver
+   * `VtexSyncCronService.getResyncProgress`) — el frontend lo consulta
+   * (poll) mientras `POST /api/sync/resync` sigue esperando respuesta,
+   * para mostrar en qué bloque de fechas va cada tienda ahora mismo.
+   */
+  @Get('resync-progress')
+  getResyncProgress() {
+    return this.vtexSyncCronService.getResyncProgress();
+  }
+
+  /**
    * POST /api/sync/resync?startDate=2026-09-17&endDate=2026-09-23
    *
    * Recalcula EN VIVO (todas las tiendas, mismo comportamiento que el

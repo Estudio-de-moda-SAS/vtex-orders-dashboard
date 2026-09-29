@@ -42,8 +42,17 @@ export function GlobalSummary({ summary }: GlobalSummaryProps) {
       {summary.storesWithIncompleteData > 0 && (
         <div className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           ⚠ {summary.storesWithIncompleteData}{' '}
-          {summary.storesWithIncompleteData === 1 ? 'tienda tuvo' : 'tiendas tuvieron'} un fallo en
+          {summary.storesWithIncompleteData === 1 ? 'tienda tuvo' : 'tiendas tuvieron'} un fallo real en
           su última sincronización con VTEX. Revisa el detalle en su tarjeta.
+        </div>
+      )}
+
+      {summary.storesWithMinorGaps > 0 && (
+        <div className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent">
+          ℹ {summary.storesWithMinorGaps}{' '}
+          {summary.storesWithMinorGaps === 1 ? 'tienda tuvo' : 'tiendas tuvieron'} una diferencia menor
+          (1-2 órdenes) al confirmar su última sincronización con VTEX — es normal, no es una falla, y
+          suele corregirse solo en la próxima sincronización. Revisa el detalle en su tarjeta si quieres verificarlo ya.
         </div>
       )}
 

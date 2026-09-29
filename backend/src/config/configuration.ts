@@ -113,6 +113,21 @@ export interface AppConfig {
      * cron normal + este fallback pidiendo huecos desde enero).
      */
     onDemandLookbackDays: number;
+    /**
+     * Tamaño máximo (en días) de cada bloque en que se parte un backfill
+     * manual (`VtexSyncCronService.runBackfillForRange`, disparado por el
+     * botón "Resincronizar" o `cli/backfill-range.ts`). Cada bloque se
+     * consulta, agrega y guarda por separado (con su propia fila en
+     * `sync_logs` y su propio `is_complete`) — sin esto, un solo hipo de
+     * paginación de VTEX en CUALQUIER punto de un rango largo marca TODOS
+     * los días del rango como incompletos de una vez (confirmado en
+     * producción: un backfill de 25 días quedó completo marcado como
+     * "posiblemente incompleto" por un único fallo puntual). Partir en
+     * bloques chicos limita el daño de un hipo a solo esos días, a costa
+     * de que el backfill completo tarde un poco más (los bloques de una
+     * misma tienda se procesan uno por uno, no en paralelo).
+     */
+    resyncChunkDays: number;
   };
   budgets: {
     /**
@@ -178,6 +193,7 @@ export default (): { app: AppConfig } => ({
       cronIntervalHours: parseInt(process.env.SYNC_CRON_INTERVAL_HOURS ?? '4', 10),
       recalcWindowDays: parseInt(process.env.SYNC_RECALC_WINDOW_DAYS ?? '3', 10),
       onDemandLookbackDays: parseInt(process.env.SYNC_ON_DEMAND_LOOKBACK_DAYS ?? '7', 10),
+      resyncChunkDays: parseInt(process.env.SYNC_RESYNC_CHUNK_DAYS ?? '5', 10),
     },
     budgets: {
       accessCode: process.env.BUDGET_ACCESS_CODE ?? null,

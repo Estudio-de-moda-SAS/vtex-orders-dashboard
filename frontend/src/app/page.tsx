@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useState } from 'react';
+import { Suspense, useCallback, useRef, useState } from 'react';
 
 import { BrandDiscountBreakdown } from '@/components/BrandDiscountBreakdown';
 import { CampaignsSection } from '@/components/CampaignsSection';
@@ -20,7 +20,7 @@ import { StoreDiscountBreakdown } from '@/components/StoreDiscountBreakdown';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
-import { DashboardResponse } from '@/types/dashboard';
+import { DashboardResponse, ResyncProgressResponse } from '@/types/dashboard';
 import {
   CategoryBrandRankingByStore,
   CategoryContributionResponse,
@@ -30,6 +30,19 @@ import {
 } from '@/types/product-analytics';
 
 const STORE_NAMES = ['Pilatos', 'Kipling', 'Diesel', 'Superdry', 'Girbaud', 'Replay'];
+
+/** Línea legible de progreso para UNA tienda, mientras dura el backfill manual (ver `ResyncProgressEntry`). */
+function formatResyncProgressLine(storeName: string, entry: ResyncProgressResponse[string]): string {
+  if (entry.status === 'done') {
+    return `${storeName}: completado (${entry.totalChunks} de ${entry.totalChunks} bloques)`;
+  }
+  if (entry.status === 'error') {
+    return `${storeName}: error durante la resincronización`;
+  }
+  const chunkNumber = Math.min(entry.completedChunks + 1, entry.totalChunks);
+  const chunkRange = entry.currentChunk ? ` (${entry.currentChunk.startDay} → ${entry.currentChunk.endDay})` : '';
+  return `${storeName}: bloque ${chunkNumber} de ${entry.totalChunks}${chunkRange}`;
+}
 
 interface DashboardPageData {
   dashboard: DashboardResponse;
@@ -52,6 +65,8 @@ export default function DashboardPage() {
 function DashboardContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-dashboard-range');
   const [resyncState, setResyncState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [resyncProgress, setResyncProgress] = useState<ResyncProgressResponse | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cacheado en sessionStorage por rango de fechas (ver `useCachedQuery`):
   // volver del navbar (ej. después de visitar /tendencias) muestra este
@@ -85,16 +100,34 @@ function DashboardContent() {
    * Recalcula EN VIVO (todas las tiendas) el rango consultado y vuelve a
    * cargar el dashboard — escape manual para cuando el conteo de VTEX no
    * cuadra con lo que muestra el dashboard (ver `resync` en
-   * `orders.service.ts`). Puede tardar varios minutos en rangos largos.
+   * `orders.service.ts`). Puede tardar varios minutos en rangos largos:
+   * el backend lo procesa en bloques de pocos días (ver
+   * `SYNC_RESYNC_CHUNK_DAYS`), así que mientras `resync()` sigue en vuelo
+   * se consulta por polling `getResyncProgress()` para mostrar en qué
+   * bloque va cada tienda ahora mismo, en vez de solo un spinner opaco.
    */
   const handleResync = useCallback(async () => {
     setResyncState('loading');
+    setResyncProgress(null);
+    pollingIntervalRef.current = setInterval(() => {
+      ordersService
+        .getResyncProgress()
+        .then(setResyncProgress)
+        .catch(() => {
+          // Solo informativo — un fallo puntual del polling no debe interrumpir el resync en curso.
+        });
+    }, 2000);
+
     try {
       await ordersService.resync(startDate, endDate);
       setResyncState('done');
       await runQuery();
     } catch {
       setResyncState('error');
+    } finally {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      setResyncProgress(null);
     }
   }, [startDate, endDate, runQuery]);
 
@@ -127,6 +160,20 @@ function DashboardContent() {
         {resyncState === 'done' && <span className="font-medium text-positive">✓ Resincronización completa</span>}
         {resyncState === 'error' && <span className="font-medium text-danger">✗ Falló la resincronización</span>}
       </div>
+
+      {resyncState === 'loading' && resyncProgress && Object.keys(resyncProgress).length > 0 && (
+        <div className="flex flex-col gap-1 rounded-2xl border border-surface-border bg-surface-panel px-4 py-3 text-sm text-ink-faint">
+          {Object.entries(resyncProgress)
+            .filter(([, entry]) => entry.status === 'running')
+            .map(([storeId, entry]) => {
+              const storeName =
+                requestState.status === 'success'
+                  ? requestState.data.dashboard.stores.find((s) => s.id === storeId)?.name ?? storeId
+                  : storeId;
+              return <span key={storeId}>{formatResyncProgressLine(storeName, entry)}</span>;
+            })}
+        </div>
+      )}
 
       {requestState.status === 'loading' && <LoadingState storeNames={STORE_NAMES} />}
 

@@ -62,17 +62,32 @@ export function DataConsistencyIndicator({ data, cronIntervalHours }: DataConsis
         <span>{formatDuration(data.responseTimeMs)} de respuesta</span>
       </div>
 
-      {!data.isComplete && (
+      {/*
+       * `lastSyncStatus` distingue dos situaciones que antes se mostraban
+       * con el MISMO mensaje de advertencia, dando a entender que algo
+       * estaba roto en ambos casos:
+       * - 'error': la corrida realmente falló (red, credenciales, etc.) —
+       *   esto sí amerita sonar como advertencia real.
+       * - 'partial': VTEX reportó un total de órdenes que no cuadró exacto
+       *   con lo que se logró traer, típicamente por 1-4 órdenes de miles
+       *   (inestabilidad conocida de paginación de VTEX, no una falla
+       *   nuestra) — se muestra como informativo (ícono "ℹ", color
+       *   `accent`, no `danger`/`warning`), explicando la causa en
+       *   palabras simples para que no se lea como "el dato está mal".
+       */}
+      {data.lastSyncStatus === 'error' && (
         <span className="inline-flex items-center gap-1.5 font-medium text-danger">
-          ⚠ La última sincronización con VTEX para esta tienda falló — los datos pueden no estar
-          al día.
+          ⚠ La sincronización con VTEX falló por un problema técnico (ej. de conexión) — estos datos podrían no
+          estar al día. Prueba &quot;Resincronizar&quot; arriba; si sigue fallando, avisa para revisarlo.
         </span>
       )}
 
       {data.incompleteDays.length > 0 ? (
-        <span className="inline-flex items-start gap-1.5 font-medium text-warning">
-          ⚠ Posible diferencia menor con VTEX en {data.incompleteDays.length === 1 ? 'este día' : 'estos días'} del
-          rango: {describeIncompleteDays(data.incompleteDays)}. Prueba el botón &quot;Resincronizar&quot; de arriba.
+        <span className="inline-flex items-start gap-1.5 font-medium text-accent">
+          ℹ VTEX tardó en confirmar el número exacto de órdenes en{' '}
+          {data.incompleteDays.length === 1 ? 'este día' : 'estos días'}: {describeIncompleteDays(data.incompleteDays)}.
+          Es normal (puede faltar 1 o 2 pedidos por confirmar, no una falla) y suele corregirse solo en la próxima
+          sincronización — si quieres verificarlo ya, usa &quot;Resincronizar&quot; arriba.
         </span>
       ) : (
         <span className="inline-flex items-center gap-1.5 font-medium text-positive">

@@ -6,7 +6,7 @@ import {
   SaveBulkResponse,
   SetMultiplierResponse,
 } from '@/types/budgets';
-import { CityBreakdown, DashboardResponse, StoreInfo } from '@/types/dashboard';
+import { CityBreakdown, DashboardResponse, ResyncProgressResponse, StoreInfo } from '@/types/dashboard';
 import {
   CampaignComboTotalsByStore,
   CategoryBrandRankingByStore,
@@ -226,6 +226,15 @@ export const ordersService = {
   resync(startDate: string, endDate: string): Promise<{ ok: true }> {
     const params = new URLSearchParams({ startDate, endDate });
     return postRequest<{ ok: true }>(`/api/sync/resync?${params.toString()}`);
+  },
+
+  /**
+   * Snapshot del backfill manual en curso, por tienda — se llama por
+   * polling MIENTRAS `resync()` sigue en vuelo, para mostrar en qué
+   * bloque de fechas va cada tienda ahora mismo (ver `ResyncProgressEntry`).
+   */
+  getResyncProgress(): Promise<ResyncProgressResponse> {
+    return request<ResyncProgressResponse>('/api/sync/resync-progress');
   },
 
   /** Card de tienda + total del canal SmartSale + desglose por persona (módulo `/smartsale`). */

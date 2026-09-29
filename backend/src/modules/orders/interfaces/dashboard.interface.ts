@@ -149,8 +149,22 @@ export interface GlobalSummary {
   totalRevenueBreakdown: Record<string, RevenueStatusBreakdown>;
   storesQueried: number;
   storesWithErrors: number;
-  /** Tiendas cuya última corrida del cron falló (ver `StoreDashboardData.isComplete`/`lastSyncStatus`). */
+  /**
+   * Tiendas cuya última corrida del cron/backfill terminó en
+   * `lastSyncStatus === 'error'` (una excepción real: credenciales,
+   * red caída, etc.) — un problema genuino que merece la alerta roja del
+   * resumen global.
+   */
   storesWithIncompleteData: number;
+  /**
+   * Tiendas cuya última corrida terminó en `lastSyncStatus === 'partial'`
+   * — VTEX reportó un conteo que no cuadró exactamente con lo obtenido
+   * (típicamente inestabilidad de paginación en un rango grande, ver
+   * `VtexSyncCronService`), NO una falla real. Se cuenta aparte de
+   * `storesWithIncompleteData` para que el resumen global no trate un
+   * hipo menor y autocorregible como si fuera un error genuino.
+   */
+  storesWithMinorGaps: number;
 }
 
 export interface DashboardResponse {

@@ -133,8 +133,10 @@ export interface GlobalSummary {
   totalRevenueBreakdown: Record<string, RevenueStatusBreakdown>;
   storesQueried: number;
   storesWithErrors: number;
-  /** Tiendas cuya última corrida del cron falló (ver `StoreDashboardData.isComplete`/`lastSyncStatus`). */
+  /** Tiendas cuya última corrida terminó en `lastSyncStatus === 'error'` — una falla real. */
   storesWithIncompleteData: number;
+  /** Tiendas cuya última corrida terminó en `lastSyncStatus === 'partial'` — hipo menor de VTEX, normalmente autocorregible, NO una falla real. */
+  storesWithMinorGaps: number;
 }
 
 export interface DashboardResponse {
@@ -149,3 +151,20 @@ export interface DashboardResponse {
   /** Cada cuántas horas corre el cron de sincronización — usado para estimar la próxima sincronización a partir de `lastSyncedAt` de cada tienda. */
   cronIntervalHours: number;
 }
+
+/**
+ * Estado en memoria (por tienda) de un backfill manual ("Resincronizar")
+ * en curso — ver `VtexSyncCronService.getResyncProgress` en el backend.
+ * Solo trae entradas para tiendas que hayan arrancado un backfill en
+ * algún momento de la vida del proceso backend; se consulta por polling
+ * mientras `POST /api/sync/resync` sigue en vuelo.
+ */
+export interface ResyncProgressEntry {
+  totalChunks: number;
+  completedChunks: number;
+  currentChunk: { startDay: string; endDay: string } | null;
+  status: 'running' | 'done' | 'error';
+  updatedAt: string;
+}
+
+export type ResyncProgressResponse = Record<string, ResyncProgressEntry>;

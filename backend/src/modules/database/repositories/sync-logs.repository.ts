@@ -50,9 +50,22 @@ export class SyncLogsRepository {
   /**
    * Para cada tienda: `lastSyncedAt` = `finished_at` de su corrida EXITOSA
    * más reciente (fuente `vtex_api`); `lastSyncStatus` = status de la
-   * corrida más RECIENTE sin importar si tuvo éxito — así el dashboard
-   * puede seguir mostrando la advertencia de "no se pudo refrescar" si la
-   * última corrida falló, aunque haya habido una exitosa antes.
+   * corrida TERMINADA más reciente (`finished_at IS NOT NULL`) — así el
+   * dashboard puede seguir mostrando la advertencia de "no se pudo
+   * refrescar" si la última corrida falló, aunque haya habido una exitosa
+   * antes.
+   *
+   * `start()` inserta la fila con `status='partial'` de entrada (antes de
+   * saber el resultado real) y recién la actualiza al terminar — así que
+   * mientras una corrida está en vuelo (el cron normal cada 4h, el boot,
+   * o un backfill manual troceado en varios bloques que puede tardar
+   * varios minutos) SIEMPRE hay una fila reciente con `status='partial'`
+   * y `finished_at IS NULL` para esa tienda. Filtrar por `finished_at IS
+   * NOT NULL` es lo que evita que ESE placeholder (100% normal, no un
+   * hipo de VTEX) se lea como si la última sincronización real hubiera
+   * quedado en partial — confirmado en producción: el banner rojo global
+   * parpadeaba con corridas que en realidad seguían en curso, no habían
+   * fallado.
    */
   async getLatestStatusByStore(): Promise<Record<string, SyncLogSummary>> {
     const result = await this.pool.query<{
@@ -66,8 +79,8 @@ export class SyncLogsRepository {
             WHERE s2.store_id = s1.store_id AND s2.source = 'vtex_api' AND s2.status = 'success'
             ORDER BY s2.finished_at DESC LIMIT 1) AS last_synced_at,
          (SELECT status FROM sync_logs s3
-            WHERE s3.store_id = s1.store_id AND s3.source = 'vtex_api'
-            ORDER BY s3.started_at DESC LIMIT 1) AS last_status
+            WHERE s3.store_id = s1.store_id AND s3.source = 'vtex_api' AND s3.finished_at IS NOT NULL
+            ORDER BY s3.finished_at DESC LIMIT 1) AS last_status
        FROM (SELECT DISTINCT store_id FROM sync_logs WHERE source = 'vtex_api') s1`,
     );
 

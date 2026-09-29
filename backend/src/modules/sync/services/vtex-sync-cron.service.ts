@@ -5,7 +5,8 @@ import pLimit from 'p-limit';
 
 import { aggregateDailyRows } from '../../../common/aggregation/daily-aggregator';
 import { DailyAggregationResult, EnrichedOrder, EnrichedOrderItem } from '../../../common/aggregation/types';
-import { enumerateDayBuckets, subtractDaysUtc, todayColombia, toDayBucketColombia } from '../../../common/utils/date-range.util';
+import { addDaysUtc, enumerateDayBuckets, subtractDaysUtc, todayColombia, toDayBucketColombia } from '../../../common/utils/date-range.util';
+import { KeyedMutex } from '../../../common/utils/keyed-mutex.util';
 import { extractOrderDetail } from '../../../common/utils/order-item-extract.util';
 import { getStoresConfig, StoreConfig } from '../../../config/stores.config';
 import { ReferenceRepository } from '../../database/repositories/reference.repository';
@@ -22,6 +23,23 @@ const UNKNOWN_COLLECTION = 'Sin colección';
 export interface SyncRange {
   startIso: string;
   endIso: string;
+}
+
+/**
+ * Estado en memoria (por tienda) del backfill manual en curso — expuesto
+ * vía `GET /api/sync/resync-progress` para que el frontend pueda mostrar
+ * "Resincronizando Diesel: bloque 2 de 6 (2026-09-06 → 2026-09-10)…"
+ * mientras `runBackfillForRange` (que sigue siendo síncrono de punta a
+ * punta para quien lo llama) avanza bloque por bloque. Vive en memoria de
+ * ESTE proceso, se pierde si el backend se reinicia a mitad de un
+ * backfill — aceptable, es solo informativo.
+ */
+export interface ResyncProgressEntry {
+  totalChunks: number;
+  completedChunks: number;
+  currentChunk: { startDay: string; endDay: string } | null;
+  status: 'running' | 'done' | 'error';
+  updatedAt: string;
 }
 
 /**
@@ -47,6 +65,11 @@ export class VtexSyncCronService implements OnModuleInit {
   private readonly storeConcurrency: number;
   private readonly recalcWindowDays: number;
   private readonly orderEnrichConcurrency: number;
+  private readonly resyncChunkDays: number;
+  /** Serializa `replaceAggregates` por tienda — ver `KeyedMutex` para el porqué (evita el `duplicate key` entre el cron y el respaldo en vivo del dashboard). */
+  private readonly writeLock = new KeyedMutex();
+  /** Ver `ResyncProgressEntry` — una entrada por tienda, solo mientras hay un backfill manual en curso para ella. */
+  private readonly resyncProgress = new Map<string, ResyncProgressEntry>();
 
   constructor(
     private readonly vtexOrdersService: VtexOrdersService,
@@ -60,6 +83,7 @@ export class VtexSyncCronService implements OnModuleInit {
     this.storeConcurrency = this.configService.get<number>('app.vtex.storeConcurrency', 3);
     this.recalcWindowDays = this.configService.get<number>('app.sync.recalcWindowDays', 3);
     this.orderEnrichConcurrency = this.configService.get<number>('app.vtex.orderEnrichConcurrency', 20);
+    this.resyncChunkDays = this.configService.get<number>('app.sync.resyncChunkDays', 5);
   }
 
   async onModuleInit(): Promise<void> {
@@ -113,17 +137,110 @@ export class VtexSyncCronService implements OnModuleInit {
 
   /**
    * Backfill manual para un rango de fechas explícito (ej. cerrar el
-   * hueco entre el histórico de Excel y el arranque del cron). Recalcula
-   * por completo esos días para las tiendas indicadas (o todas, si se
-   * omite `storeIds`) — mismo comportamiento de "sobrescribe, no
-   * incrementa" que la corrida normal del cron.
+   * hueco entre el histórico de Excel y el arranque del cron, o el botón
+   * "Resincronizar"). Recalcula por completo esos días para las tiendas
+   * indicadas (o todas, si se omite `storeIds`) — mismo comportamiento de
+   * "sobrescribe, no incrementa" que la corrida normal del cron.
+   *
+   * El rango se parte en bloques de `resyncChunkDays` días (ver
+   * `ResyncProgressEntry`): cada bloque se sincroniza y persiste por
+   * separado, con su propia fila en `sync_logs` y su propio
+   * `is_complete`. Sin esto, un solo hipo de paginación de VTEX en
+   * CUALQUIER punto de un rango largo (`fetchAndAggregate` calcula un
+   * único `isComplete` para TODO lo que se le pida) marca TODOS los días
+   * del rango como incompletos de una vez — confirmado en producción, un
+   * backfill de 25 días quedó completo marcado como sospechoso por un
+   * único fallo puntual en algún punto de esa ventana. Se sigue esperando
+   * (`await`) a que termine TODO el rango antes de resolver esta promesa
+   * (igual que antes) — el llamador que quiera progreso en vivo mientras
+   * tanto usa `getResyncProgress()` en paralelo, no cambia el contrato de
+   * "termina cuando termina" de este método.
    */
   async runBackfillForRange(startDay: string, endDay: string, storeIds?: string[]): Promise<void> {
-    const range: SyncRange = {
-      startIso: new Date(`${startDay}T00:00:00.000-05:00`).toISOString(),
-      endIso: new Date(`${endDay}T23:59:59.999-05:00`).toISOString(),
-    };
-    await this.runForAllStores(range, storeIds);
+    const stores = getStoresConfig().filter(
+      (store) => store.appKey && store.appToken && (!storeIds || storeIds.includes(store.id)),
+    );
+    const collectionsBySkuAndStore = await this.referenceRepository.getAllCollections();
+    const chunks = this.splitIntoChunks(startDay, endDay, this.resyncChunkDays);
+
+    const limit = pLimit(this.storeConcurrency);
+    await Promise.all(
+      stores.map((store) => limit(() => this.runBackfillForStoreChunked(store, chunks, collectionsBySkuAndStore))),
+    );
+  }
+
+  /** Parte `[startDay, endDay]` en tramos contiguos de a lo sumo `chunkDays` días cada uno. */
+  private splitIntoChunks(startDay: string, endDay: string, chunkDays: number): { startDay: string; endDay: string }[] {
+    const chunks: { startDay: string; endDay: string }[] = [];
+    let cursor = startDay;
+    while (cursor <= endDay) {
+      const chunkEnd = [addDaysUtc(cursor, chunkDays - 1), endDay].sort()[0];
+      chunks.push({ startDay: cursor, endDay: chunkEnd });
+      cursor = addDaysUtc(chunkEnd, 1);
+    }
+    return chunks;
+  }
+
+  /**
+   * Corre los bloques de UNA tienda uno por uno (nunca en paralelo entre
+   * sí — cada bloque debe quedar guardado antes de arrancar el
+   * siguiente, para que `sync_logs`/`sync_day_status` reflejen bloques
+   * realmente independientes). `runSyncForStore` ya atrapa sus propios
+   * errores internamente (los deja en `sync_logs` como `'error'` sin
+   * relanzar), así que un bloque fallido no interrumpe los siguientes.
+   */
+  private async runBackfillForStoreChunked(
+    store: StoreConfig,
+    chunks: { startDay: string; endDay: string }[],
+    collectionsBySkuAndStore: Map<string, string>,
+  ): Promise<void> {
+    this.resyncProgress.set(store.id, {
+      totalChunks: chunks.length,
+      completedChunks: 0,
+      currentChunk: chunks[0] ?? null,
+      status: 'running',
+      updatedAt: new Date().toISOString(),
+    });
+
+    for (const chunk of chunks) {
+      this.resyncProgress.set(store.id, {
+        ...this.resyncProgress.get(store.id)!,
+        currentChunk: chunk,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const range: SyncRange = {
+        startIso: new Date(`${chunk.startDay}T00:00:00.000-05:00`).toISOString(),
+        endIso: new Date(`${chunk.endDay}T23:59:59.999-05:00`).toISOString(),
+      };
+      await this.runSyncForStore(store, range, collectionsBySkuAndStore);
+
+      const previous = this.resyncProgress.get(store.id)!;
+      this.resyncProgress.set(store.id, {
+        ...previous,
+        completedChunks: previous.completedChunks + 1,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    this.resyncProgress.set(store.id, {
+      ...this.resyncProgress.get(store.id)!,
+      currentChunk: null,
+      status: 'done',
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Snapshot actual del backfill manual en curso, por tienda — ver
+   * `ResyncProgressEntry`. Solo tiene entradas para tiendas que hayan
+   * arrancado un backfill manual en algún momento de la vida de este
+   * proceso (queda en `'done'` indefinidamente después de terminar, no
+   * se borra — el frontend decide qué hacer con eso, ej. dejar de
+   * mostrarlo cuando `status==='done'` en TODAS las tiendas pedidas).
+   */
+  getResyncProgress(): Record<string, ResyncProgressEntry> {
+    return Object.fromEntries(this.resyncProgress.entries());
   }
 
   private async runForAllStores(range: SyncRange, storeIds?: string[]): Promise<void> {
@@ -165,7 +282,7 @@ export class VtexSyncCronService implements OnModuleInit {
         storeId: store.id,
       }));
 
-      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete);
+      await this.writeLock.run(store.id, () => this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete));
 
       await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
@@ -245,7 +362,7 @@ export class VtexSyncCronService implements OnModuleInit {
         date,
         storeId,
       }));
-      await this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete);
+      await this.writeLock.run(storeId, () => this.salesAggregatesRepository.replaceAggregates(aggregation, touchedDays, isComplete));
       await this.syncLogsRepository.finish(syncLogId, isComplete ? 'success' : 'partial', {
         recordsRead,
         recordsInserted: aggregation.salesDaily.length,

@@ -203,6 +203,7 @@ export class OrdersAnalyticsService {
     let totalRevenueValue = 0;
     let storesWithErrors = 0;
     let storesWithIncompleteData = 0;
+    let storesWithMinorGaps = 0;
 
     const totalRevenueBreakdown: Record<string, RevenueStatusBreakdown> = {};
     for (const definition of this.revenueStatusDefinitions) {
@@ -220,7 +221,15 @@ export class OrdersAnalyticsService {
           target.value += breakdown.value;
           totalRevenueBreakdown[key] = target;
         }
-        if (!result.data.isComplete) storesWithIncompleteData += 1;
+        // 'error' = una excepción real en la última corrida (falla genuina,
+        // amerita la alerta roja). 'partial' = VTEX reportó un conteo que no
+        // cuadró exactamente (hipo de paginación, normalmente 1-2 órdenes,
+        // autocorregible) — NO es lo mismo, y agruparlos bajo la misma
+        // alerta hacía que los usuarios desconfiaran del dato por un hipo
+        // menor (ver `DataConsistencyIndicator`, que ya distingue esto por
+        // tienda; esto es lo mismo pero a nivel del resumen global).
+        if (result.data.lastSyncStatus === 'error') storesWithIncompleteData += 1;
+        else if (result.data.lastSyncStatus === 'partial') storesWithMinorGaps += 1;
       } else {
         storesWithErrors += 1;
       }
@@ -234,6 +243,7 @@ export class OrdersAnalyticsService {
       storesQueried: storeResults.length,
       storesWithErrors,
       storesWithIncompleteData,
+      storesWithMinorGaps,
     };
   }
 }

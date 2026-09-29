@@ -156,18 +156,27 @@ export class DashboardQueryRepository {
   }
 
   /**
-   * Días (YYYY-MM-DD) dentro de `[startDay, endDay]` que NO tienen
-   * ninguna fila en `sales_daily` para esta tienda — es decir, que el
-   * cron/importador nunca sincronizó. Usado por `OrdersService` para
-   * decidir si hace falta un fallback en vivo a VTEX para completar la
-   * respuesta del dashboard (ver `VtexSyncCronService.fetchOnDemand`).
+   * Días (YYYY-MM-DD) dentro de `[startDay, endDay]` que el cron/importador
+   * NUNCA tocó para esta tienda — usado por `OrdersService` para decidir
+   * si hace falta un fallback en vivo a VTEX (`VtexSyncCronService.fetchOnDemand`).
+   *
+   * Se revisa `sync_day_status` (marca CADA día que el cron efectivamente
+   * procesó, tenga o no órdenes ese día) — NUNCA `sales_daily` (que solo
+   * tiene fila para días con AL MENOS una orden). Revisar `sales_daily`
+   * era el bug real: un día con ventas en cero (frecuente en tiendas de
+   * bajo volumen, o en el día de HOY antes de la primera venta) nunca
+   * llega a tener fila propia ahí, así que se veía indistinguible de "no
+   * sincronizado" — cada visita al dashboard disparaba una consulta en
+   * vivo a VTEX de nuevo para ese mismo día, sin parar, confirmado en
+   * producción (Kipling/Replay resincronizándose solos cada 30-90
+   * segundos por el 29 de septiembre, un día real en cero hasta ahora).
    */
   async findMissingDays(storeId: string, startDay: string, endDay: string): Promise<string[]> {
     const result = await this.pool.query<{ date: string }>(
       `SELECT gs.date::date::text AS date
        FROM generate_series($2::date, $3::date, interval '1 day') AS gs(date)
-       LEFT JOIN sales_daily sd ON sd.date = gs.date::date AND sd.store_id = $1
-       WHERE sd.date IS NULL
+       LEFT JOIN sync_day_status sds ON sds.date = gs.date::date AND sds.store_id = $1
+       WHERE sds.date IS NULL
        ORDER BY gs.date`,
       [storeId, startDay, endDay],
     );

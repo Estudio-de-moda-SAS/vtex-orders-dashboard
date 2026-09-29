@@ -17,7 +17,7 @@
     "db:migrate": "ts-node -r tsconfig-paths/register src/modules/database/scripts/run-migrations.ts",
     "import:historico": "ts-node -r tsconfig-paths/register src/cli/import-historical-orders.ts",
     "backfill": "ts-node -r tsconfig-paths/register src/cli/backfill-range.ts",
-    "test": "node --require ts-node/register --test src/common/aggregation/daily-aggregator.test.ts src/cli/excel-import/row-picker.test.ts src/cli/excel-import/row-mapper.test.ts"
+    "test": "node --require ts-node/register --test src/common/aggregation/daily-aggregator.test.ts src/cli/excel-import/row-picker.test.ts src/cli/excel-import/row-mapper.test.ts src/common/utils/keyed-mutex.util.test.ts"
   },
   "dependencies": {
     "@nestjs/axios": "^3.0.2",

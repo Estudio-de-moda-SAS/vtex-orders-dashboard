@@ -131,7 +131,7 @@ export class SmartSaleService {
     const rows = await this.dashboardQueryRepository.queryGrouped(
       'smartsale_daily_by_discount_bucket',
       'discount_percentage',
-      ['revenue_units', 'revenue_sales'],
+      ['units', 'revenue_sales'],
       startDay,
       endDay,
     );
@@ -362,7 +362,7 @@ export class SmartSaleService {
     for (const row of rows) {
       const bucket = Number(row.discount_percentage ?? 0);
       const entry = counts.get(bucket) ?? { count: 0, sales: 0 };
-      entry.count += Number(row.revenue_units);
+      entry.count += Number(row.units);
       entry.sales += Number(row.revenue_sales);
       counts.set(bucket, entry);
     }

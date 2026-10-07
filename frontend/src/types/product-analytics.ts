@@ -8,15 +8,19 @@ export interface DiscountBucket {
   bucket: number;
   /** Cuántos ítems (no órdenes) cayeron en este bucket. */
   count: number;
+  /** Valor en pesos vendido bajo este bucket de descuento. */
+  sales: number;
 }
 
 export interface DiscountDistribution {
   /** Ordenados de bucket ascendente (0%, 5%, 10%...). */
   buckets: DiscountBucket[];
-  /** El bucket con más ocurrencias, o `null` si no hay datos todavía. */
+  /** El bucket con más ocurrencias (por UNIDADES), o `null` si no hay datos todavía. */
   topBucket: number | null;
   /** Total de ítems considerados (suma de todos los buckets) — para calcular "% de ítems con el descuento top" sin sumar los buckets a mano. */
   totalItems: number;
+  /** Total en pesos de todos los buckets (incluye el 0%, sin descuento) — denominador para "% de la venta" de cada bucket. */
+  totalSales: number;
 }
 
 /**

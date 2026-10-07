@@ -183,6 +183,8 @@ export interface SalesDailyByDiscountBucketRow {
   discountPercentage: number;
   units: number;
   sales: number;
+  revenueUnits: number;
+  revenueSales: number;
 }
 
 export interface SalesDailyByCategoryBrandRow {
@@ -211,6 +213,8 @@ export interface SalesDailyByBrandDiscountBucketRow {
   discountPercentage: number;
   units: number;
   sales: number;
+  revenueUnits: number;
+  revenueSales: number;
 }
 
 export interface SalesDailyBySellerRow {
@@ -254,6 +258,8 @@ export interface SmartSaleByDiscountBucketRow {
   discountPercentage: number;
   units: number;
   sales: number;
+  revenueUnits: number;
+  revenueSales: number;
 }
 export interface SmartSaleByDiscountCampaignRow {
   date: string;

@@ -16,6 +16,7 @@ import {
   StoreHighlightsByStore,
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
+import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
 import {
   SmartSaleCampaignsByStore,
   SmartSaleMonthlyTrendPoint,
@@ -215,6 +216,13 @@ export const ordersService = {
   getPilatosMix(startDate: string, endDate: string): Promise<PilatosMixResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<PilatosMixResponse>(`/api/analytics/pilatos-mix?${params.toString()}`);
+  },
+
+  /** Participación de cada método de pago mes a mes (módulo `/metodos-pago`). `storeId` opcional: sin él, todas las tiendas combinadas. */
+  getPaymentMethodsTrend(startDate: string, endDate: string, storeId?: string): Promise<PaymentMethodsTrendResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    if (storeId) params.set('storeId', storeId);
+    return request<PaymentMethodsTrendResponse>(`/api/analytics/payment-methods-trend?${params.toString()}`);
   },
 
   /**

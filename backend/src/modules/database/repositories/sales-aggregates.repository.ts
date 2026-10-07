@@ -120,8 +120,8 @@ export class SalesAggregatesRepository {
       await this.insertRows(
         client,
         'sales_daily_by_discount_bucket',
-        ['date', 'store_id', 'discount_percentage', 'units', 'sales'],
-        result.byDiscountBucket.map((r) => [r.date, r.storeId, r.discountPercentage, r.units, r.sales]),
+        ['date', 'store_id', 'discount_percentage', 'units', 'sales', 'revenue_units', 'revenue_sales'],
+        result.byDiscountBucket.map((r) => [r.date, r.storeId, r.discountPercentage, r.units, r.sales, r.revenueUnits, r.revenueSales]),
       );
 
       await this.insertRows(
@@ -141,8 +141,17 @@ export class SalesAggregatesRepository {
       await this.insertRows(
         client,
         'sales_daily_by_brand_discount_bucket',
-        ['date', 'store_id', 'brand_name', 'discount_percentage', 'units', 'sales'],
-        result.byBrandDiscountBucket.map((r) => [r.date, r.storeId, r.brandName, r.discountPercentage, r.units, r.sales]),
+        ['date', 'store_id', 'brand_name', 'discount_percentage', 'units', 'sales', 'revenue_units', 'revenue_sales'],
+        result.byBrandDiscountBucket.map((r) => [
+          r.date,
+          r.storeId,
+          r.brandName,
+          r.discountPercentage,
+          r.units,
+          r.sales,
+          r.revenueUnits,
+          r.revenueSales,
+        ]),
       );
 
       await this.insertRows(
@@ -169,8 +178,8 @@ export class SalesAggregatesRepository {
       await this.insertRows(
         client,
         'smartsale_daily_by_discount_bucket',
-        ['date', 'store_id', 'discount_percentage', 'units', 'sales'],
-        result.smartSaleByDiscountBucket.map((r) => [r.date, r.storeId, r.discountPercentage, r.units, r.sales]),
+        ['date', 'store_id', 'discount_percentage', 'units', 'sales', 'revenue_units', 'revenue_sales'],
+        result.smartSaleByDiscountBucket.map((r) => [r.date, r.storeId, r.discountPercentage, r.units, r.sales, r.revenueUnits, r.revenueSales]),
       );
       await this.insertRows(
         client,

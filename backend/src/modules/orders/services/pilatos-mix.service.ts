@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
 import { normalizeEndDate, normalizeStartDate, toDayBucketColombia } from '../../../common/utils/date-range.util';
+import { classifyParticipationGrowth } from '../../../common/utils/participation-growth.util';
 import { matchRevenueStatusDefinition } from '../../../common/utils/revenue-status.util';
-import { getParticipationGrowthThresholds, GrowthThresholds } from '../../../config/growth-thresholds.config';
+import { getParticipationGrowthThresholds } from '../../../config/growth-thresholds.config';
 import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
-import { GrowthStatus } from '../interfaces/trends.interface';
 import { MonthlyMixPoint, PilatosMixResponse, SeriesParticipation } from '../interfaces/pilatos-mix.interface';
 
 const PILATOS_STORE_ID = 'pilatos';
@@ -103,7 +103,7 @@ export class PilatosMixService {
         );
         priorParticipation = participationPercent;
         if (participationPercent > 0) everHadParticipation = true;
-        return { month: point.month, participationPercent, salesValue: value, growthPercent, status };
+        return { month: point.month, participationPercent, salesValue: value, total: point.total, growthPercent, status };
       });
       return { name, points: seriesPoints };
     });
@@ -147,29 +147,4 @@ export class PilatosMixService {
 
 function monthKey(year: string | number, month: string | number): string {
   return `${year}-${String(month).padStart(2, '0')}`;
-}
-
-/**
- * `prior === null` cuando no hay mes anterior en el rango pedido (primer
- * punto). `everHadParticipation` = si el nombre ya tuvo participación > 0
- * en ALGÚN mes anterior de la serie (no solo el inmediatamente anterior)
- * — distingue un debut real ('new') de una reactivación tras un mes en 0
- * ('green': es una mejora clara, aunque no haya un % de referencia
- * significativo para calcular contra cero).
- */
-function classifyParticipationGrowth(
-  current: number,
-  prior: number | null,
-  everHadParticipation: boolean,
-  thresholds: GrowthThresholds,
-): { growthPercent: number | null; status: GrowthStatus } {
-  if (prior === null) return { growthPercent: null, status: 'no-data' };
-  if (prior === 0) {
-    if (current === 0) return { growthPercent: null, status: 'no-data' };
-    return { growthPercent: null, status: everHadParticipation ? 'green' : 'new' };
-  }
-  const growthPercent = ((current - prior) / prior) * 100;
-  const status: GrowthStatus =
-    growthPercent >= thresholds.greenMinPercent ? 'green' : growthPercent <= thresholds.redMaxPercent ? 'red' : 'yellow';
-  return { growthPercent, status };
 }

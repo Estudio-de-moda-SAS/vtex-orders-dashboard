@@ -28,12 +28,17 @@ import {
  * de fechas pedido. Mismos métodos públicos que antes de la migración —
  * el contrato con el frontend no cambia.
  *
- * Nota sobre `DiscountBucket.count`: antes contaba líneas de producto
- * (una por SKU distinto en una orden); como el agregado diario solo
- * guarda unidades totales por bucket (no líneas individuales), aquí
- * `count` representa UNIDADES vendidas con ese % de descuento — una
- * lectura al menos igual de útil para "cuál descuento se aplicó más", y
- * la única posible sin volver a guardar el detalle línea por línea.
+ * Nota sobre `DiscountBucket.count`/`sales`: se leen de `revenue_units`/
+ * `revenue_sales` (NO de `units`/`sales`, que cuentan TODAS las órdenes
+ * sin importar estado) — mismo criterio de "ventas" que el resto del
+ * dashboard (solo estados contabilizados, ver `revenue-status.config.ts`).
+ * Antes leía `units`/`sales` sin filtrar, lo que hacía que el valor en
+ * pesos de este desglose incluyera órdenes canceladas y no cuadrara
+ * contra el total de ventas real de la tienda (confirmado en producción:
+ * Pilatos mostraba ~$16M de más, exactamente la plata de sus canceladas
+ * del rango). El frontend alterna entre unidades y pesos con un toggle,
+ * sin que esto cambie cuál bucket es "el más aplicado" (`topBucket`, que
+ * sigue siendo por unidades).
  */
 
 /** Mismo literal que `UNKNOWN_COLLECTION` en `vtex-sync-cron.service.ts`/`cli/excel-import/row-mapper.ts`. */
@@ -171,7 +176,7 @@ export class ProductAnalyticsService {
     const bucketRows = await this.dashboardQueryRepository.queryGrouped(
       'sales_daily_by_discount_bucket',
       'discount_percentage',
-      ['units'],
+      ['revenue_units', 'revenue_sales'],
       startDay,
       endDay,
     );
@@ -313,7 +318,7 @@ export class ProductAnalyticsService {
     endDay: string,
   ): Promise<{ storeNames: string[]; general: DiscountDistribution; byBrand: Record<string, DiscountDistribution> }> {
     if (multiBrandStores.length === 0) {
-      return { storeNames: [], general: { buckets: [], topBucket: null, totalItems: 0 }, byBrand: {} };
+      return { storeNames: [], general: { buckets: [], topBucket: null, totalItems: 0, totalSales: 0 }, byBrand: {} };
     }
 
     const rows: Record<string, string | number>[] = [];
@@ -321,7 +326,7 @@ export class ProductAnalyticsService {
       const storeRows = await this.dashboardQueryRepository.queryGrouped(
         'sales_daily_by_brand_discount_bucket',
         'discount_percentage',
-        ['units'],
+        ['revenue_units', 'revenue_sales'],
         startDay,
         endDay,
         store.id,
@@ -336,7 +341,7 @@ export class ProductAnalyticsService {
       const storeBrandRows = await this.dashboardQueryRepository.queryGroupedMulti(
         'sales_daily_by_brand_discount_bucket',
         ['brand_name', 'discount_percentage'],
-        ['units'],
+        ['revenue_units', 'revenue_sales'],
         startDay,
         endDay,
         store.id,
@@ -363,15 +368,21 @@ export class ProductAnalyticsService {
    * mismo bucket.
    */
   private buildDistribution(rows: Record<string, string | number>[]): DiscountDistribution {
-    const counts = new Map<number, number>();
+    const counts = new Map<number, { count: number; sales: number }>();
     for (const row of rows) {
       const bucket = Number(row.discount_percentage ?? 0);
-      counts.set(bucket, (counts.get(bucket) ?? 0) + Number(row.units));
+      const entry = counts.get(bucket) ?? { count: 0, sales: 0 };
+      entry.count += Number(row.revenue_units);
+      entry.sales += Number(row.revenue_sales);
+      counts.set(bucket, entry);
     }
     const buckets = Array.from(counts.entries())
-      .map(([bucket, count]) => ({ bucket, count }))
+      .map(([bucket, entry]) => ({ bucket, count: entry.count, sales: entry.sales }))
       .sort((a, b) => a.bucket - b.bucket);
 
+    // El bucket "más aplicado" se elige por UNIDADES (no por pesos) — ver
+    // nota de clase: es el mismo criterio histórico, independiente de que
+    // ahora también se muestre/ordene por pesos en el toggle del frontend.
     let topBucket: number | null = null;
     let topCount = -1;
     for (const entry of buckets) {
@@ -382,7 +393,8 @@ export class ProductAnalyticsService {
     }
 
     const totalItems = buckets.reduce((acc, b) => acc + b.count, 0);
-    return { buckets, topBucket, totalItems };
+    const totalSales = buckets.reduce((acc, b) => acc + b.sales, 0);
+    return { buckets, topBucket, totalItems, totalSales };
   }
 
   private buildCategoryBreakdown(rows: Record<string, string | number>[]): Record<string, CategoryBreakdown> {

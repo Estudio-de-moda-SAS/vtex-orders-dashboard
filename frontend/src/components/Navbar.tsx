@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
   { href: '/tendencias', label: 'Tendencias' },
   { href: '/descuentos', label: 'Descuentos' },
+  { href: '/metodos-pago', label: 'Métodos de pago' },
   { href: '/pilatos', label: 'Pilatos' },
   { href: '/smartsale', label: 'SmartSale' },
   { href: '/presupuesto', label: 'Presupuesto' },

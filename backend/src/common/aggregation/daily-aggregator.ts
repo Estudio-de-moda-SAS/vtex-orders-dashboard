@@ -378,9 +378,22 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
         const brandBucketKey = `${date}::${storeId}::${item.brand}::${item.discountPercentage}`;
         const brandBucketRow =
           byBrandDiscountBucket.get(brandBucketKey) ??
-          { date, storeId, brandName: item.brand, discountPercentage: item.discountPercentage, units: 0, sales: 0 };
+          {
+            date,
+            storeId,
+            brandName: item.brand,
+            discountPercentage: item.discountPercentage,
+            units: 0,
+            sales: 0,
+            revenueUnits: 0,
+            revenueSales: 0,
+          };
         brandBucketRow.units += item.quantity;
         brandBucketRow.sales += itemValue;
+        if (isRevenue) {
+          brandBucketRow.revenueUnits += item.quantity;
+          brandBucketRow.revenueSales += itemValue;
+        }
         byBrandDiscountBucket.set(brandBucketKey, brandBucketRow);
       }
 
@@ -411,17 +424,25 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       const bucketKey = `${date}::${storeId}::${item.discountPercentage}`;
       const bucketRow =
         byDiscountBucket.get(bucketKey) ??
-        { date, storeId, discountPercentage: item.discountPercentage, units: 0, sales: 0 };
+        { date, storeId, discountPercentage: item.discountPercentage, units: 0, sales: 0, revenueUnits: 0, revenueSales: 0 };
       bucketRow.units += item.quantity;
       bucketRow.sales += itemValue;
+      if (isRevenue) {
+        bucketRow.revenueUnits += item.quantity;
+        bucketRow.revenueSales += itemValue;
+      }
       byDiscountBucket.set(bucketKey, bucketRow);
 
       if (isSmartSale) {
         const ssBucketRow =
           smartSaleByDiscountBucket.get(bucketKey) ??
-          { date, storeId, discountPercentage: item.discountPercentage, units: 0, sales: 0 };
+          { date, storeId, discountPercentage: item.discountPercentage, units: 0, sales: 0, revenueUnits: 0, revenueSales: 0 };
         ssBucketRow.units += item.quantity;
         ssBucketRow.sales += itemValue;
+        if (isRevenue) {
+          ssBucketRow.revenueUnits += item.quantity;
+          ssBucketRow.revenueSales += itemValue;
+        }
         smartSaleByDiscountBucket.set(bucketKey, ssBucketRow);
       }
     }

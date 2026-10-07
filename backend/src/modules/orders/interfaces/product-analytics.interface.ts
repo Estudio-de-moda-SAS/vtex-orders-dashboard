@@ -11,6 +11,8 @@ export interface DiscountBucket {
   bucket: number;
   /** Cuántos ítems (no órdenes) cayeron en este bucket. */
   count: number;
+  /** Valor en pesos vendido bajo este bucket de descuento (suma de `sales` de `sales_daily_by_discount_bucket`/`by_brand_discount_bucket`) — para ver "cuánto participó de la venta" cada descuento, insumo para margen más adelante. */
+  sales: number;
 }
 
 export interface DiscountDistribution {
@@ -20,6 +22,8 @@ export interface DiscountDistribution {
   topBucket: number | null;
   /** Total de ítems considerados (suma de todos los buckets) — para calcular "% de ítems con el descuento top" sin sumar los buckets a mano. */
   totalItems: number;
+  /** Total en pesos de todos los buckets (incluye el bucket 0%, sin descuento) — denominador para "% de la venta" de cada bucket. */
+  totalSales: number;
 }
 
 /**

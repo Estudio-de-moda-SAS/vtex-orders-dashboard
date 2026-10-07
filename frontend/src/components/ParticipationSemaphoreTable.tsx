@@ -8,6 +8,10 @@ import { SeriesParticipation } from '@/types/pilatos-mix';
 interface ParticipationSemaphoreTableProps {
   title: string;
   series: SeriesParticipation[];
+  /** Encabezado de la primera columna — por defecto el usado en `/pilatos`. */
+  rowLabel?: string;
+  /** A qué total contabilizado se refiere el %, usado en el subtítulo (ej. "Pilatos", "la tienda", "todas las tiendas"). */
+  totalLabel?: string;
 }
 
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -25,7 +29,12 @@ function monthLabel(month: string): string {
  * (±5%, ver `getParticipationGrowthThresholds`) + "Nuevo" cuando ese mes
  * fue la primera vez con participación.
  */
-export function ParticipationSemaphoreTable({ title, series }: ParticipationSemaphoreTableProps) {
+export function ParticipationSemaphoreTable({
+  title,
+  series,
+  rowLabel = 'Seller / Marketplace',
+  totalLabel = 'Pilatos',
+}: ParticipationSemaphoreTableProps) {
   if (series.length === 0 || series.every((s) => s.points.length === 0)) {
     return (
       <ChartPanel title={title}>
@@ -39,7 +48,7 @@ export function ParticipationSemaphoreTable({ title, series }: ParticipationSema
   return (
     <ChartPanel title={title}>
       <p className="-mt-1 mb-3 text-xs text-ink-faint">
-        % de participación sobre el total contabilizado de Pilatos ese mes, y si esa participación creció o cayó
+        % de participación sobre el total contabilizado de {totalLabel} ese mes, y si esa participación creció o cayó
         respecto al mes anterior.
       </p>
       <div className="overflow-x-auto">
@@ -47,7 +56,7 @@ export function ParticipationSemaphoreTable({ title, series }: ParticipationSema
           <thead>
             <tr>
               <th className="sticky left-0 bg-surface-panel px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                Seller / Marketplace
+                {rowLabel}
               </th>
               {months.map((month) => (
                 <th key={month} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-ink-faint">

@@ -131,7 +131,7 @@ export class SmartSaleService {
     const rows = await this.dashboardQueryRepository.queryGrouped(
       'smartsale_daily_by_discount_bucket',
       'discount_percentage',
-      ['units'],
+      ['revenue_units', 'revenue_sales'],
       startDay,
       endDay,
     );
@@ -140,7 +140,11 @@ export class SmartSaleService {
     for (const store of this.storesById.values()) {
       byStore[store.id] = this.buildDistribution(rows.filter((r) => r.store_id === store.id));
     }
-    return { global, byStore, multiBrand: { storeNames: [], general: { buckets: [], topBucket: null, totalItems: 0 }, byBrand: {} } };
+    return {
+      global,
+      byStore,
+      multiBrand: { storeNames: [], general: { buckets: [], topBucket: null, totalItems: 0, totalSales: 0 }, byBrand: {} },
+    };
   }
 
   async getCampaigns(startDate: string, endDate: string): Promise<SmartSaleCampaignsByStore> {
@@ -354,13 +358,16 @@ export class SmartSaleService {
 
   /** Igual regla que `ProductAnalyticsService.buildDistribution` — buckets ya vienen sparse (solo los que se aplicaron). */
   private buildDistribution(rows: Record<string, string | number>[]): DiscountDistribution {
-    const counts = new Map<number, number>();
+    const counts = new Map<number, { count: number; sales: number }>();
     for (const row of rows) {
       const bucket = Number(row.discount_percentage ?? 0);
-      counts.set(bucket, (counts.get(bucket) ?? 0) + Number(row.units));
+      const entry = counts.get(bucket) ?? { count: 0, sales: 0 };
+      entry.count += Number(row.revenue_units);
+      entry.sales += Number(row.revenue_sales);
+      counts.set(bucket, entry);
     }
     const buckets = Array.from(counts.entries())
-      .map(([bucket, count]) => ({ bucket, count }))
+      .map(([bucket, entry]) => ({ bucket, count: entry.count, sales: entry.sales }))
       .sort((a, b) => a.bucket - b.bucket);
 
     let topBucket: number | null = null;
@@ -372,7 +379,8 @@ export class SmartSaleService {
       }
     }
     const totalItems = buckets.reduce((acc, b) => acc + b.count, 0);
-    return { buckets, topBucket, totalItems };
+    const totalSales = buckets.reduce((acc, b) => acc + b.sales, 0);
+    return { buckets, topBucket, totalItems, totalSales };
   }
 
   private buildCategoryBreakdown(rows: Record<string, string | number>[]): Record<string, CategoryBreakdown> {

@@ -54,10 +54,29 @@ export function OrdersByStoreChart({ stores }: OrdersByStoreChartProps) {
   );
 }
 
-export function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
+export function ChartPanel({
+  title,
+  actions,
+  children,
+}: {
+  title: string;
+  /** Contenido opcional junto al título (ej. un toggle de métrica) — no afecta a los paneles que no lo pasan. */
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
-      <h3 className="mb-3 font-display text-base font-semibold text-ink">{title}</h3>
+    // `min-w-0`: este panel es hijo directo de un `flex flex-col` (`<main>`
+    // de cada página) — sin esto, un contenido interno ancho (ej. la tabla
+    // `min-w-[640px]` de `ParticipationSemaphoreTable`, con muchos meses)
+    // no puede encogerse (default de flex: `min-width: auto`) y empuja
+    // TODA la página a desbordarse de lado, en vez de quedar contenido en
+    // el scroll horizontal propio de la tabla — confirmado en mobile en
+    // `/pilatos` y `/metodos-pago` (las tarjetas se veían cortadas).
+    <div className="min-w-0 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h3 className="font-display text-base font-semibold text-ink">{title}</h3>
+        {actions}
+      </div>
       {children}
     </div>
   );

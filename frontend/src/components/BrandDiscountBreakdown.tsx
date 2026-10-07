@@ -62,6 +62,13 @@ export function BrandDiscountBreakdown({ discountAnalytics }: BrandDiscountBreak
               metric === 'units' ? 'por cantidad de productos' : 'por valor en pesos vendido'
             }.`
           : 'No hay tiendas multimarca configuradas.'}
+        {metric === 'sales' && (
+          <>
+            {' '}
+            <strong className="font-medium text-ink-muted">Disponible desde septiembre de 2026</strong> — meses
+            anteriores mostrarán $0 en esta vista.
+          </>
+        )}
       </p>
 
       {brands.length === 0 ? (

@@ -84,7 +84,9 @@ export function StoreDiscountBreakdown({ stores, discountAnalytics, revenueTotal
           <>
             Esta vista es <strong className="font-medium text-ink-muted">por valor en pesos</strong> — cuánto se vendió
             bajo cada % de descuento, y qué porción de la venta total representó. Los porcentajes de abajo son sobre la
-            venta SIN FLETE (a nivel de producto) — cada tarjeta muestra también la venta CON FLETE para comparar.
+            venta SIN FLETE (a nivel de producto) — cada tarjeta muestra también la venta CON FLETE para comparar.{' '}
+            <strong className="font-medium text-ink-muted">Disponible desde septiembre de 2026</strong> — meses
+            anteriores mostrarán $0 en esta vista (sí están completos en &quot;Por producto&quot;).
           </>
         )}{' '}
         Por eso la lista de abajo siempre suma 100%.

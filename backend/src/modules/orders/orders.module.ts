@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { SyncModule } from '../sync/sync.module';
 import { OrdersController } from './controllers/orders.controller';
+import { PaymentMethodsTrendController } from './controllers/payment-methods-trend.controller';
 import { PilatosMixController } from './controllers/pilatos-mix.controller';
 import { ProductAnalyticsController } from './controllers/product-analytics.controller';
 import { SmartSaleController } from './controllers/smartsale.controller';
@@ -10,6 +11,7 @@ import { SyncStatusController } from './controllers/sync-status.controller';
 import { TrendsController } from './controllers/trends.controller';
 import { OrdersAnalyticsService } from './services/orders-analytics.service';
 import { OrdersService } from './services/orders.service';
+import { PaymentMethodsTrendService } from './services/payment-methods-trend.service';
 import { PilatosMixService } from './services/pilatos-mix.service';
 import { ProductAnalyticsService } from './services/product-analytics.service';
 import { SmartSaleService } from './services/smartsale.service';
@@ -24,7 +26,23 @@ import { TrendsService } from './services/trends.service';
  */
 @Module({
   imports: [DatabaseModule, SyncModule],
-  controllers: [OrdersController, SyncStatusController, ProductAnalyticsController, TrendsController, PilatosMixController, SmartSaleController],
-  providers: [OrdersService, OrdersAnalyticsService, ProductAnalyticsService, TrendsService, PilatosMixService, SmartSaleService],
+  controllers: [
+    OrdersController,
+    SyncStatusController,
+    ProductAnalyticsController,
+    TrendsController,
+    PilatosMixController,
+    SmartSaleController,
+    PaymentMethodsTrendController,
+  ],
+  providers: [
+    OrdersService,
+    OrdersAnalyticsService,
+    ProductAnalyticsService,
+    TrendsService,
+    PilatosMixService,
+    SmartSaleService,
+    PaymentMethodsTrendService,
+  ],
 })
 export class OrdersModule {}

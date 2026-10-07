@@ -20,6 +20,8 @@ export interface ParticipationPoint {
   participationPercent: number;
   /** Venta en pesos de este seller/marketplace ese mes — el dato comparativo detrás del %. */
   salesValue: number;
+  /** Total contabilizado ese mes (el denominador del %) — igual para todas las series del mismo mes. */
+  total: number;
   /** Cambio % de la participación respecto al mes anterior del rango. `null` cuando `status` es 'new' o 'no-data'. */
   growthPercent: number | null;
   status: GrowthStatus;

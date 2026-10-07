@@ -9,6 +9,8 @@ interface ParticipationLineChartProps {
   title: string;
   subtitle: string;
   series: SeriesParticipation[];
+  /** Texto del eje Y — por defecto el usado en `/pilatos`; otras páginas (ej. `/metodos-pago`) pasan el suyo. */
+  axisLabel?: string;
 }
 
 export const PARTICIPATION_PALETTE = ['#5B8DEF', '#3DD68C', '#F5B942', '#F0625A', '#C77DFF', '#5C6B8A', '#4FD1D9', '#E086C0'];
@@ -17,6 +19,8 @@ const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'S
 
 /** Sufijo interno para guardar la venta en pesos de cada serie junto a su % en la misma fila del gráfico (ver `buildChartData`). */
 const SALES_SUFFIX = '__sales';
+/** Key interna (no es una serie de ninguna línea) para llevar el total del mes al tooltip — mismo valor para todas las series de ese mes. */
+const TOTAL_KEY = '__total';
 
 function monthLabel(month: string): string {
   const monthIndex = Number(month.split('-')[1]) - 1;
@@ -30,12 +34,22 @@ interface TooltipPayloadEntry {
   payload: Record<string, string | number>;
 }
 
-/** Tooltip propio: junto al % de participación (lo que dibuja la línea) muestra la venta en pesos de ese mes — el número comparativo detrás del %. */
+/**
+ * Tooltip propio: junto al % de participación (lo que dibuja la línea)
+ * muestra la venta en pesos de ese mes — el número comparativo detrás del
+ * %. También muestra, una sola vez arriba, el TOTAL contabilizado de ese
+ * mes (el denominador sobre el que se calculan todos los % de abajo) —
+ * sin esto no quedaba claro sobre qué base se estaba midiendo cada %.
+ */
 function ParticipationTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayloadEntry[]; label?: string }) {
   if (!active || !payload || payload.length === 0) return null;
+  const total = Number(payload[0].payload[TOTAL_KEY] ?? 0);
   return (
     <div className="rounded-xl border border-surface-border bg-white p-3 text-xs shadow-panel">
-      <p className="mb-1.5 font-semibold text-ink">{label}</p>
+      <p className="mb-0.5 font-semibold text-ink">{label}</p>
+      <p className="mb-1.5 text-ink-faint">
+        Total del mes: <span className="font-medium tabular-nums text-ink-muted">{formatCOP(total)}</span>
+      </p>
       <div className="flex flex-col gap-1">
         {payload.map((entry) => (
           <div key={entry.dataKey} className="flex items-center gap-2">
@@ -61,7 +75,12 @@ function ParticipationTooltip({ active, payload, label }: { active?: boolean; pa
  * (con pesos, Disandina las aplastaría visualmente). El tooltip sí trae
  * la venta en pesos de cada punto, como dato comparativo junto al %.
  */
-export function ParticipationLineChart({ title, subtitle, series }: ParticipationLineChartProps) {
+export function ParticipationLineChart({
+  title,
+  subtitle,
+  series,
+  axisLabel = '% del total Pilatos',
+}: ParticipationLineChartProps) {
   if (series.length === 0 || series.every((s) => s.points.length === 0)) {
     return (
       <ChartPanel title={title}>
@@ -72,7 +91,7 @@ export function ParticipationLineChart({ title, subtitle, series }: Participatio
 
   const months = series[0].points.map((p) => p.month);
   const chartData = months.map((month, index) => {
-    const row: Record<string, string | number> = { month: monthLabel(month) };
+    const row: Record<string, string | number> = { month: monthLabel(month), [TOTAL_KEY]: series[0].points[index]?.total ?? 0 };
     for (const s of series) {
       const point = s.points[index];
       row[s.name] = point?.participationPercent ?? 0;
@@ -95,7 +114,7 @@ export function ParticipationLineChart({ title, subtitle, series }: Participatio
             tickFormatter={(value) => formatPercentage(value)}
             width={70}
             label={{
-              value: '% del total Pilatos',
+              value: axisLabel,
               position: 'top',
               offset: 12,
               style: { fill: '#5B6472', fontSize: 11, fontWeight: 600 },

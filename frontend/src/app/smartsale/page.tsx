@@ -156,7 +156,13 @@ function SmartSaleContent() {
           <SmartSaleSummarySection stores={requestState.data.stores} summary={requestState.data.summary} />
 
           <SmartSaleTrendSection monthly={requestState.data.monthlyTrend} />
-          <StoreDiscountBreakdown stores={requestState.data.stores} discountAnalytics={requestState.data.discounts} />
+          <StoreDiscountBreakdown
+            stores={requestState.data.stores}
+            discountAnalytics={requestState.data.discounts}
+            revenueTotalByStore={Object.fromEntries(
+              Object.entries(requestState.data.summary).map(([storeId, s]) => [storeId, s.smartSaleSales]),
+            )}
+          />
 
           <SmartSaleCampaignsSection
             stores={requestState.data.stores}

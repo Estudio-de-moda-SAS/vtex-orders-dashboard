@@ -73,9 +73,15 @@ export function DiscountDistributionChart({ stores, discountAnalytics }: Discoun
     <ChartPanel title="Distribución de descuentos" actions={<DiscountMetricToggle value={metric} onChange={setMetric} />}>
       <p className="-mt-1 mb-3 text-xs text-ink-faint">
         {subtitle} —{' '}
-        {metric === 'units'
-          ? 'cada barra es por cantidad de productos vendidos con ese % de descuento.'
-          : 'cada barra es por valor en pesos vendido con ese % de descuento.'}
+        {metric === 'units' ? (
+          'cada barra es por cantidad de productos vendidos con ese % de descuento.'
+        ) : (
+          <>
+            cada barra es por valor en pesos vendido con ese % de descuento.{' '}
+            <strong className="font-medium text-ink-muted">Disponible desde septiembre de 2026</strong> — meses
+            anteriores se verán en $0.
+          </>
+        )}
       </p>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>

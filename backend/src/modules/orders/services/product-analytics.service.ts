@@ -28,17 +28,25 @@ import {
  * de fechas pedido. Mismos métodos públicos que antes de la migración —
  * el contrato con el frontend no cambia.
  *
- * Nota sobre `DiscountBucket.count`/`sales`: se leen de `revenue_units`/
- * `revenue_sales` (NO de `units`/`sales`, que cuentan TODAS las órdenes
- * sin importar estado) — mismo criterio de "ventas" que el resto del
- * dashboard (solo estados contabilizados, ver `revenue-status.config.ts`).
- * Antes leía `units`/`sales` sin filtrar, lo que hacía que el valor en
- * pesos de este desglose incluyera órdenes canceladas y no cuadrara
- * contra el total de ventas real de la tienda (confirmado en producción:
- * Pilatos mostraba ~$16M de más, exactamente la plata de sus canceladas
- * del rango). El frontend alterna entre unidades y pesos con un toggle,
- * sin que esto cambie cuál bucket es "el más aplicado" (`topBucket`, que
- * sigue siendo por unidades).
+ * Nota sobre `DiscountBucket.count`/`sales` — a propósito leen de
+ * universos DISTINTOS, cada uno correcto para lo que mide:
+ * - `count` (unidades, toggle "por producto"): viene de `units`, TODAS
+ *   las órdenes sin importar estado — igual que siempre, incluye
+ *   histórico completo (Excel + VTEX). No se filtra: contar cuántos
+ *   productos salieron con cada % de descuento no depende de si esa
+ *   orden luego se facturó o se canceló.
+ * - `sales` (pesos, toggle "por valor en pesos"): viene de
+ *   `revenue_sales`, SOLO estados contabilizados (mismo criterio de
+ *   "ventas" que el resto del dashboard, ver `revenue-status.config.ts`)
+ *   — leer `sales` sin filtrar hacía que el valor en pesos incluyera
+ *   órdenes canceladas y no cuadrara contra el total de ventas real de
+ *   la tienda (confirmado en producción: Pilatos mostraba ~$16M de más,
+ *   exactamente la plata de sus canceladas del rango). Esta columna solo
+ *   tiene datos correctos desde que se agregó (backfill desde
+ *   septiembre 2026 en adelante) — meses anteriores mostrarán $0 en el
+ *   toggle de pesos hasta que se decida recalcular también ese histórico
+ *   (ver migración 0010/0011).
+ * `topBucket` sigue siendo por unidades en ambos modos, sin cambiar según el toggle.
  */
 
 /** Mismo literal que `UNKNOWN_COLLECTION` en `vtex-sync-cron.service.ts`/`cli/excel-import/row-mapper.ts`. */
@@ -176,7 +184,7 @@ export class ProductAnalyticsService {
     const bucketRows = await this.dashboardQueryRepository.queryGrouped(
       'sales_daily_by_discount_bucket',
       'discount_percentage',
-      ['revenue_units', 'revenue_sales'],
+      ['units', 'revenue_sales'],
       startDay,
       endDay,
     );
@@ -326,7 +334,7 @@ export class ProductAnalyticsService {
       const storeRows = await this.dashboardQueryRepository.queryGrouped(
         'sales_daily_by_brand_discount_bucket',
         'discount_percentage',
-        ['revenue_units', 'revenue_sales'],
+        ['units', 'revenue_sales'],
         startDay,
         endDay,
         store.id,
@@ -341,7 +349,7 @@ export class ProductAnalyticsService {
       const storeBrandRows = await this.dashboardQueryRepository.queryGroupedMulti(
         'sales_daily_by_brand_discount_bucket',
         ['brand_name', 'discount_percentage'],
-        ['revenue_units', 'revenue_sales'],
+        ['units', 'revenue_sales'],
         startDay,
         endDay,
         store.id,
@@ -372,7 +380,7 @@ export class ProductAnalyticsService {
     for (const row of rows) {
       const bucket = Number(row.discount_percentage ?? 0);
       const entry = counts.get(bucket) ?? { count: 0, sales: 0 };
-      entry.count += Number(row.revenue_units);
+      entry.count += Number(row.units);
       entry.sales += Number(row.revenue_sales);
       counts.set(bucket, entry);
     }

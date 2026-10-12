@@ -138,6 +138,28 @@ export interface AppConfig {
      */
     accessCode: string | null;
   };
+  ga: {
+    /**
+     * Contenido crudo (JSON o base64) de la cuenta de servicio de Google
+     * Analytics — NUNCA se loguea ni se persiste a disco, ver
+     * `ga-credentials.util.ts`. `null` si no está configurada (el cron de
+     * GA4 simplemente no arranca, sin ser un error).
+     */
+    serviceAccountJson: string | null;
+    /** Cada cuántas horas se sincroniza GA4 — mucho menos frecuente que VTEX, GA no cambia minuto a minuto. */
+    syncCronHours: number;
+    /** Días hacia atrás que recalcula cada corrida (igual idea que `sync.recalcWindowDays`, GA también puede ajustar datos de días recientes). */
+    recalcWindowDays: number;
+    /** Si corre una sincronización de GA4 al arrancar el backend, además del ciclo normal. */
+    syncOnBoot: boolean;
+    /**
+     * % mínimo de variación que debe tener un componente (tráfico,
+     * conversión o ticket) para considerarse "el motor" del cambio en
+     * ventas — por debajo de esto, ningún componente se señala como
+     * causa principal (ver `ga-crossref-math.util.ts`).
+     */
+    changeEngineThresholdPercent: number;
+  };
 }
 
 /**
@@ -197,6 +219,13 @@ export default (): { app: AppConfig } => ({
     },
     budgets: {
       accessCode: process.env.BUDGET_ACCESS_CODE ?? null,
+    },
+    ga: {
+      serviceAccountJson: process.env.GA_SERVICE_ACCOUNT_JSON ?? null,
+      syncCronHours: parseInt(process.env.GA_SYNC_CRON_HOURS ?? '12', 10),
+      recalcWindowDays: parseInt(process.env.GA_RECALC_WINDOW_DAYS ?? '3', 10),
+      syncOnBoot: process.env.GA_SYNC_ON_BOOT === 'true',
+      changeEngineThresholdPercent: parseInt(process.env.GA_CHANGE_ENGINE_THRESHOLD_PERCENT ?? '5', 10),
     },
   },
 });

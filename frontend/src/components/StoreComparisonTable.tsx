@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { StoreDashboardResult } from '@/types/dashboard';
-import { formatCOP, formatNumber, revenueBreakdownLabel, REVENUE_BREAKDOWN_ORDER } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, revenueBreakdownLabel, REVENUE_BREAKDOWN_ORDER } from '@/lib/format';
 
 interface StoreComparisonTableProps {
   stores: StoreDashboardResult[];
@@ -27,6 +27,7 @@ export function StoreComparisonTable({ stores }: StoreComparisonTableProps) {
                 </th>
               ))}
               <th className="py-2 pr-4 font-medium">Total contabilizado</th>
+              <th className="py-2 pr-4 font-medium">AVT</th>
             </tr>
           </thead>
           <tbody>
@@ -54,9 +55,12 @@ export function StoreComparisonTable({ stores }: StoreComparisonTableProps) {
                     <td className="py-2.5 pr-4 font-medium tabular-nums text-ink">
                       {formatCOP(store.data.revenueTotalValue)}
                     </td>
+                    <td className="py-2.5 pr-4 font-medium tabular-nums text-accent" title="Valor contabilizado ÷ compras reales">
+                      {formatAverageTicket(store.data.revenueTotalValue, store.data.realRevenueOrders)}
+                    </td>
                   </>
                 ) : (
-                  <td colSpan={REVENUE_BREAKDOWN_ORDER.length + 2} className="py-2.5 pr-4 text-danger">
+                  <td colSpan={REVENUE_BREAKDOWN_ORDER.length + 3} className="py-2.5 pr-4 text-danger">
                     {store.error ?? 'Sin datos'}
                   </td>
                 )}
@@ -94,6 +98,10 @@ export function StoreComparisonTable({ stores }: StoreComparisonTableProps) {
                 <dt>Total contabilizado</dt>
                 <dd className="text-right font-medium tabular-nums text-ink">
                   {formatCOP(store.data.revenueTotalValue)}
+                </dd>
+                <dt>AVT</dt>
+                <dd className="text-right font-medium tabular-nums text-accent">
+                  {formatAverageTicket(store.data.revenueTotalValue, store.data.realRevenueOrders)}
                 </dd>
               </dl>
             ) : (

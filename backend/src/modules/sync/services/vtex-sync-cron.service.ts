@@ -1,8 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import pLimit from 'p-limit';
 
+import { GaSyncCronService } from '../../analytics-ga/ga-sync-cron.service';
 import { aggregateDailyRows } from '../../../common/aggregation/daily-aggregator';
 import { DailyAggregationResult, EnrichedOrder, EnrichedOrderItem } from '../../../common/aggregation/types';
 import { addDaysUtc, enumerateDayBuckets, subtractDaysUtc, todayColombia, toDayBucketColombia } from '../../../common/utils/date-range.util';
@@ -79,6 +80,8 @@ export class VtexSyncCronService implements OnModuleInit {
     private readonly syncLogsRepository: SyncLogsRepository,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly configService: ConfigService,
+    /** `@Optional()`: si por lo que sea `AnalyticsGaModule` no estuviera disponible, el cron de VTEX sigue funcionando normal, solo que nunca dispara GA. */
+    @Optional() private readonly gaSyncCron?: GaSyncCronService,
   ) {
     this.storeConcurrency = this.configService.get<number>('app.vtex.storeConcurrency', 3);
     this.recalcWindowDays = this.configService.get<number>('app.sync.recalcWindowDays', 3);
@@ -107,11 +110,18 @@ export class VtexSyncCronService implements OnModuleInit {
     // promesa — sin este catch, un error de red o de conexión a Supabase
     // (ej. el pool descartando un cliente inactivo) sería una rejection
     // no manejada que tumba TODO el proceso, no solo esta corrida.
+    //
+    // `gaSyncCron.maybeSync()` se encadena DESPUÉS de que VTEX termina
+    // (nunca en paralelo) — así los dos crons nunca compiten por memoria
+    // al mismo tiempo, sin necesitar ningún candado (ver `ga-sync-cron.service.ts`).
+    // `maybeSync()` decide internamente si ya le toca correr o no.
     const runAndLogErrors = (): void => {
-      this.runSyncAllStores().catch((error) => {
-        const message = error instanceof Error ? error.message : 'error desconocido';
-        this.logger.error(`Falló la corrida del cron: ${message}`);
-      });
+      this.runSyncAllStores()
+        .then(() => this.gaSyncCron?.maybeSync())
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : 'error desconocido';
+          this.logger.error(`Falló la corrida del cron: ${message}`);
+        });
     };
 
     runAndLogErrors();

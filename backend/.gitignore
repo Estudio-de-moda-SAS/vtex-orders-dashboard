@@ -4,3 +4,9 @@ data/
 .env
 *.log
 .DS_Store
+
+# Credenciales de cuentas de servicio (ej. Google Analytics) que pudieran
+# quedar en el proyecto por error — nunca deben subirse a git.
+*service-account*.json
+*credentials*.json
+ga4-*.json

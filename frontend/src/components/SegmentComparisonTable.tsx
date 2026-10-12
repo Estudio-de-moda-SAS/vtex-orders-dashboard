@@ -1,5 +1,5 @@
 import { SegmentDashboardResult } from '@/types/dashboard';
-import { formatCOP, formatNumber } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber } from '@/lib/format';
 
 interface SegmentComparisonTableProps {
   title: string;
@@ -52,6 +52,7 @@ export function SegmentComparisonTable({ title, emptyLabel, segments }: SegmentC
               <th className="py-2 pr-4 font-medium">Órdenes</th>
               <th className="py-2 pr-4 font-medium">Contabilizadas</th>
               <th className="py-2 pr-4 font-medium">Valor contabilizado</th>
+              <th className="py-2 pr-4 font-medium">AVT</th>
               <th className="py-2 pr-4 font-medium">% del total</th>
             </tr>
           </thead>
@@ -76,12 +77,15 @@ export function SegmentComparisonTable({ title, emptyLabel, segments }: SegmentC
                       <td className="py-2.5 pr-4 font-medium tabular-nums text-ink">
                         {formatCOP(segment.data.revenueTotalValue)}
                       </td>
+                      <td className="py-2.5 pr-4 font-medium tabular-nums text-accent">
+                        {formatAverageTicket(segment.data.revenueTotalValue, segment.data.revenueOrders)}
+                      </td>
                       <td className="py-2.5 pr-4 tabular-nums text-ink-muted">
                         {share.toFixed(1)}%
                       </td>
                     </>
                   ) : (
-                    <td colSpan={4} className="py-2.5 pr-4 text-danger">
+                    <td colSpan={5} className="py-2.5 pr-4 text-danger">
                       {segment.error ?? 'Sin datos'}
                     </td>
                   )}
@@ -113,6 +117,10 @@ export function SegmentComparisonTable({ title, emptyLabel, segments }: SegmentC
                 <dt>Valor contabilizado</dt>
                 <dd className="text-right font-medium tabular-nums text-ink">
                   {formatCOP(segment.data.revenueTotalValue)}
+                </dd>
+                <dt>AVT</dt>
+                <dd className="text-right font-medium tabular-nums text-accent">
+                  {formatAverageTicket(segment.data.revenueTotalValue, segment.data.revenueOrders)}
                 </dd>
               </dl>
             ) : (

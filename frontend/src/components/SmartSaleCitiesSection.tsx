@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { CityBreakdown, StoreDashboardResult } from '@/types/dashboard';
-import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 import { CityFilter } from './CityFilter';
 import { ChartPanel } from './OrdersByStoreChart';
 
@@ -68,7 +68,9 @@ export function SmartSaleCitiesSection({ stores, citiesByStore }: SmartSaleCitie
                   <span className="text-ink-faint">#{index + 1}</span> {entry.city}
                 </span>
                 <span className="font-medium tabular-nums text-ink">
-                  {formatCOP(entry.totalValue)} <span className="text-ink-faint">({formatPercentage(entry.percentage)})</span>
+                  {formatNumber(entry.count)} ord. · {formatCOP(entry.totalValue)} · AVT{' '}
+                  {formatAverageTicket(entry.totalValue, entry.count)}{' '}
+                  <span className="text-ink-faint">({formatPercentage(entry.percentage)})</span>
                 </span>
               </li>
             ))}
@@ -96,7 +98,8 @@ export function SmartSaleCitiesSection({ stores, citiesByStore }: SmartSaleCitie
                     <li key={city} className="flex items-baseline justify-between gap-2 text-xs text-ink-muted">
                       <span className="truncate">{city}</span>
                       <span className="shrink-0 tabular-nums text-ink">
-                        {formatNumber(breakdown.count)} ord. · {formatCOP(breakdown.totalValue)}
+                        {formatNumber(breakdown.count)} ord. · {formatCOP(breakdown.totalValue)} · AVT{' '}
+                        {formatAverageTicket(breakdown.totalValue, breakdown.count)}
                       </span>
                     </li>
                   ))}

@@ -1,5 +1,5 @@
 import { CityBreakdown, StoreDashboardResult } from '@/types/dashboard';
-import { formatCOP, formatNumber, formatPercentage, statusLabel } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, statusLabel } from '@/lib/format';
 import { CategoryBrandRankingResult, CategoryRanking } from '@/types/product-analytics';
 import { DataConsistencyIndicator } from './DataConsistencyIndicator';
 
@@ -53,6 +53,13 @@ export function StoreCard({ store, categoryRanking, brandRanking, cronIntervalHo
                 label="Valor contabilizado"
                 value={formatCOP(store.data.revenueTotalValue)}
               />
+              <Metric
+                label="AVT (ticket promedio)"
+                value={formatAverageTicket(store.data.revenueTotalValue, store.data.realRevenueOrders)}
+                hint="Valor contabilizado ÷ compras reales (agrupadas, no cada fragmento -01/-02 por separado)"
+                span
+                highlight
+              />
             </div>
 
             <Section title="Estados">
@@ -96,11 +103,23 @@ export function StoreCard({ store, categoryRanking, brandRanking, cronIntervalHo
   );
 }
 
-function Metric({ label, value, span, hint }: { label: string; value: string; span?: boolean; hint?: string }) {
+function Metric({
+  label,
+  value,
+  span,
+  hint,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  span?: boolean;
+  hint?: string;
+  highlight?: boolean;
+}) {
   return (
     <div className={span ? 'col-span-2' : undefined} title={hint}>
-      <p className="text-xs text-ink-faint">{label}</p>
-      <p className="mt-0.5 font-display text-lg font-semibold tabular-nums text-ink">{value}</p>
+      <p className={`text-xs ${highlight ? 'font-medium text-accent' : 'text-ink-faint'}`}>{label}</p>
+      <p className={`mt-0.5 font-display text-lg font-semibold tabular-nums ${highlight ? 'text-accent' : 'text-ink'}`}>{value}</p>
     </div>
   );
 }

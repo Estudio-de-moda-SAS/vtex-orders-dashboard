@@ -51,24 +51,35 @@ function writeStored(key: string, value: StoredDateRange): void {
  * pero páginas de tendencias (ej. `/pilatos`) pueden pasar
  * `getYearToDateRange` para arrancar mostrando el año en curso completo.
  *
+ * `paramNames` permite tener DOS instancias de este hook en la MISMA
+ * página (ej. `/resumen`, que compara "Rango A" contra "Rango B") sin que
+ * se pisen los query params — cada instancia usa su propio par de
+ * nombres (`startDateA`/`endDateA`, `startDateB`/`endDateB`...) y el
+ * efecto de sincronización FUSIONA sobre los params ya existentes en vez
+ * de reemplazar toda la URL, para no borrar los de la otra instancia.
+ *
  * Requiere `useSearchParams`, así que el componente que use este hook
  * debe estar envuelto en `<Suspense>` (exigencia de Next.js App Router).
  */
-export function useDateRangeFilter(storageKey: string, getDefaultRange: () => StoredDateRange = getDefaultDateRange) {
+export function useDateRangeFilter(
+  storageKey: string,
+  getDefaultRange: () => StoredDateRange = getDefaultDateRange,
+  paramNames: { start: string; end: string } = { start: 'startDate', end: 'endDate' },
+) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Estado inicial: la URL manda si trae `startDate`/`endDate` (link
-  // compartido, recarga); si no trae NINGUNO, se restaura lo último
-  // guardado en localStorage; si tampoco hay nada guardado, los últimos
-  // 7 días. Todo calculado UNA sola vez al inicializar el estado — nunca
-  // en un efecto aparte, para evitar que un efecto con valores viejos
-  // sobrescriba lo que se acaba de restaurar.
-  const hasUrlRange = searchParams.has('startDate') || searchParams.has('endDate');
+  // Estado inicial: la URL manda si trae los params de esta instancia
+  // (link compartido, recarga); si no trae NINGUNO, se restaura lo
+  // último guardado en localStorage; si tampoco hay nada guardado, el
+  // rango por defecto. Todo calculado UNA sola vez al inicializar el
+  // estado — nunca en un efecto aparte, para evitar que un efecto con
+  // valores viejos sobrescriba lo que se acaba de restaurar.
+  const hasUrlRange = searchParams.has(paramNames.start) || searchParams.has(paramNames.end);
 
   const [startDate, setStartDate] = useState(() => {
-    if (searchParams.has('startDate')) return searchParams.get('startDate') ?? '';
+    if (searchParams.has(paramNames.start)) return searchParams.get(paramNames.start) ?? '';
     if (!hasUrlRange) {
       const stored = readStored(storageKey);
       if (stored) return stored.startDate;
@@ -77,7 +88,7 @@ export function useDateRangeFilter(storageKey: string, getDefaultRange: () => St
   });
 
   const [endDate, setEndDate] = useState(() => {
-    if (searchParams.has('endDate')) return searchParams.get('endDate') ?? '';
+    if (searchParams.has(paramNames.end)) return searchParams.get(paramNames.end) ?? '';
     if (!hasUrlRange) {
       const stored = readStored(storageKey);
       if (stored) return stored.endDate;
@@ -87,15 +98,18 @@ export function useDateRangeFilter(storageKey: string, getDefaultRange: () => St
 
   // Cada vez que el rango cambia, se refleja en la URL (`replace`, no
   // `push`, para no llenar el historial del navegador) y se guarda en
-  // localStorage.
+  // localStorage. Arranca de los params YA EXISTENTES (no de uno vacío)
+  // para no borrar los de otra instancia de este mismo hook en la misma
+  // página (ver `paramNames`).
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (startDate) params.set('startDate', startDate);
-    if (endDate) params.set('endDate', endDate);
+    const params = new URLSearchParams(searchParams.toString());
+    if (startDate) params.set(paramNames.start, startDate);
+    if (endDate) params.set(paramNames.end, endDate);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
     if (startDate && endDate) writeStored(storageKey, { startDate, endDate });
-  }, [startDate, endDate, pathname, router, storageKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate, pathname, router, storageKey, paramNames.start, paramNames.end]);
 
   return { startDate, setStartDate, endDate, setEndDate };
 }

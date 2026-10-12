@@ -157,6 +157,42 @@ export function addDaysUtc(dayBucket: string, days: number): string {
   return subtractDaysUtc(dayBucket, -days);
 }
 
+/** Número de días calendario entre dos días YYYY-MM-DD, INCLUSIVE (ej. mismo día → 1). */
+export function dayCount(startDay: string, endDay: string): number {
+  const [sy, sm, sd] = startDay.split('-').map(Number);
+  const [ey, em, ed] = endDay.split('-').map(Number);
+  const startMs = Date.UTC(sy, sm - 1, sd);
+  const endMs = Date.UTC(ey, em - 1, ed);
+  return Math.round((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+/**
+ * Período B de `/resumen`: el período INMEDIATAMENTE ANTERIOR a
+ * `[startDay, endDay]`, de IGUAL DURACIÓN, sin solaparse — termina el
+ * día antes de `startDay`. Ej.: A = 2026-10-01..2026-10-10 (10 días) →
+ * B = 2026-09-21..2026-09-30.
+ */
+export function previousPeriodOfEqualDuration(startDay: string, endDay: string): { startDay: string; endDay: string } {
+  const days = dayCount(startDay, endDay);
+  const previousEndDay = subtractDaysUtc(startDay, 1);
+  const previousStartDay = subtractDaysUtc(previousEndDay, days - 1);
+  return { startDay: previousStartDay, endDay: previousEndDay };
+}
+
+/**
+ * Período C de `/resumen` (opcional, informativo): el mismo rango un año
+ * calendario atrás (ej. 2026-01-10 → 2025-01-10). Resta naive de año —
+ * nunca afecta el semáforo ni el motor del cambio, solo se muestra como
+ * referencia si hay datos.
+ */
+export function sameRangeLastYear(startDay: string, endDay: string): { startDay: string; endDay: string } {
+  const shiftYear = (day: string): string => {
+    const [y, m, d] = day.split('-').map(Number);
+    return `${y - 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  return { startDay: shiftYear(startDay), endDay: shiftYear(endDay) };
+}
+
 /**
  * Agrupa una lista ORDENADA de días (YYYY-MM-DD) en tramos contiguos (cada
  * día es exactamente el siguiente calendario del anterior). Usado por

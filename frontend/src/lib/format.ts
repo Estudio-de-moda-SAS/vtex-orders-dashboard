@@ -17,6 +17,26 @@ export function formatPercentage(value: number): string {
   return `${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
+/**
+ * AVT (ticket promedio) = ingresos ÷ compras, para una misma tienda/segmento/periodo.
+ * Cálculo puro al vuelo — no se guarda en Supabase, los dos números ya vienen agregados
+ * desde el backend correspondiente. `null` sin compras (sin base para calcular).
+ */
+export function averageTicket(revenue: number, orders: number): number | null {
+  return orders > 0 ? revenue / orders : null;
+}
+
+/** `formatCOP(averageTicket(...))`, o "—" si no hay base (0 compras). */
+export function formatAverageTicket(revenue: number, orders: number): string {
+  const value = averageTicket(revenue, orders);
+  return value === null ? '—' : formatCOP(value);
+}
+
+/** Formatea una proporción (ej. vistas por visita) con hasta 2 decimales, ej. 5,6 o 0,39. */
+export function formatRatio(value: number, maxFractionDigits = 2): string {
+  return new Intl.NumberFormat('es-CO', { maximumFractionDigits: maxFractionDigits }).format(value);
+}
+
 /** Formatea milisegundos como segundos legibles, ej. 1,3s */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;

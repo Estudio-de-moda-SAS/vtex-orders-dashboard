@@ -10,6 +10,17 @@ export interface MarketplaceChannelConfig {
   salesChannelId: string;
   /** Nombre comercial a mostrar en el dashboard */
   label: string;
+  /**
+   * `true` (default en la práctica) si este canal normalmente NO pasa
+   * por el sitio web de la tienda (ej. un marketplace externo como Addi
+   * o Dafiti) — sus órdenes se restan del total "contabilizado" antes de
+   * calcular la conversión real del sitio (sesiones de GA4 ÷ órdenes),
+   * para no inflar artificialmente esa conversión con ventas que nunca
+   * pudieron generar una sesión. Ver `GaSalesCrossrefService.computeSiteSales`.
+   * Si se confirma que un canal SÍ vende dentro del sitio, basta con
+   * poner este flag en `false` para incluirlo, sin tocar la lógica.
+   */
+  excludeFromSiteConversion?: boolean;
 }
 
 export interface StoreExtraSegments {
@@ -74,6 +85,24 @@ export interface StoreConfig {
    * SKU del histórico de Excel.
    */
   collections?: StoreCollectionConfig[];
+  /**
+   * ID numérico de la propiedad GA4 (Google Analytics Data API) de esta
+   * tienda — NO el ID de medición `G-XXXXXXX` del tag, sino el ID de
+   * propiedad que aparece en Admin > Property Settings. Si falta, el
+   * cron de GA4 simplemente omite esta tienda (con un aviso en el log,
+   * no es un error) — no todas las tiendas tienen por qué tener GA4
+   * configurado desde el día uno.
+   */
+  gaPropertyId?: string;
+  /**
+   * Dominio público del sitio de la tienda (no el `accountName.environment`
+   * de VTEX) — usado SOLO para resolver el link real de cada producto de
+   * `/analytics` contra la API pública de catálogo de VTEX
+   * (`{storefrontDomain}/api/catalog_system/pub/products/search?fq=skuId:X`,
+   * sin autenticación). No es un secreto, por eso va literal acá y no en
+   * `.env` — es el mismo dominio que ve cualquier cliente del sitio.
+   */
+  storefrontDomain?: string;
 }
 
 /**
@@ -110,6 +139,8 @@ export function getStoresConfig(): StoreConfig[] {
       appToken: process.env.PILATOS_APP_TOKEN,
       isMultiBrand: true,
       collections: collectionsFor({ linea: 1503, rack: 1140, outlet: 1141, saldos: 1142 }),
+      gaPropertyId: process.env.GA_PROPERTY_ID_PILATOS,
+      storefrontDomain: 'https://www.pilatos.com',
       extraSegments: {
         sellers: [
           { sellerName: 'ARMO STUDIO', label: 'Armo studio' },
@@ -117,14 +148,19 @@ export function getStoresConfig(): StoreConfig[] {
           { sellerName: 'Tennis SA', label: 'Tennis SA' },
           { sellerName: 'INVERSIONES CLMT S.A.S.', label: 'Clemont' },
         ],
+        // Venta real confirmada: estos 7 canales son marketplaces externos
+        // que NO pasan por el sitio web de Pilatos — se excluyen del
+        // cálculo de conversión del sitio (ver `excludeFromSiteConversion`
+        // en `MarketplaceChannelConfig`). Los sellers de arriba SÍ venden
+        // dentro del sitio (confirmado) y por eso no llevan este flag.
         marketplaces: [
-          { salesChannelId: '25', label: 'Agaval' },
-          { salesChannelId: '24', label: 'Addi' },
-          { salesChannelId: '2', label: 'Dafiti' },
-          { salesChannelId: '21', label: 'Fruta fresca' },
-          { salesChannelId: '3', label: 'Puntos colombia' },
-          { salesChannelId: '29', label: 'Replaycolombia' },
-          { salesChannelId: '28', label: 'Falabella' }
+          { salesChannelId: '25', label: 'Agaval', excludeFromSiteConversion: true },
+          { salesChannelId: '24', label: 'Addi', excludeFromSiteConversion: true },
+          { salesChannelId: '2', label: 'Dafiti', excludeFromSiteConversion: true },
+          { salesChannelId: '21', label: 'Fruta fresca', excludeFromSiteConversion: true },
+          { salesChannelId: '3', label: 'Puntos colombia', excludeFromSiteConversion: true },
+          { salesChannelId: '29', label: 'Replaycolombia', excludeFromSiteConversion: true },
+          { salesChannelId: '28', label: 'Falabella', excludeFromSiteConversion: true },
         ],
       },
     },
@@ -137,6 +173,8 @@ export function getStoresConfig(): StoreConfig[] {
       appKey: process.env.KIPLING_APP_KEY,
       appToken: process.env.KIPLING_APP_TOKEN,
       collections: collectionsFor({ linea: 375, rack: 330, outlet: 331 }),
+      gaPropertyId: process.env.GA_PROPERTY_ID_KIPLING,
+      storefrontDomain: 'https://www.kipling.com.co',
     },
     {
       id: 'diesel',
@@ -147,6 +185,8 @@ export function getStoresConfig(): StoreConfig[] {
       appKey: process.env.DIESEL_APP_KEY,
       appToken: process.env.DIESEL_APP_TOKEN,
       collections: collectionsFor({ linea: 410, rack: 222, outlet: 221 }),
+      gaPropertyId: process.env.GA_PROPERTY_ID_DIESEL,
+      storefrontDomain: 'https://co.diesel.com',
     },
     {
       id: 'superdry',
@@ -157,6 +197,8 @@ export function getStoresConfig(): StoreConfig[] {
       appKey: process.env.SUPERDRY_APP_KEY,
       appToken: process.env.SUPERDRY_APP_TOKEN,
       collections: collectionsFor({ linea: 259, rack: 141, outlet: 142 }),
+      gaPropertyId: process.env.GA_PROPERTY_ID_SUPERDRY,
+      storefrontDomain: 'https://www.superdry.com.co',
     },
     {
       id: 'girbaud',
@@ -166,7 +208,9 @@ export function getStoresConfig(): StoreConfig[] {
       color: '#001489',
       appKey: process.env.GIRBAUD_APP_KEY,
       appToken: process.env.GIRBAUD_APP_TOKEN,
+      gaPropertyId: process.env.GA_PROPERTY_ID_GIRBAUD,
       collections: collectionsFor({ linea: 390, rack: 206, outlet: 207 }),
+      storefrontDomain: 'https://www.girbaud.com.co',
     },
     {
       id: 'replay',
@@ -177,6 +221,8 @@ export function getStoresConfig(): StoreConfig[] {
       appKey: process.env.REPLAY_APP_KEY,
       appToken: process.env.REPLAY_APP_TOKEN,
       collections: collectionsFor({ linea: 307, rack: 237, outlet: 238, saldos: 239 }),
+      gaPropertyId: process.env.GA_PROPERTY_ID_REPLAY,
+      storefrontDomain: 'https://www.replaycol.com',
     },
   ];
 }

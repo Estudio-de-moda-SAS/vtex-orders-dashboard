@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StoreDashboardResult } from '@/types/dashboard';
 import { CampaignComboTotalsByStore } from '@/types/product-analytics';
 import { SmartSaleCampaignsByStore, SmartSaleSummaryByStore } from '@/types/smartsale';
-import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 import { ordersService } from '@/services/orders.service';
 import { CampaignFilter } from './CampaignFilter';
 
@@ -137,7 +137,8 @@ export function SmartSaleCampaignsSection({ stores, campaigns, summary, startDat
                       <>
                         Total real {selectedCampaigns.length === 1 ? 'de esta campaña' : 'de las campañas filtradas'}{' '}
                         (sin doble conteo): <span className="font-semibold">{formatCOP(combo.revenueSales)}</span> ·{' '}
-                        {formatNumber(combo.revenueOrders)} ord. ·{' '}
+                        {formatNumber(combo.revenueOrders)} ord. · AVT{' '}
+                        {formatAverageTicket(combo.revenueSales, combo.revenueOrders)} ·{' '}
                         <span className="font-semibold">{formatPercentage(comboParticipation)}</span> del total
                         SmartSale de la tienda ({formatCOP(smartSaleSales)})
                       </>
@@ -152,7 +153,7 @@ export function SmartSaleCampaignsSection({ stores, campaigns, summary, startDat
                       <li key={c.campaignName} className="flex items-baseline justify-between gap-2 text-xs text-ink-muted">
                         <span className="truncate">{c.campaignName}</span>
                         <span className="shrink-0 tabular-nums text-ink">
-                          {formatNumber(c.orders)} ord. · {formatCOP(c.sales)}{' '}
+                          {formatNumber(c.orders)} ord. · {formatCOP(c.sales)} · AVT {formatAverageTicket(c.sales, c.orders)}{' '}
                           <span className="text-ink-faint">({formatPercentage(percentage)})</span>
                         </span>
                       </li>

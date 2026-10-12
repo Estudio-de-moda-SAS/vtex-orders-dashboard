@@ -12,6 +12,8 @@ const NAV_ITEMS = [
   { href: '/pilatos', label: 'Pilatos' },
   { href: '/smartsale', label: 'SmartSale' },
   { href: '/presupuesto', label: 'Presupuesto' },
+  { href: '/analytics', label: 'Analytics' },
+  { href: '/resumen', label: 'Resumen' },
 ];
 
 const APP_NAME = 'VICA';

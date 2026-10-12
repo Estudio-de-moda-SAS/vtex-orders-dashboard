@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 
 import { PG_POOL } from '../pg-pool.provider';
 
-export type SyncSource = 'vtex_api' | 'excel_import';
+export type SyncSource = 'vtex_api' | 'excel_import' | 'ga4_api';
 export type SyncStatus = 'success' | 'error' | 'partial';
 
 export interface SyncLogSummary {
@@ -49,8 +49,11 @@ export class SyncLogsRepository {
 
   /**
    * Para cada tienda: `lastSyncedAt` = `finished_at` de su corrida EXITOSA
-   * más reciente (fuente `vtex_api`); `lastSyncStatus` = status de la
-   * corrida TERMINADA más reciente (`finished_at IS NOT NULL`) — así el
+   * más reciente de `source` (por defecto `'vtex_api'`; el módulo GA4
+   * pasa `'ga4_api'` para su propio estado de sincronización — misma
+   * tabla, misma lógica, universo de filas distinto); `lastSyncStatus` =
+   * status de la corrida TERMINADA más reciente (`finished_at IS NOT
+   * NULL`) — así el
    * dashboard puede seguir mostrando la advertencia de "no se pudo
    * refrescar" si la última corrida falló, aunque haya habido una exitosa
    * antes.
@@ -67,7 +70,7 @@ export class SyncLogsRepository {
    * parpadeaba con corridas que en realidad seguían en curso, no habían
    * fallado.
    */
-  async getLatestStatusByStore(): Promise<Record<string, SyncLogSummary>> {
+  async getLatestStatusByStore(source: SyncSource = 'vtex_api'): Promise<Record<string, SyncLogSummary>> {
     const result = await this.pool.query<{
       store_id: string;
       last_synced_at: string | null;
@@ -76,12 +79,13 @@ export class SyncLogsRepository {
       `SELECT
          store_id,
          (SELECT finished_at FROM sync_logs s2
-            WHERE s2.store_id = s1.store_id AND s2.source = 'vtex_api' AND s2.status = 'success'
+            WHERE s2.store_id = s1.store_id AND s2.source = $1 AND s2.status = 'success'
             ORDER BY s2.finished_at DESC LIMIT 1) AS last_synced_at,
          (SELECT status FROM sync_logs s3
-            WHERE s3.store_id = s1.store_id AND s3.source = 'vtex_api' AND s3.finished_at IS NOT NULL
+            WHERE s3.store_id = s1.store_id AND s3.source = $1 AND s3.finished_at IS NOT NULL
             ORDER BY s3.finished_at DESC LIMIT 1) AS last_status
-       FROM (SELECT DISTINCT store_id FROM sync_logs WHERE source = 'vtex_api') s1`,
+       FROM (SELECT DISTINCT store_id FROM sync_logs WHERE source = $1) s1`,
+      [source],
     );
 
     const summary: Record<string, SyncLogSummary> = {};

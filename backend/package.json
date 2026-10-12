@@ -17,9 +17,12 @@
     "db:migrate": "ts-node -r tsconfig-paths/register src/modules/database/scripts/run-migrations.ts",
     "import:historico": "ts-node -r tsconfig-paths/register src/cli/import-historical-orders.ts",
     "backfill": "ts-node -r tsconfig-paths/register src/cli/backfill-range.ts",
-    "test": "node --require ts-node/register --test src/common/aggregation/daily-aggregator.test.ts src/cli/excel-import/row-picker.test.ts src/cli/excel-import/row-mapper.test.ts src/common/utils/keyed-mutex.util.test.ts"
+    "ga:backfill": "ts-node -r tsconfig-paths/register src/cli/ga-backfill.ts",
+    "ga:product-links": "ts-node -r tsconfig-paths/register src/cli/ga-product-links-backfill.ts",
+    "test": "node --require ts-node/register --test src/common/aggregation/daily-aggregator.test.ts src/cli/excel-import/row-picker.test.ts src/cli/excel-import/row-mapper.test.ts src/common/utils/keyed-mutex.util.test.ts src/modules/analytics-ga/ga-report.util.test.ts src/common/utils/date-range.util.test.ts src/common/utils/resumen-semaphore.util.test.ts src/common/utils/change-engine.util.test.ts src/common/utils/channel-mix.util.test.ts src/common/utils/safe-math.util.test.ts src/common/utils/ga-coverage.util.test.ts src/common/utils/resumen-message.util.test.ts"
   },
   "dependencies": {
+    "@google-analytics/data": "^7.2.1",
     "@nestjs/axios": "^3.0.2",
     "@nestjs/common": "^10.4.4",
     "@nestjs/config": "^3.2.3",

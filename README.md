@@ -325,6 +325,13 @@ cada una de las 6 tiendas en cada carga de página.
   vendió DENTRO de cada categoría. Si no lo es:
   `{ applicable: false, reason: "..." }` explícito, nunca una lista vacía.
 
+### `GET /api/analytics/summary?startDate&endDate` (`/resumen`)
+
+Semáforo de ventas por tienda + motor del cambio + mensaje automático —
+compara el rango elegido contra el período inmediatamente anterior de
+igual duración. Ver sección **16.1** para la documentación completa
+(definiciones, umbrales, aproximación de Pilatos, días provisionales).
+
 ## 8. Cómo funciona la paginación (dentro del cron)
 
 Hay dos problemas distintos que pueden hacer que falten órdenes, y cada uno
@@ -616,6 +623,7 @@ npm run start:dev         # desarrollo
 npm run build && npm run start:prod   # producción
 npm run db:migrate        # crea/recrea el esquema en Supabase
 npm run import:historico -- --path="..."   # importación histórica de Excel
+npm run ga:backfill -- --from=... --to=...   # backfill histórico de Google Analytics 4 (sección 16)
 npm test                  # tests de verificación (agregación, columnas sensibles, order_id)
 
 # Frontend
@@ -635,3 +643,258 @@ El backend ya NO necesita un volumen de disco persistente (no hay caché
 SQLite local) — todo el estado vive en Supabase. Solo asegúrate de que
 `DATABASE_URL` esté configurada en el entorno del contenedor/plataforma de
 despliegue (ej. variables de entorno de Render).
+
+## 16. Módulo GA4 (fase 1) — comportamiento/tráfico de Google Analytics
+
+Agrega, en paralelo a VTEX y sin tocar nada de lo existente, tráfico y
+embudo de e-commerce desde la **Google Analytics Data API (GA4)**. Mismo
+principio que VTEX: un cron sincroniza a Supabase, el dashboard SOLO lee
+de ahí — nunca habla con Google en el momento en que alguien abre
+`/analytics`.
+
+**Entregado en 2 fases**: la Fase A trae sincronización + lectura cruda de
+GA4 (`/analytics`) — sesiones, embudo, canales, dispositivos, landing
+pages, ciudades, nuevos/recurrentes, productos. La Fase B (cruce con
+ventas reales — `/resumen`, ver sección 16.1) se construyó DESPUÉS de
+validar que los números de la Fase A ya cuadraban contra la consola de
+GA4 directamente, para no mezclar "¿el dato de GA está bien?" con "¿la
+fórmula del cruce está bien?" en la misma verificación.
+
+### Variables de entorno
+
+```bash
+# JSON de la cuenta de servicio de Google (Google Analytics Data API),
+# crudo o en base64 — se detecta solo cuál es. NUNCA se loguea ni se
+# escribe a disco (ver backend/src/common/utils/ga-credentials.util.ts).
+GA_SERVICE_ACCOUNT_JSON=
+
+# ID NUMÉRICO de la propiedad GA4 de cada tienda (Admin > Property
+# Settings > Property ID) — NO el ID de medición "G-XXXXXXX" del tag.
+# Si una tienda no tiene ID, el cron de GA4 la omite (no es un error).
+GA_PROPERTY_ID_PILATOS=
+GA_PROPERTY_ID_KIPLING=
+GA_PROPERTY_ID_DIESEL=
+GA_PROPERTY_ID_SUPERDRY=
+GA_PROPERTY_ID_GIRBAUD=
+GA_PROPERTY_ID_REPLAY=
+
+GA_SYNC_CRON_HOURS=12          # cada cuántas horas se sincroniza GA4
+GA_RECALC_WINDOW_DAYS=3        # días hacia atrás que recalcula cada corrida
+GA_SYNC_ON_BOOT=false          # si corre GA4 al arrancar el backend
+GA_CHANGE_ENGINE_THRESHOLD_PERCENT=5   # umbral del "motor del cambio" (Fase B)
+```
+
+El JSON de la cuenta de servicio NUNCA se sube a git — `.gitignore` (raíz
+y `backend/`) además bloquea cualquier archivo `*service-account*.json`/
+`*credentials*.json`/`ga4-*.json` que pudiera quedar en el proyecto por
+error.
+
+### Por qué GA4 nunca corre al mismo tiempo que VTEX
+
+El backend corre en un dyno con memoria limitada (Render gratuito,
+~256MB) que ya tuvo un `heap out of memory` real. En vez de dos crons
+independientes compitiendo por memoria, hay UNO solo que manda:
+`VtexSyncCronService` sigue funcionando exactamente igual que siempre
+(cada `SYNC_CRON_INTERVAL_HOURS`), y al TERMINAR su propia corrida —
+nunca antes— dispara GA4 si ya pasaron `GA_SYNC_CRON_HOURS` desde la
+última vez (`GaSyncCronService.maybeSync()`). Como literalmente corren
+uno después del otro en la misma cadena de `await`, es imposible que se
+crucen — no hace falta ningún candado.
+
+### Esquema
+
+Migración `backend/src/modules/database/migrations/0012_add_ga4.sql` —
+3 tablas nuevas (`ga_daily`, `ga_daily_by_channel`, `ga_daily_by_device`),
+mismo molde que `sales_daily_by_city` (`date`/`year`/`month` + `store_id`
++ dimensión + métricas). **Aditiva** (`CREATE TABLE IF NOT EXISTS`, nunca
+`DROP TABLE`) — a diferencia de `0001_init.sql`, por lo que se aplicó con
+un script de una sola vez (`Client` de `pg` directo contra
+`DATABASE_URL`), **nunca con `npm run db:migrate`**: ese script re-corre
+TODO el historial de migraciones desde `0001_init.sql`, que sí tiene
+`DROP TABLE ... CASCADE` — correrlo contra una base con datos reales
+destruiría todo lo existente.
+
+### Cómo verificar GA4 manualmente (hacerlo ANTES del backfill completo)
+
+**Zona horaria de cada propiedad** (repetir para las 6, cambiando de
+propiedad arriba a la izquierda en analytics.google.com): Admin (el
+engranaje) → columna "Property" → "Property details"/"Property
+settings" → campo "Reporting Time Zone". Debe decir "(GMT-05:00) Bogotá"
+(o el mismo huso horario) — si dice otra cosa, los días de GA quedan
+desfasados contra `sales_daily` sin que se note a simple vista.
+
+**Que la propiedad tenga datos de e-commerce**: Reports → Life cycle →
+Monetization → "Ecommerce purchases", mismo rango de fechas que se vaya a
+sincronizar. Si todo sale en cero, el problema no es el código de este
+módulo — es que el sitio no le está mandando eventos de e-commerce a GA4
+(falta configuración de Google Tag Manager/dataLayer). Para comparar un
+número puntual: Reports → Acquisition → "Traffic acquisition", fijar un
+solo día y anotar "Sessions" — debe coincidir (±1-2%) con `sessions` de
+`ga_daily` para esa tienda/fecha una vez corrido el backfill.
+
+### Backfill inicial
+
+```bash
+cd backend
+npm run ga:backfill -- --from=2026-01-01 --to=2026-10-01
+npm run ga:backfill -- --from=2026-01-01 --to=2026-10-01 --store=pilatos
+```
+
+Igual que `npm run backfill` (VTEX): proceso aparte, trocea el rango en
+bloques de ~1 mes, tienda por tienda en secuencia. Al final imprime, por
+tienda, qué % de los días del rango tuvo `sessions > 0` — así se sabe
+cuánto histórico entrega realmente cada propiedad sin asumir un límite de
+antemano (una propiedad GA4 puede simplemente no tener datos tan atrás).
+
+### Supuestos de negocio (cruce con ventas, Fase B)
+
+- **Sellers de Pilatos** (Armo Studio, Disandina, Tennis SA, Clemont):
+  **NO se excluyen** del cálculo de conversión del sitio — confirmado que
+  sí venden a través de la página web de Pilatos.
+- **Marketplaces de Pilatos** (Agaval, Addi, Dafiti, Fruta fresca, Puntos
+  Colombia, Replaycolombia, Falabella): **SÍ se excluyen** — no pasan por
+  el sitio web, así que sus órdenes se restan del total contabilizado
+  antes de calcular sesiones ÷ órdenes (si no, la conversión del sitio
+  saldría inflada). Controlado por `excludeFromSiteConversion` en
+  `backend/src/config/stores.config.ts` — si se confirma que algún canal
+  sí vende por el sitio, basta con poner su flag en `false`.
+- Para las otras 5 tiendas no existe esta segmentación: si alguna
+  empezara a vender por fuera de su sitio web, su conversión calculada
+  saldría inflada sin que el sistema pueda detectarlo.
+
+### Tamaño de las tablas
+
+```sql
+SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_catalog.pg_statio_user_tables ORDER BY 2 DESC;
+```
+
+## 16.1. `/resumen` (Fase B) — semáforo de ventas + motor del cambio
+
+Endpoint: `GET /api/analytics/summary?startDate&endDate`. Igual principio
+que todo lo demás: SOLO lee `sales_daily*`/`ga_daily*` de Supabase, nunca
+consulta VTEX ni Google en el momento en que alguien abre `/resumen`.
+Módulo propio (`backend/src/modules/resumen/`), desacoplado de
+`OrdersModule`/`AnalyticsGaModule` — mismo criterio que `AnalyticsGaModule`
+en su momento.
+
+### Definiciones
+
+- **Período A** (actual): el rango elegido. **Período B** (anterior): el
+  rango INMEDIATAMENTE anterior, de IGUAL duración, sin solaparse
+  (`previousPeriodOfEqualDuration` en `date-range.util.ts`). **Período C**
+  (año anterior, informativo): mismo rango un año calendario atrás
+  (`sameRangeLastYear`) — nunca afecta el semáforo ni el motor.
+- **Ventas**: valor de órdenes CONTABILIZADAS (`sales_daily_by_status`
+  filtrado con `matchRevenueStatusDefinition`, igual lista de estados que
+  el resto del dashboard) — NUNCA `sales_daily.sales` (esa es venta sin
+  filtrar por estado).
+- **Compras reales**: EXACTAMENTE el mismo campo que la card "Compras
+  reales" del Dashboard (`sales_daily.real_revenue_orders` — compras
+  deduplicadas por número base de orden, donde algún fragmento llegó a un
+  estado contabilizado).
+- **Conversión** = compras reales ÷ sesiones (`ga_daily.sessions`).
+  **Ticket** = ventas ÷ compras reales. Toda división está protegida
+  (`safe-math.util.ts`) — si falta cualquiera de los dos lados, el
+  resultado es `null` ("sin datos"), NUNCA se inventa un -100%.
+
+### Semáforo (Parte 2 del encargo original)
+
+El color depende SOLO de la variación de ventas de A contra B. Constantes
+en `backend/src/config/resumen-semaphore.config.ts` (valores iniciales, a
+validar con datos reales):
+
+```ts
+floorRedPercent: 5      // piso de la zona roja
+floorGreenPercent: 10   // piso de la zona verde
+k: 1.5                  // multiplicador de la variación habitual (σ)
+minPurchases: 100       // compras reales mínimas en A y B para opinar
+minHistoryChanges: 6    // cambios mínimos para usar el historial propio
+maxHistoryWindows: 13   // tope de ventanas históricas hacia atrás
+```
+
+Umbral POR TIENDA: se construyen hasta 13 ventanas consecutivas, de la
+MISMA duración que el rango elegido, EMPEZANDO por B y yendo hacia atrás
+(`buildHistoryWindowRanges` — el período A nunca entra en el cálculo de
+su propio umbral, ni siquiera se le pasan sus fechas a la función). Se
+excluyen las ventanas sin ventas, se calculan los % de cambio entre las
+que sobreviven, y la "variación habitual" (σ) se calcula con una
+desviación robusta (MAD × 1,4826 — no desviación estándar clásica, para
+que un pico puntual tipo Black Friday no distorsione el umbral de una
+tienda). Con 6 o más cambios: `redLimit = -max(floorRedPercent, k×σ)`,
+`greenLimit = max(floorGreenPercent, k×σ)`. Con menos: se usan
+`floorRedPercent`/`floorGreenPercent` tal cual ("valores por defecto").
+
+**Gris** (sin opinión, siempre con motivo) cuando: A o B no tienen datos
+de ventas, B tuvo ventas en cero, o las compras reales de A o de B están
+por debajo de `minPurchases`.
+
+### Motor del cambio y frenos (Parte 3)
+
+Identidad `ventas = sesiones × conversión × ticket` ⟹
+`ln(V_A/V_B) = ln(S_A/S_B) + ln(C_A/C_B) + ln(T_A/T_B)`
+(`change-engine.util.ts`). Cada término se expresa ×100 ("aporte en
+puntos") — los 3 suman EXACTO el cambio total en escala logarítmica. El
+**motor** es la pieza alineada con la dirección del cambio total de mayor
+aporte absoluto, solo si supera `GA_CHANGE_ENGINE_THRESHOLD_PERCENT` (5%,
+`configuration.ts` → `app.ga.changeEngineThresholdPercent`). El **freno**
+es una pieza que va en contra de esa dirección y también supera el
+umbral — NO cambia el color, solo se marca. Si el cambio total de ventas
+es menor a 1%, no se nombra motor. El motor/los frenos solo se calculan
+si la cobertura de GA es 100% en A y B (si falta, se muestra la razón).
+
+### Mezcla de canales vs. deterioro dentro de los canales (Parte 4)
+
+Solo cuando la conversión según Analytics cambia ≥5% y hay 100% de
+cobertura GA en A y B: descomposición tipo Oaxaca-Blinder sobre
+`ga_daily_by_channel` (`channel-mix.util.ts`) — `efecto_mezcla` (cambió
+de dónde viene el tráfico) vs. `efecto_dentro` (cada canal convierte
+distinto). Canales con menos de 20 compras GA en A **o** en B se agrupan
+en "Otros", mismo agrupamiento en los dos períodos. Etiquetado "según
+Analytics, indicativo" — Analytics registra solo una parte de las
+compras reales.
+
+### Pilatos — ajuste por marketplaces externos
+
+El semáforo usa las ventas TOTALES de Pilatos (todas las fuentes,
+incluyendo marketplaces). La conversión, el ticket y el motor usan la
+base DEL SITIO: ventas del sitio = ventas totales − `revenue_sales` de
+`sales_daily_by_marketplace` de los canales con `excludeFromSiteConversion`;
+compras del sitio = compras reales − `revenue_orders` de esos mismos
+canales. **Aproximación documentada**: `revenue_orders` de
+`sales_daily_by_marketplace` son ÓRDENES (sin deduplicar fragmentos
+`-01`/`-02`), no "compras reales" — no existe ese dedup a nivel de
+marketplace, así que "compras del sitio" de Pilatos es una aproximación,
+no un número exacto. La tarjeta muestra ambas líneas (total y del sitio)
+y lista los marketplaces excluidos.
+
+### Efecto de los días provisionales
+
+Mismo criterio que `/analytics` (`GaQueryService.getOverview`,
+reimplementado como función pura en `ga-coverage.util.ts` para no
+depender de `AnalyticsGaModule`): los últimos 2 días calendario (hoy y
+ayer) que ya tengan fila en `ga_daily` cuentan como "provisionales" Y
+como "cubiertos" en la cobertura al mismo tiempo — nunca se pintan de
+gris ni se suprime ningún cálculo por esto, solo se agrega la etiqueta
+`provisional` y la lista de fechas. Si el período actual incluye un día
+provisional y el anterior no, la variación puede salir un poco más baja
+de lo que será una vez ese día termine de estabilizarse (GA4 tarda
+24-48h).
+
+### Cómo leer el panel "¿Cómo se calculó este color?"
+
+Cada tarjeta de `/resumen` trae un panel desplegable con los números
+EXACTOS usados para decidir el color: fechas de A y B, variación de
+ventas, los límites rojo/verde aplicados y su fuente ("historial propio"
+con σ y número de ventanas, o "valores por defecto"), compras reales de
+A y B contra `minPurchases`, cobertura de GA de A y B, la lectura de
+mezcla si aplica, los marketplaces excluidos (solo Pilatos), y las fechas
+provisionales si las hay — toda tarjeta es auditable sin tener que
+confiar a ciegas en el color.
+
+### Fuera de alcance (confirmado)
+
+Alertas de ciudad o producto dentro de `/resumen`, una página `/comparar`
+aparte, cruce con presupuesto vs. real, y un puntaje combinado de "salud"
+de tienda — el ranking se ordena solo por variación de ventas, mostrando
+sesiones/conversión/ticket al lado, nunca un solo número compuesto.

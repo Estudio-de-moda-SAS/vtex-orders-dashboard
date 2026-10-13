@@ -270,3 +270,41 @@ export interface GaProductsResponse {
   /** Total de VISTAS de producto de la tienda en el rango — el denominador de `itemsViewedPercent` de cada fila (distinto de `totalSessionsByStore` de los demás desgloses). */
   totalItemsViewedByStore: Record<string, number>;
 }
+
+/**
+ * `sessionCampaignName` + `sessionSourceMedium` de GA4 — qué campaña con
+ * UTM (ej. "pilatos-bazar-on-off-promo-email-on-9102026") trajo qué
+ * resultado, y desde qué fuente/medio (ej. "woowup / email") la disparó.
+ * A diferencia de `GaLandingPageBreakdownRow`/`GaCityBreakdownRow`/
+ * `GaProductBreakdownRow`, NO hay tope Top 20 ni fila "(otros)" — se
+ * devuelven TODAS las campañas del rango (ver `GaReportUtil.rowsToByCampaign`),
+ * para que el buscador de campañas del frontend pueda filtrar sobre la
+ * lista completa. La gran mayoría de las sesiones NO tienen campaña
+ * (tráfico orgánico/directo) y aparecen como `campaignName: '(not set)'`
+ * — es tráfico real, no un error. Métricas de EMBUDO (no solo
+ * sessions/totalUsers/purchases como el resto de desgloses), cada
+ * `*Percent` relativo al total de ESA métrica (ver nota de
+ * `GaChannelBreakdownRow`).
+ */
+export interface GaCampaignBreakdownRow {
+  campaignName: string;
+  sourceMedium: string;
+  sessions: number;
+  sessionsPercent: number;
+  addToCarts: number;
+  addToCartsPercent: number;
+  checkouts: number;
+  checkoutsPercent: number;
+  purchases: number;
+  purchasesPercent: number;
+  gaRevenue: number;
+  revenuePercent: number;
+  conversionPercent: number;
+}
+
+export interface GaCampaignsResponse {
+  filters: { startDate: string; endDate: string };
+  byStore: Record<string, GaCampaignBreakdownRow[]>;
+  /** Total de sesiones de la tienda en el rango — el denominador de `sessionsPercent` de cada fila. */
+  totalSessionsByStore: Record<string, number>;
+}

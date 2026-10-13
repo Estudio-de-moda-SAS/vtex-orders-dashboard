@@ -88,6 +88,20 @@ export interface GaDailyByProductRow {
   itemRevenue: number;
 }
 
+export interface GaDailyByCampaignRow {
+  date: string;
+  storeId: string;
+  /** `sessionCampaignName` de GA4 — SIN tope ni agrupación "(otros)" (ver `GaReportUtil.rowsToByCampaign`): las campañas son deliberadas, no de cardinalidad creciente sin límite, y hay que poder buscarlas todas por nombre. */
+  campaignName: string;
+  /** `sessionSourceMedium` de GA4, ej. "woowup / email". */
+  sourceMedium: string;
+  sessions: number;
+  addToCarts: number;
+  checkouts: number;
+  purchases: number;
+  gaRevenue: number;
+}
+
 /**
  * Escribe los agregados diarios de GA4 calculados por `GaSyncService` en
  * `ga_daily`/`ga_daily_by_channel`/`ga_daily_by_device` — mismo patrón
@@ -113,6 +127,7 @@ export class GaAggregatesRepository {
     byUserType: GaDailyByUserTypeRow[],
     byCity: GaDailyByCityRow[],
     byProduct: GaDailyByProductRow[],
+    byCampaign: GaDailyByCampaignRow[],
   ): Promise<void> {
     if (days.length === 0) return;
     const client = await this.pool.connect();
@@ -127,6 +142,7 @@ export class GaAggregatesRepository {
         'ga_daily_by_user_type',
         'ga_daily_by_city',
         'ga_daily_by_product',
+        'ga_daily_by_campaign',
       ]) {
         await client.query(`DELETE FROM ${table} WHERE store_id = $1 AND date = ANY($2::date[])`, [storeId, days]);
       }
@@ -212,6 +228,13 @@ export class GaAggregatesRepository {
           r.itemsPurchased,
           r.itemRevenue,
         ]),
+      );
+
+      await this.insertRows(
+        client,
+        'ga_daily_by_campaign',
+        ['date', 'store_id', 'campaign_name', 'source_medium', 'sessions', 'add_to_carts', 'checkouts', 'purchases', 'ga_revenue'],
+        byCampaign.map((r) => [r.date, r.storeId, r.campaignName, r.sourceMedium, r.sessions, r.addToCarts, r.checkouts, r.purchases, r.gaRevenue]),
       );
 
       await client.query('COMMIT');

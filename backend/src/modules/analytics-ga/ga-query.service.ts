@@ -15,6 +15,8 @@ import { DashboardQueryRepository } from '../database/repositories/dashboard-que
 import { GaProductLinksRepository } from '../database/repositories/ga-product-links.repository';
 import { SyncLogsRepository } from '../database/repositories/sync-logs.repository';
 import {
+  GaCampaignBreakdownRow,
+  GaCampaignsResponse,
   GaChannelBreakdownRow,
   GaChannelsResponse,
   GaCitiesResponse,
@@ -178,7 +180,7 @@ export class GaQueryService {
     const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
     for (const id of storeIds) {
       const storeRows = rows.filter((r) => String(r.store_id) === id);
-      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       totalSessionsByStore[id] = storeTotals.sessions;
       byStore[id] = storeRows
         .map((r) => {
@@ -223,7 +225,7 @@ export class GaQueryService {
     const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
     for (const id of storeIds) {
       const storeRows = rows.filter((r) => String(r.store_id) === id);
-      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       totalSessionsByStore[id] = storeTotals.sessions;
       byStore[id] = storeRows
         .map((r) => {
@@ -277,7 +279,7 @@ export class GaQueryService {
     const totalSessionsByStore: Record<string, number> = {};
     const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
     for (const id of storeIds) {
-      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       totalSessionsByStore[id] = storeTotals.sessions;
 
       const summed = rows
@@ -349,7 +351,7 @@ export class GaQueryService {
     const totalSessionsByStore: Record<string, number> = {};
     const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
     for (const id of storeIds) {
-      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       totalSessionsByStore[id] = storeTotals.sessions;
 
       const summed = rows
@@ -519,7 +521,7 @@ export class GaQueryService {
     const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
     for (const id of storeIds) {
       const storeRows = rows.filter((r) => String(r.store_id) === id);
-      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       totalSessionsByStore[id] = storeTotals.sessions;
       byStore[id] = storeRows
         .map((r) => {
@@ -533,6 +535,69 @@ export class GaQueryService {
             sessionsPercent: this.sharePercent(sessions, storeTotals.sessions),
             totalUsers,
             usersPercent: this.sharePercent(totalUsers, storeTotals.totalUsers),
+            purchases,
+            purchasesPercent: this.sharePercent(purchases, storeTotals.purchases),
+            gaRevenue,
+            revenuePercent: this.sharePercent(gaRevenue, storeTotals.gaRevenue),
+            conversionPercent: sessions > 0 ? Number(((purchases / sessions) * 100).toFixed(2)) : 0,
+          };
+        })
+        .sort((a, b) => b.sessions - a.sessions);
+    }
+
+    return { filters: { startDate, endDate }, byStore, totalSessionsByStore };
+  }
+
+  /**
+   * Campaña (`sessionCampaignName`) + fuente/medio (`sessionSourceMedium`)
+   * — a diferencia de `getLandingPages`/`getCities`/`getProducts`, SIN
+   * tope Top 20 ni fila "(otros)": `ga_daily_by_campaign` ya guarda TODAS
+   * las campañas de cada día (ver `GaReportUtil.rowsToByCampaign`), así
+   * que el frontend puede buscar/filtrar sobre la lista completa en vez
+   * de un recorte. Métricas de EMBUDO (sessions/addToCarts/checkouts/
+   * purchases), no solo sessions/totalUsers/purchases.
+   */
+  async getCampaigns(startDate: string, endDate: string, storeId?: string): Promise<GaCampaignsResponse> {
+    const startDay = toDayBucketColombia(normalizeStartDate(startDate));
+    const endDay = toDayBucketColombia(normalizeEndDate(endDate));
+    const rows = await this.dashboardQueryRepository.queryGroupedMulti(
+      'ga_daily_by_campaign',
+      ['campaign_name', 'source_medium'],
+      ['sessions', 'add_to_carts', 'checkouts', 'purchases', 'ga_revenue'],
+      startDay,
+      endDay,
+      storeId,
+    );
+    const totalsByStore = await this.getAuthoritativeTotalsByStore(startDay, endDay, storeId);
+
+    const byStore: Record<string, GaCampaignBreakdownRow[]> = {};
+    const totalSessionsByStore: Record<string, number> = {};
+    const storeIds = Array.from(new Set(rows.map((r) => String(r.store_id))));
+    for (const id of storeIds) {
+      const storeRows = rows.filter((r) => String(r.store_id) === id);
+      const storeTotals = totalsByStore[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
+      totalSessionsByStore[id] = storeTotals.sessions;
+
+      // `queryGroupedMulti` ya agrupó por (campaign_name, source_medium) sumando
+      // TODO el rango en SQL (no se pidió `date` como dimensión) — cada fila de
+      // `storeRows` ya es el total del rango para esa combinación, sin falta
+      // sumar entre días acá (a diferencia de un desglose por `date` + dimensión).
+      byStore[id] = storeRows
+        .map((r) => {
+          const sessions = Number(r.sessions);
+          const addToCarts = Number(r.add_to_carts);
+          const checkouts = Number(r.checkouts);
+          const purchases = Number(r.purchases);
+          const gaRevenue = Number(r.ga_revenue);
+          return {
+            campaignName: String(r.campaign_name),
+            sourceMedium: String(r.source_medium),
+            sessions,
+            sessionsPercent: this.sharePercent(sessions, storeTotals.sessions),
+            addToCarts,
+            addToCartsPercent: this.sharePercent(addToCarts, storeTotals.addToCarts),
+            checkouts,
+            checkoutsPercent: this.sharePercent(checkouts, storeTotals.checkouts),
             purchases,
             purchasesPercent: this.sharePercent(purchases, storeTotals.purchases),
             gaRevenue,
@@ -591,21 +656,23 @@ export class GaQueryService {
     startDay: string,
     endDay: string,
     storeId?: string,
-  ): Promise<Record<string, { sessions: number; totalUsers: number; purchases: number; gaRevenue: number }>> {
+  ): Promise<Record<string, { sessions: number; totalUsers: number; addToCarts: number; checkouts: number; purchases: number; gaRevenue: number }>> {
     const rows = await this.dashboardQueryRepository.queryGrouped(
       'ga_daily',
       'date',
-      ['sessions', 'total_users', 'purchases', 'ga_revenue'],
+      ['sessions', 'total_users', 'add_to_carts', 'checkouts', 'purchases', 'ga_revenue'],
       startDay,
       endDay,
       storeId,
     );
-    const result: Record<string, { sessions: number; totalUsers: number; purchases: number; gaRevenue: number }> = {};
+    const result: Record<string, { sessions: number; totalUsers: number; addToCarts: number; checkouts: number; purchases: number; gaRevenue: number }> = {};
     for (const row of rows) {
       const id = String(row.store_id);
-      const acc = result[id] ?? { sessions: 0, totalUsers: 0, purchases: 0, gaRevenue: 0 };
+      const acc = result[id] ?? { sessions: 0, totalUsers: 0, addToCarts: 0, checkouts: 0, purchases: 0, gaRevenue: 0 };
       acc.sessions += Number(row.sessions);
       acc.totalUsers += Number(row.total_users);
+      acc.addToCarts += Number(row.add_to_carts);
+      acc.checkouts += Number(row.checkouts);
       acc.purchases += Number(row.purchases);
       acc.gaRevenue += Number(row.ga_revenue);
       result[id] = acc;

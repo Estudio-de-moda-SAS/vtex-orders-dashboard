@@ -8,6 +8,7 @@ import { SyncLogsRepository } from '../database/repositories/sync-logs.repositor
 import { GaClientService } from './ga-client.service';
 import {
   fillMissingDays,
+  rowsToByCampaign,
   rowsToByChannel,
   rowsToByCity,
   rowsToByDevice,
@@ -38,6 +39,9 @@ const CITY_METRICS = ['sessions', 'totalUsers', 'ecommercePurchases', 'purchaseR
 /** Reporte G — debe coincidir con `rowsToByProduct`. Métricas de ÍTEM, no de sesión. */
 const PRODUCT_DIMENSIONS = ['date', 'itemId', 'itemName', 'itemCategory'];
 const PRODUCT_METRICS = ['itemsViewed', 'itemsAddedToCart', 'itemsPurchased', 'itemRevenue'];
+/** Reporte H — debe coincidir con `rowsToByCampaign`. Métricas de EMBUDO (no solo sessions/totalUsers/purchases), sin tope Top 20. */
+const CAMPAIGN_DIMENSIONS = ['date', 'sessionCampaignName', 'sessionSourceMedium'];
+const CAMPAIGN_METRICS = ['sessions', 'addToCarts', 'checkouts', 'ecommercePurchases', 'purchaseRevenue'];
 /** Etiquetas que no son un producto real — nunca se les intenta resolver un link (ver `GaReportUtil.rowsToByProduct`). */
 const NON_PRODUCT_ITEM_IDS = new Set(['(otros)', '(not set)']);
 /** Tope de SKUs nuevos a resolver POR LLAMADA a `syncStore` — un backfill largo puede traer cientos de SKUs distintos en el Top 20 de días distintos; se resuelven de a poco, nunca todos de una vez. */
@@ -111,11 +115,12 @@ export class GaSyncService {
       await this.assertCompatibility(store.gaPropertyId, USER_TYPE_DIMENSIONS, USER_TYPE_METRICS);
       await this.assertCompatibility(store.gaPropertyId, CITY_DIMENSIONS, CITY_METRICS);
       await this.assertCompatibility(store.gaPropertyId, PRODUCT_DIMENSIONS, PRODUCT_METRICS);
+      await this.assertCompatibility(store.gaPropertyId, CAMPAIGN_DIMENSIONS, CAMPAIGN_METRICS);
 
       const dateRanges = [{ startDate: startDay, endDate: endDay }];
       const property = `properties/${store.gaPropertyId}`;
 
-      const [dailyRows, channelRows, deviceRows, landingPageRows, userTypeRows, cityRows, productRows] = await Promise.all([
+      const [dailyRows, channelRows, deviceRows, landingPageRows, userTypeRows, cityRows, productRows, campaignRows] = await Promise.all([
         this.gaClient.runReportAllRows({ property, dateRanges, dimensions: [{ name: 'date' }], metrics: DAILY_METRICS.map((name) => ({ name })) }),
         this.gaClient.runReportAllRows({
           property,
@@ -153,6 +158,12 @@ export class GaSyncService {
           dimensions: PRODUCT_DIMENSIONS.map((name) => ({ name })),
           metrics: PRODUCT_METRICS.map((name) => ({ name })),
         }),
+        this.gaClient.runReportAllRows({
+          property,
+          dateRanges,
+          dimensions: CAMPAIGN_DIMENSIONS.map((name) => ({ name })),
+          metrics: CAMPAIGN_METRICS.map((name) => ({ name })),
+        }),
       ]);
 
       const gaDailyRaw = rowsToGaDaily(dailyRows ?? [], store.id);
@@ -163,6 +174,7 @@ export class GaSyncService {
       const byUserType = rowsToByUserType(userTypeRows ?? [], store.id);
       const byCity = rowsToByCity(cityRows ?? [], store.id);
       const byProduct = rowsToByProduct(productRows ?? [], store.id);
+      const byCampaign = rowsToByCampaign(campaignRows ?? [], store.id);
 
       const allDays = enumerateDayBuckets(`${startDay}T00:00:00-05:00`, `${endDay}T23:59:59-05:00`);
       await this.gaAggregatesRepository.replaceStoreRange(
@@ -175,6 +187,7 @@ export class GaSyncService {
         byUserType,
         byCity,
         byProduct,
+        byCampaign,
       );
 
       await this.syncLogsRepository.finish(syncLogId, 'success', {
@@ -186,7 +199,8 @@ export class GaSyncService {
           byLandingPage.length +
           byUserType.length +
           byCity.length +
-          byProduct.length,
+          byProduct.length +
+          byCampaign.length,
         recordsUpdated: 0,
         recordsFailed: 0,
       });

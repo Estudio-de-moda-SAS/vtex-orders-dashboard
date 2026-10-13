@@ -2,6 +2,7 @@ import { protos } from '@google-analytics/data';
 
 import { enumerateDayBuckets, dayBucketStartIso, dayBucketEndIso } from '../../common/utils/date-range.util';
 import {
+  GaDailyByCampaignRow,
   GaDailyByChannelRow,
   GaDailyByCityRow,
   GaDailyByDeviceRow,
@@ -289,6 +290,52 @@ export function rowsToByProduct(rows: GaRow[], storeId: string): GaDailyByProduc
     }
   }
   return result;
+}
+
+/**
+ * Reporte H (dimensiones `date`, `sessionCampaignName`, `sessionSourceMedium`;
+ * métricas de EMBUDO `sessions`, `addToCarts`, `checkouts`, `ecommercePurchases`,
+ * `purchaseRevenue`) → filas de `ga_daily_by_campaign`. A diferencia de
+ * landing pages/ciudades/productos, NO hay tope Top 20 ni agrupación
+ * "(otros)": las campañas son deliberadas (alguien las crea por cada
+ * promo/envío con UTM), de cardinalidad acotada, y hay que poder buscar
+ * cualquiera por nombre más adelante — fundirlas en "(otros)" rompería esa
+ * búsqueda. GA4 agrupa server-side por la combinación exacta de las 3
+ * dimensiones, así que no debería haber duplicados de `(date, campaignName,
+ * sourceMedium)` — se fusionan de todas formas por seguridad, mismo
+ * criterio defensivo que `rowsToByProduct`.
+ */
+export function rowsToByCampaign(rows: GaRow[], storeId: string): GaDailyByCampaignRow[] {
+  const rawRows: GaDailyByCampaignRow[] = rows.map((row) => ({
+    date: parseGaDate(dimensionValue(row, 0)),
+    storeId,
+    campaignName: dimensionValue(row, 1),
+    sourceMedium: dimensionValue(row, 2),
+    sessions: metricNumber(row, 0),
+    addToCarts: metricNumber(row, 1),
+    checkouts: metricNumber(row, 2),
+    purchases: metricNumber(row, 3),
+    gaRevenue: metricNumber(row, 4),
+  }));
+
+  const byKey = new Map<string, GaDailyByCampaignRow>();
+  for (const row of rawRows) {
+    const key = `${row.date}::${row.campaignName}::${row.sourceMedium}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...row });
+      continue;
+    }
+    byKey.set(key, {
+      ...existing,
+      sessions: existing.sessions + row.sessions,
+      addToCarts: existing.addToCarts + row.addToCarts,
+      checkouts: existing.checkouts + row.checkouts,
+      purchases: existing.purchases + row.purchases,
+      gaRevenue: existing.gaRevenue + row.gaRevenue,
+    });
+  }
+  return Array.from(byKey.values());
 }
 
 /**

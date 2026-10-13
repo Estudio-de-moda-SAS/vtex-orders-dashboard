@@ -5,6 +5,7 @@ import { Suspense, useState } from 'react';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
 import { GaBreakdownTable, GaBreakdownTableRow } from '@/components/GaBreakdownTable';
+import { GaCampaignsTable, GaCampaignsTableRow } from '@/components/GaCampaignsTable';
 import { GaFunnelTable } from '@/components/GaFunnelTable';
 import { GaNewVsReturningChart } from '@/components/GaNewVsReturningChart';
 import { GaProductsTable, GaProductsTableRow } from '@/components/GaProductsTable';
@@ -14,6 +15,7 @@ import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import {
+  GaCampaignsResponse,
   GaChannelsResponse,
   GaCitiesResponse,
   GaDevicesResponse,
@@ -48,6 +50,7 @@ interface AnalyticsPageData {
   userTypes: GaUserTypesResponse;
   cities: GaCitiesResponse;
   products: GaProductsResponse;
+  campaigns: GaCampaignsResponse;
 }
 
 /** Etiquetas legibles para `newVsReturning` de GA4 — el resto (ej. "(not set)") se muestra tal cual. */
@@ -86,9 +89,11 @@ function AnalyticsContent() {
     // validación de forma) y revienta con "Cannot read properties of undefined" al intentar
     // leer el campo que faltaba (confirmado en producción). Subir la versión invalida de una
     // sola vez todo el caché viejo de esta página.
-    `analytics:v2:${startDate}:${endDate}`,
+    // "v3": se agregó `campaigns` a `AnalyticsPageData` — mismo motivo que el salto a "v2"
+    // (ver nota de arriba), bumpeado de nuevo para invalidar el caché viejo sin ese campo.
+    `analytics:v3:${startDate}:${endDate}`,
     async () => {
-      const [overview, channels, devices, landingPages, userTypes, cities, products] = await Promise.all([
+      const [overview, channels, devices, landingPages, userTypes, cities, products, campaigns] = await Promise.all([
         analyticsGaService.getGaOverview(startDate, endDate),
         analyticsGaService.getGaChannels(startDate, endDate),
         analyticsGaService.getGaDevices(startDate, endDate),
@@ -96,8 +101,9 @@ function AnalyticsContent() {
         analyticsGaService.getGaUserTypes(startDate, endDate),
         analyticsGaService.getGaCities(startDate, endDate),
         analyticsGaService.getGaProducts(startDate, endDate),
+        analyticsGaService.getGaCampaigns(startDate, endDate),
       ]);
-      return { overview, channels, devices, landingPages, userTypes, cities, products };
+      return { overview, channels, devices, landingPages, userTypes, cities, products, campaigns };
     },
     { autoFetchOnKeyChange: false },
   );
@@ -175,6 +181,8 @@ function AnalyticsContent() {
             cities={requestState.data.cities.byStore[storeId] ?? []}
             totalSessionsCities={requestState.data.cities.totalSessionsByStore[storeId] ?? 0}
             products={requestState.data.products.byStore[storeId] ?? []}
+            campaigns={requestState.data.campaigns.byStore[storeId] ?? []}
+            totalSessionsCampaigns={requestState.data.campaigns.totalSessionsByStore[storeId] ?? 0}
             pdpBaseUrl={STORES.find((s) => s.id === storeId)?.pdpBaseUrl}
             storeName={selectedStoreName ?? storeId}
           />
@@ -199,6 +207,8 @@ function StoreDetail({
   cities,
   totalSessionsCities,
   products,
+  campaigns,
+  totalSessionsCampaigns,
   pdpBaseUrl,
   storeName,
 }: {
@@ -214,6 +224,8 @@ function StoreDetail({
   cities: GaCitiesResponse['byStore'][string];
   totalSessionsCities: number;
   products: GaProductsResponse['byStore'][string];
+  campaigns: GaCampaignsResponse['byStore'][string];
+  totalSessionsCampaigns: number;
   pdpBaseUrl?: string;
   storeName: string;
 }) {
@@ -317,6 +329,22 @@ function StoreDetail({
   // ver qué convierte bien y qué no, sin necesidad de una segunda tabla ordenada por ingresos.
   const mostViewedProducts = productRows;
 
+  const campaignRows: GaCampaignsTableRow[] = campaigns.map((c) => ({
+    campaignName: c.campaignName,
+    sourceMedium: c.sourceMedium,
+    sessions: c.sessions,
+    sessionsPercent: c.sessionsPercent,
+    addToCarts: c.addToCarts,
+    addToCartsPercent: c.addToCartsPercent,
+    checkouts: c.checkouts,
+    checkoutsPercent: c.checkoutsPercent,
+    purchases: c.purchases,
+    purchasesPercent: c.purchasesPercent,
+    gaRevenue: c.gaRevenue,
+    revenuePercent: c.revenuePercent,
+    conversionPercent: c.conversionPercent,
+  }));
+
   return (
     <>
       <SyncStatusBanner overview={overview} />
@@ -415,6 +443,13 @@ function StoreDetail({
         stock, precio, tallas o ficha. Se muestran hasta 20 productos por día (los de más vistas), el resto
         agrupado en &quot;(otros)&quot;. El nombre enlaza a la ficha real del producto cuando ya se resolvió, o a
         una búsqueda en el sitio mientras tanto.
+      </p>
+
+      <GaCampaignsTable rows={campaignRows} totalSessions={totalSessionsCampaigns} />
+      <p className="-mt-3 text-xs text-ink-faint">
+        ℹ A diferencia de los demás desgloses, acá se muestran TODAS las campañas del rango (sin tope ni
+        &quot;(otros)&quot;) — úsalo con el buscador para encontrar una promo puntual por nombre (ej.
+        &quot;bazar&quot;, &quot;addi&quot;).
       </p>
     </>
   );

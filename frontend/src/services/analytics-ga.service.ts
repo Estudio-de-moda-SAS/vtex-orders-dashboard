@@ -1,4 +1,5 @@
 import {
+  GaCampaignsResponse,
   GaChannelsResponse,
   GaCitiesResponse,
   GaDevicesResponse,
@@ -111,5 +112,12 @@ export const analyticsGaService = {
     const params = new URLSearchParams({ startDate, endDate });
     if (storeId) params.set('storeId', storeId);
     return request<GaProductsResponse>(`/api/analytics/ga/products?${params.toString()}`);
+  },
+
+  /** Desglose por campaña (UTM) + fuente/medio — SIN tope Top 20, trae TODAS las campañas del rango (ver backend). */
+  getGaCampaigns(startDate: string, endDate: string, storeId?: string): Promise<GaCampaignsResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    if (storeId) params.set('storeId', storeId);
+    return request<GaCampaignsResponse>(`/api/analytics/ga/campaigns?${params.toString()}`);
   },
 };

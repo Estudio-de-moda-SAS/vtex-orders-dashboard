@@ -192,3 +192,32 @@ export interface GaProductsResponse {
   byStore: Record<string, GaProductBreakdownRow[]>;
   totalItemsViewedByStore: Record<string, number>;
 }
+
+/**
+ * Campaña (UTM) + fuente/medio — a diferencia de los demás desgloses, SIN
+ * tope Top 20 ni fila "(otros)": trae TODAS las campañas del rango, para
+ * que el buscador (`GaCampaignFilter`) pueda filtrar sobre la lista
+ * completa. La mayoría de sesiones no tienen campaña y aparecen como
+ * `campaignName: '(not set)'` — tráfico real orgánico/directo, no un error.
+ */
+export interface GaCampaignBreakdownRow {
+  campaignName: string;
+  sourceMedium: string;
+  sessions: number;
+  sessionsPercent: number;
+  addToCarts: number;
+  addToCartsPercent: number;
+  checkouts: number;
+  checkoutsPercent: number;
+  purchases: number;
+  purchasesPercent: number;
+  gaRevenue: number;
+  revenuePercent: number;
+  conversionPercent: number;
+}
+
+export interface GaCampaignsResponse {
+  filters: { startDate: string; endDate: string };
+  byStore: Record<string, GaCampaignBreakdownRow[]>;
+  totalSessionsByStore: Record<string, number>;
+}

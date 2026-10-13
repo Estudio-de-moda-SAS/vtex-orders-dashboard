@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   fillMissingDays,
   parseGaDate,
+  rowsToByCampaign,
   rowsToByChannel,
   rowsToByCity,
   rowsToByDevice,
@@ -251,6 +252,58 @@ test('rowsToByUserType: un string VACÍO literal de GA4 para newVsReturning (con
   ];
   const result = rowsToByUserType(rows, 'pilatos');
   assert.equal(result[0].userType, '(not set)');
+});
+
+test('rowsToByCampaign: mapea campaña + fuente/medio y las 5 métricas de embudo, SIN tope ni agrupación "(otros)" aunque haya muchas filas el mismo día', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    dimensionValues: [{ value: '20261009' }, { value: `campana-${i}` }, { value: 'woowup / email' }],
+    metricValues: [{ value: '10' }, { value: '3' }, { value: '2' }, { value: '1' }, { value: '50000' }],
+  }));
+  const result = rowsToByCampaign(rows, 'pilatos');
+  assert.equal(result.length, 30); // las 30 campañas quedan, ninguna se funde en "(otros)" (a diferencia de landing pages/ciudades/productos).
+  assert.deepEqual(result[0], {
+    date: '2026-10-09',
+    storeId: 'pilatos',
+    campaignName: 'campana-0',
+    sourceMedium: 'woowup / email',
+    sessions: 10,
+    addToCarts: 3,
+    checkouts: 2,
+    purchases: 1,
+    gaRevenue: 50000,
+  });
+});
+
+test('rowsToByCampaign: fusiona filas duplicadas del mismo (día, campaña, fuente/medio) por seguridad, aunque GA4 no debería repetirlas', () => {
+  const rows = [
+    {
+      dimensionValues: [{ value: '20261009' }, { value: 'pilatos-bazar' }, { value: 'facebook / ads' }],
+      metricValues: [{ value: '100' }, { value: '30' }, { value: '10' }, { value: '5' }, { value: '200000' }],
+    },
+    {
+      dimensionValues: [{ value: '20261009' }, { value: 'pilatos-bazar' }, { value: 'facebook / ads' }],
+      metricValues: [{ value: '50' }, { value: '10' }, { value: '4' }, { value: '2' }, { value: '80000' }],
+    },
+  ];
+  const result = rowsToByCampaign(rows, 'pilatos');
+  assert.equal(result.length, 1);
+  assert.equal(result[0].sessions, 150);
+  assert.equal(result[0].addToCarts, 40);
+  assert.equal(result[0].checkouts, 14);
+  assert.equal(result[0].purchases, 7);
+  assert.equal(result[0].gaRevenue, 280000);
+});
+
+test('rowsToByCampaign: un string VACÍO literal de GA4 en campaña o fuente/medio se normaliza a "(not set)" (mismo tráfico orgánico/directo sin UTM)', () => {
+  const rows = [
+    {
+      dimensionValues: [{ value: '20261009' }, { value: '' }, { value: '(direct) / (none)' }],
+      metricValues: [{ value: '500' }, { value: '20' }, { value: '5' }, { value: '2' }, { value: '100000' }],
+    },
+  ];
+  const result = rowsToByCampaign(rows, 'pilatos');
+  assert.equal(result[0].campaignName, '(not set)');
+  assert.equal(result[0].sourceMedium, '(direct) / (none)');
 });
 
 test('fillMissingDays: rellena en cero cada día del rango que GA no reportó', () => {

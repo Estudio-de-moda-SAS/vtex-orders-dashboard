@@ -62,4 +62,11 @@ export class GaQueryController {
     OrdersQueryDto.assertRange(query.startDate, query.endDate);
     return this.gaQueryService.getProducts(query.startDate, query.endDate, query.storeId);
   }
+
+  /** GET /api/analytics/ga/campaigns?startDate&endDate&storeId */
+  @Get('campaigns')
+  getCampaigns(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: GaQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    return this.gaQueryService.getCampaigns(query.startDate, query.endDate, query.storeId);
+  }
 }

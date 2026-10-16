@@ -119,13 +119,15 @@ export function rowsToByUserType(rows: GaRow[], storeId: string): GaDailyByUserT
 
 /**
  * Reporte D (dimensiones `date`, `landingPage`; métricas `sessions`,
- * `totalUsers`, `ecommercePurchases`, `purchaseRevenue`) → filas de
- * `ga_daily_by_landing_page`. A diferencia de canal/dispositivo (un
- * puñado de valores fijos), una tienda puede tener cientos de landing
- * pages distintas — para no disparar el número de filas (y el riesgo de
- * memoria del sync), por cada día se conservan solo las
- * `MAX_LANDING_PAGES_PER_DAY` con más sesiones y el resto se suma en una
- * sola fila `(otros)`.
+ * `totalUsers`, `engagedSessions`, `ecommercePurchases`, `purchaseRevenue`)
+ * → filas de `ga_daily_by_landing_page`. `engagedSessions` es lo que
+ * permite calcular la tasa de rebote POR PÁGINA (1 - engaged/sessions),
+ * igual criterio que ya se usa a nivel general en `/analytics`. A
+ * diferencia de canal/dispositivo (un puñado de valores fijos), una
+ * tienda puede tener cientos de landing pages distintas — para no
+ * disparar el número de filas (y el riesgo de memoria del sync), por cada
+ * día se conservan solo las `MAX_LANDING_PAGES_PER_DAY` con más sesiones y
+ * el resto se suma en una sola fila `(otros)`.
  */
 export function rowsToByLandingPage(rows: GaRow[], storeId: string): GaDailyByLandingPageRow[] {
   const allRows: GaDailyByLandingPageRow[] = rows.map((row) => ({
@@ -134,8 +136,9 @@ export function rowsToByLandingPage(rows: GaRow[], storeId: string): GaDailyByLa
     landingPage: dimensionValue(row, 1),
     sessions: metricNumber(row, 0),
     totalUsers: metricNumber(row, 1),
-    purchases: metricNumber(row, 2),
-    gaRevenue: metricNumber(row, 3),
+    engagedSessions: metricNumber(row, 2),
+    purchases: metricNumber(row, 3),
+    gaRevenue: metricNumber(row, 4),
   }));
 
   const byDate = new Map<string, GaDailyByLandingPageRow[]>();
@@ -158,6 +161,7 @@ export function rowsToByLandingPage(rows: GaRow[], storeId: string): GaDailyByLa
         landingPage: OTHER_LANDING_PAGE_LABEL,
         sessions: rest.reduce((sum, r) => sum + r.sessions, 0),
         totalUsers: rest.reduce((sum, r) => sum + r.totalUsers, 0),
+        engagedSessions: rest.reduce((sum, r) => sum + r.engagedSessions, 0),
         purchases: rest.reduce((sum, r) => sum + r.purchases, 0),
         gaRevenue: rest.reduce((sum, r) => sum + r.gaRevenue, 0),
       });

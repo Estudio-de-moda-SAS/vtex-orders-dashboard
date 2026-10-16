@@ -102,9 +102,14 @@ export function ParticipationLineChart({
 
   return (
     <ChartPanel title={title}>
-      <p className="-mt-1 mb-3 text-xs text-ink-faint">{subtitle}</p>
+      <p className="-mt-1 mb-1 text-xs text-ink-faint">{subtitle}</p>
+      {/* Texto plano en vez del `label` interno de recharts en el eje Y: ese `label` se dibuja centrado
+          sobre la LÍNEA del eje (cerca del borde izquierdo, no del centro del gráfico), así que un
+          texto largo como "% del total Pilatos" se salía del SVG y quedaba cortado — confirmado en
+          producción en /pilatos y /metodos-pago. Un párrafo normal no tiene ese problema. */}
+      <p className="mb-2 text-[11px] font-semibold text-ink-muted">{axisLabel}</p>
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 22, right: 16, left: 8, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#E3E7EF" vertical={false} />
           <XAxis dataKey="month" tick={{ fill: '#5B6472', fontSize: 12 }} axisLine={{ stroke: '#E3E7EF' }} tickLine={false} />
           <YAxis
@@ -113,12 +118,6 @@ export function ParticipationLineChart({
             tickLine={false}
             tickFormatter={(value) => formatPercentage(value)}
             width={70}
-            label={{
-              value: axisLabel,
-              position: 'top',
-              offset: 12,
-              style: { fill: '#5B6472', fontSize: 11, fontWeight: 600 },
-            }}
           />
           <Tooltip content={<ParticipationTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12, color: '#5B6472' }} />

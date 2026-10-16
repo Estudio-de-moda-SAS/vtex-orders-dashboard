@@ -35,7 +35,8 @@ export default function MetodosPagoPage() {
   const [storeId, setStoreId] = useState<string>('');
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<PaymentMethodsTrendResponse>(
-    `metodos-pago:${todayKey()}:${storeId}`,
+    // "v2": se agregó `vsYearAgo` a `ParticipationPoint` — mismo motivo que el bump en `/pilatos`.
+    `metodos-pago:v2:${todayKey()}:${storeId}`,
     () => {
       const { startDate, endDate } = getYearToDateRange();
       return ordersService.getPaymentMethodsTrend(startDate, endDate, storeId || undefined);

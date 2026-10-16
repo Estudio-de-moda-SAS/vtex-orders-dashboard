@@ -160,6 +160,22 @@ export interface AppConfig {
      */
     changeEngineThresholdPercent: number;
   };
+  creditNotes: {
+    /**
+     * API interna del ERP ("Conní") — SOLO alcanzable desde la VPN de la
+     * compañía. El backend desplegado NUNCA la llama (no tiene cómo
+     * llegar a esa red); la sincronización corre manualmente con
+     * `cli/credit-notes-sync.ts` desde una máquina conectada a la VPN.
+     */
+    apiUrl: string;
+    companyId: string;
+    queryName: string;
+    /** `null` si no están configuradas en `.env` — ver `CreditNotesClientService`. */
+    connectionKey: string | null;
+    connectionToken: string | null;
+    /** Confirmado en producción: un mes completo puede tardar cerca de 20-25s en responder — se deja bastante margen (no es una API rápida, es un reporte del ERP). */
+    requestTimeoutMs: number;
+  };
 }
 
 /**
@@ -226,6 +242,14 @@ export default (): { app: AppConfig } => ({
       recalcWindowDays: parseInt(process.env.GA_RECALC_WINDOW_DAYS ?? '3', 10),
       syncOnBoot: process.env.GA_SYNC_ON_BOOT === 'true',
       changeEngineThresholdPercent: parseInt(process.env.GA_CHANGE_ENGINE_THRESHOLD_PERCENT ?? '5', 10),
+    },
+    creditNotes: {
+      apiUrl: process.env.CREDIT_NOTES_API_URL ?? 'http://10.10.21.7:82/v4.1/ejecutarconsulta',
+      companyId: process.env.CREDIT_NOTES_COMPANY_ID ?? '2198',
+      queryName: process.env.CREDIT_NOTES_QUERY_NAME ?? 'estudiodemoda_Notas_credito_ecommerce',
+      connectionKey: process.env.CREDIT_NOTES_CONNI_KEY ?? null,
+      connectionToken: process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
+      requestTimeoutMs: parseInt(process.env.CREDIT_NOTES_REQUEST_TIMEOUT_MS ?? '90000', 10),
     },
   },
 });

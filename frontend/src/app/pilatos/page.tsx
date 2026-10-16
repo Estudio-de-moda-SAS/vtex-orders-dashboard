@@ -23,7 +23,10 @@ function todayKey(): string {
  */
 export default function PilatosPage() {
   const { state: requestState, refetch: runQuery } = useCachedQuery<PilatosMixResponse>(
-    `pilatos:${todayKey()}`,
+    // "v2": se agregó `vsYearAgo` a `ParticipationPoint` — sin este cambio de versión, un caché
+    // guardado ANTES de ese campo se lee tal cual (sin `vsYearAgo`), y la vista "Vs. año pasado"
+    // sale toda en gris (confirmado en producción: `undefined` se trata igual que "sin dato").
+    `pilatos:v2:${todayKey()}`,
     () => {
       const { startDate, endDate } = getYearToDateRange();
       return ordersService.getPilatosMix(startDate, endDate);

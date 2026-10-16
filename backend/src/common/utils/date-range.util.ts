@@ -157,6 +157,17 @@ export function addDaysUtc(dayBucket: string, days: number): string {
   return subtractDaysUtc(dayBucket, -days);
 }
 
+/**
+ * Resta un año calendario (naive, mismo mes/día) a un día YYYY-MM-DD — ej.
+ * "2026-10-14" → "2025-10-14". Usado por `PaymentMethodsTrendService`/
+ * `PilatosMixService` para traer el año anterior completo como referencia
+ * de la comparación "mes vs. mismo mes del año pasado".
+ */
+export function subtractCalendarYear(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return `${y - 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 /** Número de días calendario entre dos días YYYY-MM-DD, INCLUSIVE (ej. mismo día → 1). */
 export function dayCount(startDay: string, endDay: string): number {
   const [sy, sm, sd] = startDay.split('-').map(Number);

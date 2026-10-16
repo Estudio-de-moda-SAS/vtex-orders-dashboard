@@ -48,6 +48,8 @@ export interface GaDailyByLandingPageRow {
   landingPage: string;
   sessions: number;
   totalUsers: number;
+  /** Sesiones CON interacción — para la tasa de rebote (1 - engaged/sessions) de esta página, ver `GaQueryService.getLandingPages`. */
+  engagedSessions: number;
   purchases: number;
   gaRevenue: number;
 }
@@ -195,8 +197,8 @@ export class GaAggregatesRepository {
       await this.insertRows(
         client,
         'ga_daily_by_landing_page',
-        ['date', 'store_id', 'landing_page', 'sessions', 'total_users', 'purchases', 'ga_revenue'],
-        byLandingPage.map((r) => [r.date, r.storeId, r.landingPage, r.sessions, r.totalUsers, r.purchases, r.gaRevenue]),
+        ['date', 'store_id', 'landing_page', 'sessions', 'total_users', 'engaged_sessions', 'purchases', 'ga_revenue'],
+        byLandingPage.map((r) => [r.date, r.storeId, r.landingPage, r.sessions, r.totalUsers, r.engagedSessions, r.purchases, r.gaRevenue]),
       );
 
       await this.insertRows(

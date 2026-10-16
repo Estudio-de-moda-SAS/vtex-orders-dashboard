@@ -5,6 +5,7 @@
  * que el resto del dashboard).
  */
 
+import { YearAgoComparison } from '../../../common/utils/participation-growth.util';
 import { GrowthStatus } from './trends.interface';
 
 /**
@@ -42,6 +43,14 @@ export interface ParticipationPoint {
   /** Cambio % de `participationPercent` respecto al mes anterior del rango. `null` cuando `status` es 'new' o 'no-data'. */
   growthPercent: number | null;
   status: GrowthStatus;
+  /**
+   * Mismo tipo de comparación, pero contra el MISMO MES un año antes (ej.
+   * septiembre 2026 vs. septiembre 2025) en vez del mes inmediatamente
+   * anterior — controla por estacionalidad, más útil para decisiones de
+   * negocio. `null` si ese mes no tiene histórico un año atrás (el
+   * historial de ventas arranca julio de 2025).
+   */
+  vsYearAgo: YearAgoComparison | null;
 }
 
 export interface SeriesParticipation {

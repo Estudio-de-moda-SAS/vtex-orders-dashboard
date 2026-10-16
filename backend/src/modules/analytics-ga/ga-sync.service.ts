@@ -29,7 +29,7 @@ const DEVICE_DIMENSIONS = ['date', 'deviceCategory'];
 const DEVICE_METRICS = ['sessions', 'totalUsers', 'ecommercePurchases', 'purchaseRevenue'];
 /** Reporte D — debe coincidir con `rowsToByLandingPage`. */
 const LANDING_PAGE_DIMENSIONS = ['date', 'landingPage'];
-const LANDING_PAGE_METRICS = ['sessions', 'totalUsers', 'ecommercePurchases', 'purchaseRevenue'];
+const LANDING_PAGE_METRICS = ['sessions', 'totalUsers', 'engagedSessions', 'ecommercePurchases', 'purchaseRevenue'];
 /** Reporte E — debe coincidir con `rowsToByUserType`. */
 const USER_TYPE_DIMENSIONS = ['date', 'newVsReturning'];
 const USER_TYPE_METRICS = ['sessions', 'totalUsers', 'ecommercePurchases', 'purchaseRevenue'];

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dayCount, previousPeriodOfEqualDuration, sameRangeLastYear } from './date-range.util';
+import { dayCount, previousPeriodOfEqualDuration, sameRangeLastYear, subtractCalendarYear } from './date-range.util';
 
 test('dayCount: cuenta días INCLUSIVE (mismo día → 1)', () => {
   assert.equal(dayCount('2026-10-01', '2026-10-01'), 1);
@@ -20,4 +20,9 @@ test('previousPeriodOfEqualDuration: funciona con un rango de un solo día', () 
 
 test('sameRangeLastYear: resta un año calendario a ambos extremos', () => {
   assert.deepEqual(sameRangeLastYear('2026-10-01', '2026-10-10'), { startDay: '2025-10-01', endDay: '2025-10-10' });
+});
+
+test('subtractCalendarYear: resta un año calendario (mismo mes/día)', () => {
+  assert.equal(subtractCalendarYear('2026-10-14'), '2025-10-14');
+  assert.equal(subtractCalendarYear('2026-01-01'), '2025-01-01');
 });

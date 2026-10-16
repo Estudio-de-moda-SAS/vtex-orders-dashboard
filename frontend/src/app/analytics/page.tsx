@@ -91,7 +91,8 @@ function AnalyticsContent() {
     // sola vez todo el caché viejo de esta página.
     // "v3": se agregó `campaigns` a `AnalyticsPageData` — mismo motivo que el salto a "v2"
     // (ver nota de arriba), bumpeado de nuevo para invalidar el caché viejo sin ese campo.
-    `analytics:v3:${startDate}:${endDate}`,
+    // "v4": se agregó `bounceRatePercent` a cada fila de páginas de entrada.
+    `analytics:v4:${startDate}:${endDate}`,
     async () => {
       const [overview, channels, devices, landingPages, userTypes, cities, products, campaigns] = await Promise.all([
         analyticsGaService.getGaOverview(startDate, endDate),
@@ -270,6 +271,7 @@ function StoreDetail({
     gaRevenue: p.gaRevenue,
     revenuePercent: p.revenuePercent,
     conversionPercent: p.conversionPercent,
+    bounceRatePercent: p.bounceRatePercent,
   }));
 
   const userTypeRows: GaBreakdownTableRow[] = userTypes.map((u) => ({
@@ -424,6 +426,7 @@ function StoreDetail({
         rowLabel="Página de entrada"
         rows={landingPageRows}
         totalSessions={totalSessionsLandingPages}
+        showBounceRate
       />
       <p className="-mt-3 text-xs text-ink-faint">
         ℹ Se muestran hasta 20 páginas de entrada por día (las de más sesiones) — el resto del tráfico de ese día se

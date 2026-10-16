@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -43,16 +44,11 @@ export function Navbar() {
         <Link
           href="/"
           title={APP_MEANING}
-          className="flex items-center gap-2.5 py-3 transition hover:opacity-90"
+          className="flex shrink-0 flex-col items-start justify-center gap-0.5 py-2 transition hover:opacity-90"
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent via-[#5B6FE0] to-[#8B5CF6] font-display text-base font-bold text-white shadow-panel">
-            V
-          </span>
-          <span className="flex flex-col leading-none">
-            <span className="font-display text-lg font-extrabold tracking-tight text-ink">{APP_NAME}</span>
-            <span className="hidden text-[10px] font-medium uppercase tracking-wide text-ink-faint sm:block">
-              {APP_MEANING}
-            </span>
+          <Image src="/vica-wordmark.png" alt={APP_NAME} width={108} height={28} className="shrink-0" priority />
+          <span className="hidden text-[9px] font-medium uppercase leading-tight tracking-wide text-ink-faint sm:block">
+            {APP_MEANING}
           </span>
         </Link>
 

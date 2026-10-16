@@ -268,7 +268,7 @@ export class GaQueryService {
     const rows = await this.dashboardQueryRepository.queryGroupedMulti(
       'ga_daily_by_landing_page',
       ['landing_page'],
-      ['sessions', 'total_users', 'purchases', 'ga_revenue'],
+      ['sessions', 'total_users', 'engaged_sessions', 'purchases', 'ga_revenue'],
       startDay,
       endDay,
       storeId,
@@ -288,6 +288,7 @@ export class GaQueryService {
           landingPage: String(r.landing_page),
           sessions: Number(r.sessions),
           totalUsers: Number(r.total_users),
+          engagedSessions: Number(r.engaged_sessions),
           purchases: Number(r.purchases),
           gaRevenue: Number(r.ga_revenue),
         }));
@@ -303,6 +304,7 @@ export class GaQueryService {
           landingPage: LANDING_PAGE_OTHER_LABEL,
           sessions: overflow.reduce((sum, r) => sum + r.sessions, 0),
           totalUsers: overflow.reduce((sum, r) => sum + r.totalUsers, 0),
+          engagedSessions: overflow.reduce((sum, r) => sum + r.engagedSessions, 0),
           purchases: overflow.reduce((sum, r) => sum + r.purchases, 0),
           gaRevenue: overflow.reduce((sum, r) => sum + r.gaRevenue, 0),
         });
@@ -320,6 +322,7 @@ export class GaQueryService {
           gaRevenue: r.gaRevenue,
           revenuePercent: this.sharePercent(r.gaRevenue, storeTotals.gaRevenue),
           conversionPercent: r.sessions > 0 ? Number(((r.purchases / r.sessions) * 100).toFixed(2)) : 0,
+          bounceRatePercent: r.sessions > 0 ? Number(((1 - r.engagedSessions / r.sessions) * 100).toFixed(2)) : 0,
         }))
         .sort((a, b) => b.sessions - a.sessions);
     }

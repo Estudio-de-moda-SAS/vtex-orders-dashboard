@@ -96,24 +96,33 @@ test('rowsToByDevice: mapea dimensión deviceCategory y las 4 métricas (session
   ]);
 });
 
-test('rowsToByLandingPage: mapea dimensión landingPage y las 4 métricas cuando hay 20 o menos páginas en el día', () => {
+test('rowsToByLandingPage: mapea dimensión landingPage y las 5 métricas (incluida engagedSessions, para la tasa de rebote) cuando hay 20 o menos páginas en el día', () => {
   const rows = [
     {
       dimensionValues: [{ value: '20260115' }, { value: '/productos/camisa' }],
-      metricValues: [{ value: '30' }, { value: '25' }, { value: '2' }, { value: '80000' }],
+      metricValues: [{ value: '30' }, { value: '25' }, { value: '20' }, { value: '2' }, { value: '80000' }],
     },
   ];
   const result = rowsToByLandingPage(rows, 'girbaud');
   assert.deepEqual(result, [
-    { date: '2026-01-15', storeId: 'girbaud', landingPage: '/productos/camisa', sessions: 30, totalUsers: 25, purchases: 2, gaRevenue: 80000 },
+    {
+      date: '2026-01-15',
+      storeId: 'girbaud',
+      landingPage: '/productos/camisa',
+      sessions: 30,
+      totalUsers: 25,
+      engagedSessions: 20,
+      purchases: 2,
+      gaRevenue: 80000,
+    },
   ]);
 });
 
-test('rowsToByLandingPage: con más de 20 páginas en un día, conserva el Top 20 por sesiones y agrupa el resto en "(otros)"', () => {
+test('rowsToByLandingPage: con más de 20 páginas en un día, conserva el Top 20 por sesiones y agrupa el resto (incluida engagedSessions) en "(otros)"', () => {
   const rows = Array.from({ length: 25 }, (_, i) => ({
     dimensionValues: [{ value: '20260115' }, { value: `/pagina-${i}` }],
     // Sesiones descendentes: pagina-0 tiene 100, pagina-24 tiene 76 — las últimas 5 (índices 20-24) quedan fuera del Top 20.
-    metricValues: [{ value: String(100 - i) }, { value: '1' }, { value: '0' }, { value: '0' }],
+    metricValues: [{ value: String(100 - i) }, { value: '1' }, { value: '1' }, { value: '0' }, { value: '0' }],
   }));
   const result = rowsToByLandingPage(rows, 'pilatos');
 
@@ -123,6 +132,7 @@ test('rowsToByLandingPage: con más de 20 páginas en un día, conserva el Top 2
   // Sesiones de las 5 páginas excluidas (índices 20-24: 80+79+78+77+76).
   assert.equal(other!.sessions, 80 + 79 + 78 + 77 + 76);
   assert.equal(other!.totalUsers, 5);
+  assert.equal(other!.engagedSessions, 5);
   assert.ok(result.every((r) => r.landingPage !== '/pagina-20' && r.landingPage !== '/pagina-24'));
   assert.ok(result.some((r) => r.landingPage === '/pagina-0'));
 });

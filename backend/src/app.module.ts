@@ -6,6 +6,7 @@ import configuration from './config/configuration';
 import { AnalyticsGaModule } from './modules/analytics-ga/analytics-ga.module';
 import { BudgetsModule } from './modules/budgets/budgets.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { CreditNotesModule } from './modules/credit-notes/credit-notes.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ResumenModule } from './modules/resumen/resumen.module';
@@ -32,6 +33,7 @@ import { SyncModule } from './modules/sync/sync.module';
     ResumenModule,
     StoresModule,
     BudgetsModule,
+    CreditNotesModule,
   ],
 })
 export class AppModule {}

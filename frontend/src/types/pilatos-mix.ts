@@ -14,6 +14,14 @@ export interface MonthlyMixPoint {
   breakdown: Record<string, number>;
 }
 
+/** Comparación contra el MISMO MES un año antes — ver `ParticipationPoint.vsYearAgo`. */
+export interface YearAgoComparison {
+  participationPercent: number;
+  salesValue: number;
+  growthPercent: number | null;
+  status: GrowthStatus;
+}
+
 export interface ParticipationPoint {
   month: string;
   /** % del total contabilizado de Pilatos ese mes (0-100). */
@@ -25,6 +33,8 @@ export interface ParticipationPoint {
   /** Cambio % de la participación respecto al mes anterior del rango. `null` cuando `status` es 'new' o 'no-data'. */
   growthPercent: number | null;
   status: GrowthStatus;
+  /** Mismo tipo de comparación, pero contra el mismo mes un año antes (controla por estacionalidad). `null` si ese mes no tiene histórico un año atrás. */
+  vsYearAgo: YearAgoComparison | null;
 }
 
 export interface SeriesParticipation {

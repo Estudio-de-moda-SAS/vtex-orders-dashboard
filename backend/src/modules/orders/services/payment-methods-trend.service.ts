@@ -1,16 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
-import { normalizeEndDate, normalizeStartDate, toDayBucketColombia } from '../../../common/utils/date-range.util';
-import { classifyParticipationGrowth } from '../../../common/utils/participation-growth.util';
+import { normalizeEndDate, normalizeStartDate, subtractCalendarYear, toDayBucketColombia } from '../../../common/utils/date-range.util';
+import { buildParticipationSeries } from '../../../common/utils/participation-growth.util';
 import { matchRevenueStatusDefinition } from '../../../common/utils/revenue-status.util';
 import { getParticipationGrowthThresholds } from '../../../config/growth-thresholds.config';
 import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
-import {
-  PaymentMethodMonthlyPoint,
-  PaymentMethodsTrendResponse,
-  SeriesParticipation,
-} from '../interfaces/payment-methods-trend.interface';
+import { PaymentMethodMonthlyPoint, PaymentMethodsTrendResponse } from '../interfaces/payment-methods-trend.interface';
 
 /**
  * Participación de cada método de pago mes a mes — TODAS las tiendas
@@ -42,13 +38,19 @@ export class PaymentMethodsTrendService {
   async getTrend(rawStartDate: string, rawEndDate: string, storeId?: string): Promise<PaymentMethodsTrendResponse> {
     const startDay = toDayBucketColombia(normalizeStartDate(rawStartDate));
     const endDay = toDayBucketColombia(normalizeEndDate(rawEndDate));
+    // Se trae también el año anterior completo (mismo día en adelante) en UNA sola consulta — es la
+    // referencia para "vs. año pasado" (ver `buildParticipationSeries`). Esos meses NUNCA aparecen
+    // como columna propia en `points`, solo se usan para comparar.
+    const queryStartDay = subtractCalendarYear(startDay);
+    const startYearMonth = startDay.slice(0, 7);
+    const endYearMonth = endDay.slice(0, 7);
 
     const [statusRows, paymentRows] = await Promise.all([
       this.dashboardQueryRepository.queryGroupedMulti(
         'sales_daily_by_status',
         ['year', 'month', 'status'],
         ['sales'],
-        startDay,
+        queryStartDay,
         endDay,
         storeId,
       ),
@@ -56,7 +58,7 @@ export class PaymentMethodsTrendService {
         'sales_daily_by_payment',
         ['year', 'month', 'payment_method'],
         ['revenue_sales'],
-        startDay,
+        queryStartDay,
         endDay,
         storeId,
       ),
@@ -69,67 +71,59 @@ export class PaymentMethodsTrendService {
       totalByMonth.set(month, (totalByMonth.get(month) ?? 0) + Number(row.sales));
     }
 
-    const { points, names } = this.buildPoints(paymentRows, totalByMonth);
+    const { byMonth, names } = this.buildBreakdown(paymentRows, startYearMonth, endYearMonth);
+
+    const displayMonths = Array.from(totalByMonth.keys())
+      .filter((m) => m >= startYearMonth && m <= endYearMonth)
+      .sort();
+    const points: PaymentMethodMonthlyPoint[] = displayMonths.map((month) => ({
+      month,
+      total: totalByMonth.get(month) ?? 0,
+      breakdown: byMonth.get(month) ?? {},
+    }));
 
     return {
       points,
       methodNames: names,
-      participation: this.buildParticipation(names, points),
+      participation: buildParticipationSeries(names, points, totalByMonth, byMonth, this.participationThresholds),
     };
   }
 
-  /** Igual criterio que `PilatosMixService.buildParticipation` — ver esa clase para el detalle de casos borde. */
-  private buildParticipation(names: string[], points: PaymentMethodMonthlyPoint[]): SeriesParticipation[] {
-    return names.map((name) => {
-      let priorParticipation: number | null = null;
-      let everHadParticipation = false;
-      const seriesPoints = points.map((point, index) => {
-        const value = point.breakdown[name] ?? 0;
-        const participationPercent = point.total > 0 ? (value / point.total) * 100 : 0;
-        const { growthPercent, status } = classifyParticipationGrowth(
-          participationPercent,
-          index === 0 ? null : priorParticipation,
-          everHadParticipation,
-          this.participationThresholds,
-        );
-        priorParticipation = participationPercent;
-        if (participationPercent > 0) everHadParticipation = true;
-        return { month: point.month, participationPercent, salesValue: value, total: point.total, growthPercent, status };
-      });
-      return { name, points: seriesPoints };
-    });
-  }
-
   /**
-   * Arma los puntos mensuales: cada mes con datos en `totalByMonth`
-   * aparece, incluso si algún método no tuvo venta ese mes. Solo los
-   * `TOP_METHODS_LIMIT` métodos con mayor venta en TODO el rango quedan
-   * como serie propia — el resto se consolida en `OTHER_METHODS_LABEL`
-   * (ver nota en la constante), nunca se descarta.
+   * Agrupa `rows` (ya cubriendo año actual + año anterior) por mes, SIN
+   * filtrar por rango — eso lo hace `getTrend` al armar `points`. Solo los
+   * `TOP_METHODS_LIMIT` métodos con mayor venta DENTRO DEL RANGO A MOSTRAR
+   * (`startYearMonth`..`endYearMonth`, nunca contando el año anterior)
+   * quedan como serie propia — el resto se consolida en
+   * `OTHER_METHODS_LABEL` (ver nota en la constante) en TODOS los meses,
+   * incluyendo los del año anterior usados solo como referencia.
    */
-  private buildPoints(
+  private buildBreakdown(
     rows: Record<string, string | number>[],
-    totalByMonth: Map<string, number>,
-  ): { points: PaymentMethodMonthlyPoint[]; names: string[] } {
-    const totalByName = new Map<string, number>();
+    startYearMonth: string,
+    endYearMonth: string,
+  ): { byMonth: Map<string, Record<string, number>>; names: string[] } {
+    const totalByNameDisplay = new Map<string, number>();
     const byMonthRaw = new Map<string, Record<string, number>>();
 
     for (const row of rows) {
       const month = monthKey(row.year, row.month);
       const name = String(row.payment_method);
       const value = Number(row.revenue_sales);
-      totalByName.set(name, (totalByName.get(name) ?? 0) + value);
+      if (month >= startYearMonth && month <= endYearMonth) {
+        totalByNameDisplay.set(name, (totalByNameDisplay.get(name) ?? 0) + value);
+      }
       const bucket = byMonthRaw.get(month) ?? {};
       bucket[name] = (bucket[name] ?? 0) + value;
       byMonthRaw.set(month, bucket);
     }
 
-    const topNames = Array.from(totalByName.entries())
+    const topNames = Array.from(totalByNameDisplay.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, TOP_METHODS_LIMIT)
       .map(([name]) => name);
     const topNamesSet = new Set(topNames);
-    const hasOthers = totalByName.size > topNames.length;
+    const hasOthers = totalByNameDisplay.size > topNames.length;
 
     const byMonth = new Map<string, Record<string, number>>();
     for (const [month, bucket] of byMonthRaw.entries()) {
@@ -141,15 +135,8 @@ export class PaymentMethodsTrendService {
       byMonth.set(month, consolidated);
     }
 
-    const months = Array.from(totalByMonth.keys()).sort();
-    const points: PaymentMethodMonthlyPoint[] = months.map((month) => ({
-      month,
-      total: totalByMonth.get(month) ?? 0,
-      breakdown: byMonth.get(month) ?? {},
-    }));
-
     const names = hasOthers ? [...topNames, OTHER_METHODS_LABEL] : topNames;
-    return { points, names };
+    return { byMonth, names };
   }
 }
 

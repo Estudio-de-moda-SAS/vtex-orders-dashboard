@@ -13,6 +13,8 @@ export interface GaBreakdownTableRow {
   revenuePercent: number;
   /** Solo dispositivos — "según Analytics", distinta de la conversión real del cruce con ventas. */
   conversionPercent?: number;
+  /** Solo páginas de entrada por ahora (ver `showBounceRate`) — `1 - engaged/sessions` de ESA fila, en %. */
+  bounceRatePercent?: number;
 }
 
 interface GaBreakdownTableProps {
@@ -22,6 +24,8 @@ interface GaBreakdownTableProps {
   rows: GaBreakdownTableRow[];
   /** Total de sesiones de la tienda en el rango — mismo que la tarjeta de arriba, para que se vea de dónde sale el 100% de "Sesiones". */
   totalSessions: number;
+  /** Agrega la columna "Tasa de rebote" — opt-in porque solo páginas de entrada trae ese dato hoy; los demás desgloses no muestran la columna. */
+  showBounceRate?: boolean;
 }
 
 /** `value (percent%)` en una sola celda — cada columna participa sobre SU PROPIO total, no todas sobre sesiones. */
@@ -39,7 +43,7 @@ function cell(value: string, percent: number): string {
  * aclarado abajo. "Conversión" es SEGÚN ANALYTICS, distinta de la
  * conversión real contra pedidos VTEX que se muestra arriba.
  */
-export function GaBreakdownTable({ title, rowLabel, rows, totalSessions }: GaBreakdownTableProps) {
+export function GaBreakdownTable({ title, rowLabel, rows, totalSessions, showBounceRate = false }: GaBreakdownTableProps) {
   if (rows.length === 0) {
     return (
       <ChartPanel title={title}>
@@ -69,6 +73,9 @@ export function GaBreakdownTable({ title, rowLabel, rows, totalSessions }: GaBre
               <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-ink-faint">
                 Conversión<span className="block normal-case text-[10px] font-normal text-ink-faint">(según Analytics)</span>
               </th>
+              {showBounceRate && (
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-ink-faint">Tasa de rebote</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -87,6 +94,11 @@ export function GaBreakdownTable({ title, rowLabel, rows, totalSessions }: GaBre
                 <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
                   {row.conversionPercent !== undefined ? formatPercentage(row.conversionPercent) : '—'}
                 </td>
+                {showBounceRate && (
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
+                    {row.bounceRatePercent !== undefined ? formatPercentage(row.bounceRatePercent) : '—'}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

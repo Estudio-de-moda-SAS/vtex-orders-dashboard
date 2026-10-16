@@ -114,6 +114,8 @@ export interface GaLandingPageBreakdownRow {
   gaRevenue: number;
   revenuePercent: number;
   conversionPercent: number;
+  /** `1 - sesiones con interacción ÷ sesiones` de ESTA página, en % — mismo criterio que la tasa de rebote general. */
+  bounceRatePercent: number;
 }
 
 export interface GaLandingPagesResponse {

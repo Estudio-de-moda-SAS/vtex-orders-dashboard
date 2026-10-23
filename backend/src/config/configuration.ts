@@ -176,6 +176,38 @@ export interface AppConfig {
     /** Confirmado en producción: un mes completo puede tardar cerca de 20-25s en responder — se deja bastante margen (no es una API rápida, es un reporte del ERP). */
     requestTimeoutMs: number;
   };
+  assistant: {
+    /**
+     * Qué proveedor de LLM narra la conversación — 'openai' | 'anthropic'.
+     * Default 'openai': es lo que el usuario puede probar hoy (ya tiene una
+     * clave de OpenAI funcionando, todavía no una de pago de Anthropic). El
+     * camino de Anthropic queda completamente construido para cuando la
+     * tenga — cambiar a 'anthropic' es solo esta variable, ninguna otra
+     * pieza del módulo (herramientas, validación, prompt, logging) cambia.
+     */
+    provider: string;
+    /** `null` si no está configurada — el proveedor Anthropic responde con un error claro en vez de arrancar roto. */
+    anthropicApiKey: string | null;
+    /**
+     * Modelo configurable por `.env` a propósito — no fijo en el código.
+     * Default `claude-opus-5-5`; `claude-sonnet-5-5` es una alternativa
+     * razonable más barata para este caso de uso (preguntas acotadas,
+     * dirigidas por herramientas), documentada en el README del módulo —
+     * cambiarlo es decisión explícita de quien opera la app, no una
+     * rebaja silenciosa de este código.
+     */
+    model: string;
+    /** `output_config.effort` de Anthropic — "low"|"medium"|"high"|"xhigh"|"max". Default "medium". Sin equivalente en el proveedor OpenAI. */
+    effort: string;
+    /** `null` si no está configurada — el proveedor OpenAI responde con un error claro en vez de arrancar roto. */
+    openaiApiKey: string | null;
+    /** Modelo de OpenAI, configurable por `.env`. Default `gpt-5.4-mini` (mini de la generación actual, barato y sólido en tool calling — ver README del módulo). */
+    openaiModel: string;
+    /** Límite de preguntas por IP por minuto (ver `AssistantRateLimitGuard`). */
+    rateLimitPerMinute: number;
+    /** Límite de preguntas por día, GLOBAL (todas las IPs juntas) — tope de gasto. */
+    rateLimitPerDayGlobal: number;
+  };
 }
 
 /**
@@ -250,6 +282,16 @@ export default (): { app: AppConfig } => ({
       connectionKey: process.env.CREDIT_NOTES_CONNI_KEY ?? null,
       connectionToken: process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
       requestTimeoutMs: parseInt(process.env.CREDIT_NOTES_REQUEST_TIMEOUT_MS ?? '90000', 10),
+    },
+    assistant: {
+      provider: process.env.ASSISTANT_PROVIDER ?? 'openai',
+      anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? null,
+      model: process.env.ASSISTANT_MODEL ?? 'claude-opus-5-5',
+      effort: process.env.ASSISTANT_EFFORT ?? 'medium',
+      openaiApiKey: process.env.OPENAI_API_KEY ?? null,
+      openaiModel: process.env.OPENAI_MODEL ?? 'gpt-5.4-mini',
+      rateLimitPerMinute: parseInt(process.env.ASSISTANT_RATE_LIMIT_PER_MINUTE ?? '6', 10),
+      rateLimitPerDayGlobal: parseInt(process.env.ASSISTANT_RATE_LIMIT_PER_DAY ?? '200', 10),
     },
   },
 });

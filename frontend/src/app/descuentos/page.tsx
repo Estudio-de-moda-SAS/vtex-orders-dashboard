@@ -57,7 +57,9 @@ function DescuentosContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-descuentos-range');
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<DescuentosData>(
-    `descuentos:${startDate}:${endDate}`,
+    // "v2": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga.
+    `descuentos:v2:${startDate}:${endDate}`,
     async () => {
       const [dashboard, discounts] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),

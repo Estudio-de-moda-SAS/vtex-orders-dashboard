@@ -36,7 +36,9 @@ export default function MetodosPagoPage() {
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<PaymentMethodsTrendResponse>(
     // "v2": se agregó `vsYearAgo` a `ParticipationPoint` — mismo motivo que el bump en `/pilatos`.
-    `metodos-pago:v2:${todayKey()}:${storeId}`,
+    // "v3": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga.
+    `metodos-pago:v3:${todayKey()}:${storeId}`,
     () => {
       const { startDate, endDate } = getYearToDateRange();
       return ordersService.getPaymentMethodsTrend(startDate, endDate, storeId || undefined);

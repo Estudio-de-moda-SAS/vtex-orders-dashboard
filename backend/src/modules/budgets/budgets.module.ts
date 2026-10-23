@@ -15,5 +15,9 @@ import { BudgetsService } from './services/budgets.service';
   imports: [DatabaseModule],
   controllers: [BudgetsController],
   providers: [BudgetsService, BudgetsRepository, BudgetCodeGuard],
+  // `BudgetsService` se exporta para que `AssistantModule` reutilice
+  // `getRangeSummary` (herramienta `get_budget_vs_actual`) en vez de
+  // reimplementar la lectura de `budgets_daily`/`budget_multipliers`.
+  exports: [BudgetsService],
 })
 export class BudgetsModule {}

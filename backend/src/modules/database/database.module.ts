@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { pgPoolProvider } from './pg-pool.provider';
+import { AssistantLogsRepository } from './repositories/assistant-logs.repository';
 import { CreditNotesRepository } from './repositories/credit-notes.repository';
 import { DashboardQueryRepository } from './repositories/dashboard-query.repository';
 import { GaAggregatesRepository } from './repositories/ga-aggregates.repository';
@@ -28,6 +29,7 @@ import { SyncLogsRepository } from './repositories/sync-logs.repository';
     SyncLogsRepository,
     DashboardQueryRepository,
     CreditNotesRepository,
+    AssistantLogsRepository,
   ],
   exports: [
     pgPoolProvider,
@@ -39,6 +41,7 @@ import { SyncLogsRepository } from './repositories/sync-logs.repository';
     SyncLogsRepository,
     DashboardQueryRepository,
     CreditNotesRepository,
+    AssistantLogsRepository,
   ],
 })
 export class DatabaseModule {}

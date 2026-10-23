@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 import configuration from './config/configuration';
 import { AnalyticsGaModule } from './modules/analytics-ga/analytics-ga.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 import { BudgetsModule } from './modules/budgets/budgets.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CreditNotesModule } from './modules/credit-notes/credit-notes.module';
@@ -34,6 +35,7 @@ import { SyncModule } from './modules/sync/sync.module';
     StoresModule,
     BudgetsModule,
     CreditNotesModule,
+    AssistantModule,
   ],
 })
 export class AppModule {}

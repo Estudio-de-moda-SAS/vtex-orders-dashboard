@@ -92,7 +92,9 @@ function AnalyticsContent() {
     // "v3": se agregó `campaigns` a `AnalyticsPageData` — mismo motivo que el salto a "v2"
     // (ver nota de arriba), bumpeado de nuevo para invalidar el caché viejo sin ese campo.
     // "v4": se agregó `bounceRatePercent` a cada fila de páginas de entrada.
-    `analytics:v4:${startDate}:${endDate}`,
+    // "v5": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga.
+    `analytics:v5:${startDate}:${endDate}`,
     async () => {
       const [overview, channels, devices, landingPages, userTypes, cities, products, campaigns] = await Promise.all([
         analyticsGaService.getGaOverview(startDate, endDate),

@@ -12,12 +12,14 @@ import { CreditNotesSyncService } from './credit-notes-sync.service';
  * a propósito, mismo criterio que `AnalyticsGaModule`. `CreditNotesSyncService`
  * se exporta para que `cli/credit-notes-sync.ts` lo use directo — nunca se
  * dispara desde un cron del backend desplegado (no tiene cómo alcanzar la
- * VPN de la compañía, ver `CreditNotesClientService`).
+ * VPN de la compañía, ver `CreditNotesClientService`). `CreditNotesQueryService`
+ * se exporta para que `AssistantModule` reutilice `getSummary` (herramienta
+ * `get_credit_notes`) en vez de reimplementar la lectura de `credit_notes`.
  */
 @Module({
   imports: [DatabaseModule, HttpModule],
   controllers: [CreditNotesQueryController],
   providers: [CreditNotesClientService, CreditNotesSyncService, CreditNotesQueryService],
-  exports: [CreditNotesClientService, CreditNotesSyncService],
+  exports: [CreditNotesClientService, CreditNotesSyncService, CreditNotesQueryService],
 })
 export class CreditNotesModule {}

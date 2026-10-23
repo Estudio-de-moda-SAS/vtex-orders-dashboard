@@ -35,7 +35,9 @@ function ResumenContent() {
   const rangeB = useDateRangeFilter('vica-resumen-range-b', getDefaultRangeB, { start: 'startDateB', end: 'endDateB' });
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenResponse>(
-    `resumen:v3:${rangeA.startDate}:${rangeA.endDate}:${rangeB.startDate}:${rangeB.endDate}`,
+    // "v4": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga.
+    `resumen:v4:${rangeA.startDate}:${rangeA.endDate}:${rangeB.startDate}:${rangeB.endDate}`,
     () => resumenService.getSummary(rangeA.startDate, rangeA.endDate, rangeB.startDate, rangeB.endDate),
     { autoFetchOnKeyChange: false },
   );

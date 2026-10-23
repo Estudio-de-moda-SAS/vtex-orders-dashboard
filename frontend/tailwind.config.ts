@@ -36,6 +36,18 @@ const config: Config = {
       boxShadow: {
         panel: '0 1px 2px 0 rgba(16,24,40,0.04), 0 1px 3px 0 rgba(16,24,40,0.06)',
       },
+      keyframes: {
+        /** Un salto corto cada pocos segundos (no un rebote continuo) — llama la atención sobre el botón de Vico sin ser molesto. */
+        'vico-bounce': {
+          '0%, 80%, 100%': { transform: 'translateY(0)' },
+          '87%': { transform: 'translateY(-10px)' },
+          '93%': { transform: 'translateY(0)' },
+          '96%': { transform: 'translateY(-4px)' },
+        },
+      },
+      animation: {
+        'vico-bounce': 'vico-bounce 3.5s ease-in-out infinite',
+      },
     },
   },
   plugins: [],

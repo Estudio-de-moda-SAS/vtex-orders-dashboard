@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
+import { AssistantWidget } from '@/components/AssistantWidget';
 
 export const metadata: Metadata = {
   title: 'VICA — Ventas Integradas para Consolidación y Análisis',
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans text-ink">
         <Navbar />
         {children}
+        <AssistantWidget />
       </body>
     </html>
   );

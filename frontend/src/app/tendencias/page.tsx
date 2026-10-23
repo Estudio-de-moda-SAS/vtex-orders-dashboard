@@ -128,7 +128,9 @@ function TendenciasContent() {
   // /tendencias con el mismo año/mes/tienda ya consultado (ej. después de
   // visitar otra página del navbar) lo muestra al instante.
   const { state: requestState, refetch: runQuery } = useCachedQuery<TrendsResponse>(
-    `tendencias:${year}:${month}:${storeId}`,
+    // "v2": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga (que solo tenía octubre 2026).
+    `tendencias:v2:${year}:${month}:${storeId}`,
     () => {
       const monthNumber = month ? Number(month) : undefined;
       return ordersService.getTrends(year, monthNumber, monthNumber, storeId || undefined);

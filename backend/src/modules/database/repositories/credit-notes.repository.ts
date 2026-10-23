@@ -128,6 +128,28 @@ export class CreditNotesRepository {
     return result.rows.map((r) => ({ storeId: r.store_id, marca: r.marca, count: Number(r.count), totalValue: Number(r.total_value) }));
   }
 
+  /**
+   * Última vez que se confirmó CUALQUIER nota crédito contra el ERP
+   * (`MAX(synced_at)`) — a diferencia de VTEX/GA4, notas crédito no tiene
+   * fila en `sync_logs` (el script `cli/credit-notes-sync.ts` corre manual,
+   * fuera del backend desplegado), así que este es el único indicador de
+   * "qué tan al día está este dato". `storeId` opcional (sin él, el último
+   * sync de cualquier marca). `null` si nunca se ha corrido el sync.
+   */
+  async getLastSyncedAt(storeId?: string): Promise<string | null> {
+    const params: unknown[] = [];
+    let where = '';
+    if (storeId) {
+      params.push(storeId);
+      where = 'WHERE store_id = $1';
+    }
+    const result = await this.pool.query<{ last_synced_at: string | null }>(
+      `SELECT MAX(synced_at) AS last_synced_at FROM credit_notes ${where}`,
+      params,
+    );
+    return result.rows[0]?.last_synced_at ?? null;
+  }
+
   private buildWhere(startDay: string, endDay: string, storeId?: string): { where: string; params: unknown[] } {
     const params: unknown[] = [startDay, endDay];
     let where = 'fecha_nc BETWEEN $1 AND $2';

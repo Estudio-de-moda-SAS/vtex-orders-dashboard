@@ -26,7 +26,9 @@ export default function PilatosPage() {
     // "v2": se agregó `vsYearAgo` a `ParticipationPoint` — sin este cambio de versión, un caché
     // guardado ANTES de ese campo se lee tal cual (sin `vsYearAgo`), y la vista "Vs. año pasado"
     // sale toda en gris (confirmado en producción: `undefined` se trata igual que "sin dato").
-    `pilatos:v2:${todayKey()}`,
+    // "v3": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
+    // caché guardado en sessionStorage de ANTES de esa carga.
+    `pilatos:v3:${todayKey()}`,
     () => {
       const { startDate, endDate } = getYearToDateRange();
       return ordersService.getPilatosMix(startDate, endDate);

@@ -332,6 +332,12 @@ compara el rango elegido contra el período inmediatamente anterior de
 igual duración. Ver sección **16.1** para la documentación completa
 (definiciones, umbrales, aproximación de Pilatos, días provisionales).
 
+### `POST /api/assistant/chat` (`/asistente`)
+
+Chat del asistente conversacional de ventas — Server-Sent Events, body
+`{ question: string, history: {role, content}[] }`. Ver sección **17**
+para la documentación completa (herramientas, modos, límites conocidos).
+
 ## 8. Cómo funciona la paginación (dentro del cron)
 
 Hay dos problemas distintos que pueden hacer que falten órdenes, y cada uno
@@ -898,3 +904,130 @@ Alertas de ciudad o producto dentro de `/resumen`, una página `/comparar`
 aparte, cruce con presupuesto vs. real, y un puntaje combinado de "salud"
 de tienda — el ranking se ordena solo por variación de ventas, mostrando
 sesiones/conversión/ticket al lado, nunca un solo número compuesto.
+
+## 17. Asistente conversacional de ventas (`/asistente`) — Fase 1
+
+Endpoint: `POST /api/assistant/chat` (Server-Sent Events). Módulo propio
+(`backend/src/modules/assistant/`), desacoplado — mismo criterio que
+`ResumenModule`/`AnalyticsGaModule`. El modelo NUNCA calcula una cifra por
+su cuenta: cada número que menciona viene literalmente del resultado de
+una herramienta determinista de TypeScript, que a su vez solo lee
+`sales_daily*`/`credit_notes`/`budgets_daily` ya sincronizados — nunca
+llama a VTEX/Google/el ERP en vivo.
+
+### Las 6 herramientas (Fase 1)
+
+- **`resolve_period`** — convierte una frase en español ("ayer", "esta
+  semana", "mes pasado", etc., o un rango explícito
+  `YYYY-MM-DD..YYYY-MM-DD`) en `{startDay, endDay}`
+  (`common/utils/period-resolver.util.ts`, puro, sin DB). Vocabulario fijo
+  — una frase no reconocida devuelve un error claro en vez de inventar una
+  fecha.
+- **`get_sales`** — ventas de una tienda/rango por uno de 9 cortes:
+  status, payment, city, category, brand, collection, discount_bucket,
+  seller, marketplace. Reutiliza las MISMAS tablas `sales_daily_by_*` que
+  el resto del dashboard. Límites conocidos:
+  - `seller`/`marketplace` solo existen para Pilatos.
+  - `brand` no es un corte plano en la base — se arma sumando
+    `sales_daily_by_category_brand` por `brand_name` (ignorando
+    categoría); esta tabla NO distingue por estado de la orden, así que
+    puede incluir canceladas (la herramienta avisa esto en `warnings`).
+  - `category`/`collection`/`discount_bucket` traen unidades, no conteo
+    de órdenes (`orders: null` en esas filas).
+- **`compare_periods`** — compara el total de ventas de una tienda entre
+  dos rangos y devuelve el `%` de cambio YA CALCULADO
+  (`percent-change.util.ts`) — nunca le pide al modelo restar/dividir.
+- **`get_budget_vs_actual`** — cruza `BudgetsService.getRangeSummary`
+  (presupuesto) con la venta real contabilizada del mismo rango/tienda —
+  no existía un endpoint que hiciera este cruce para una sola tienda
+  (`/presupuesto` lo hace client-side con dos llamadas). Para Pilatos, el
+  presupuesto se compara contra la venta TOTAL (incluye sellers/
+  marketplaces, sin ajustar — confirmado explícitamente). Si el rango
+  cruza más de un mes calendario, `fullMonthAvailable: false` — la
+  herramienta nunca inventa un "mes completo" cuando no aplica.
+- **`get_credit_notes`** — reusa `CreditNotesQueryService.getSummary` tal
+  cual + `meta.lastSyncedAt` (`MAX(synced_at)` de `credit_notes`, el único
+  indicador posible: notas crédito no tiene fila en `sync_logs`, se
+  sincroniza a mano desde una máquina con VPN). Si el rango pedido llega
+  más allá de `lastSyncedAt`, avisa en `warnings` en vez de reportar 0
+  notas crédito como si de verdad no hubiera habido ninguna.
+- **`get_sync_status`** — última sincronización de VTEX/GA4 (por tienda,
+  `sync_logs`) + de notas crédito (global). El presupuesto no aparece acá
+  — es 100% manual, sin concepto de sincronización.
+
+### Modos de conversación (ver `prompts/system-manual.md`)
+
+**Modo A** (dato puntual): resuelve el período, llama la herramienta que
+corresponda, responde directo. **Modo B** (análisis con niveles de
+certeza): usa `compare_periods`, gradúa su certeza según el tamaño del
+cambio — en esta fase SIN la atribución tráfico/conversión/ticket de
+`/resumen` (llega en una fase futura, ver abajo). **Modo C** (evaluación
+contra presupuesto): como todavía no hay catálogo de temporadas, pide una
+FECHA/rango (no un nombre de temporada), evalúa con
+`get_budget_vs_actual`, y SOLO DESPUÉS pregunta si el usuario quiere
+comparar contra otro período (año anterior/semana anterior/mes
+anterior/uno a su elección) — nunca trae esa comparación sin que el
+usuario la pida.
+
+### Proveedor de LLM — intercambiable (Anthropic ↔ OpenAI)
+
+Las 6 herramientas, su validación (`class-validator`, sin `zod`) y el
+prompt son 100% independientes del proveedor. Lo único que cambia entre
+Anthropic y OpenAI es qué modelo narra la conversación — mismo
+comportamiento, misma calidad de respuesta esperada, solo distinto costo/
+disponibilidad.
+
+- **`ASSISTANT_PROVIDER`** = `"openai"` (default, activo hoy) |
+  `"anthropic"` (completamente construido, listo para cuando haya una
+  clave de pago de Anthropic — cambiar esta única variable alcanza, no
+  hay que tocar ningún otro archivo).
+- Arquitectura: `providers/assistant-llm-provider.interface.ts` define la
+  forma neutral de una herramienta (`AssistantToolDefinition`:
+  `name`/`description`/`parameters` JSON Schema, definida UNA sola vez en
+  `assistant-tools.registry.ts`) y la interfaz `AssistantLlmProvider`
+  (`streamConversation(...)`, corre la conversación completa incluido su
+  propio loop de tool use). `providers/anthropic-assistant.provider.ts` y
+  `providers/openai-assistant.provider.ts` implementan cada una su propio
+  loop (formas de "tool call" distintas en cada API) traduciendo la
+  herramienta neutral a su propio formato de cable. `AssistantChatService`
+  no conoce de qué proveedor viene el modelo — solo arma el prompt +
+  herramientas, delega, y registra en `assistant_logs`.
+- **Proveedor OpenAI** (`OPENAI_API_KEY`, `OPENAI_MODEL`, default
+  `gpt-5.4-mini` — mini de la generación actual, barato y sólido en tool
+  calling): usa la **Responses API** (`client.responses.stream`), no Chat
+  Completions — es la que OpenAI recomienda hoy para agentes nuevos con
+  tool calling, confirmado contra la documentación oficial y los tipos
+  del SDK instalado (`openai@7.x`) en vez de memoria. Formato de
+  herramienta: `{type:'function', name, description, parameters}`; una
+  llamada del modelo llega como ítem `function_call` (`arguments` como
+  string JSON) en `response.output`; la respuesta se envía de vuelta
+  agregando ese mismo `output` al `input` más un ítem
+  `function_call_output` por cada `call_id`.
+- **Proveedor Anthropic** (`ANTHROPIC_API_KEY`, `ASSISTANT_MODEL`,
+  default `claude-opus-5-5`; `ASSISTANT_EFFORT`, default `medium` —
+  sin equivalente en el proveedor OpenAI): loop manual sobre
+  `client.messages.stream`, formato de herramienta
+  `{name, description, input_schema}`, caché de prompt (`cache_control`)
+  en el bloque de sistema y en el arreglo de herramientas.
+- Sin la clave del proveedor elegido, `/asistente` responde con un
+  mensaje claro indicando qué variable falta — el resto del dashboard
+  sigue funcionando normal.
+
+### Límites y auditoría
+
+Rate limit (`AssistantRateLimitGuard`, mismo patrón que `BudgetCodeGuard`):
+`ASSISTANT_RATE_LIMIT_PER_MINUTE` (default 6, por IP) y
+`ASSISTANT_RATE_LIMIT_PER_DAY` (default 200, global — tope de gasto de
+API, sin importar el proveedor). Cada pregunta respondida (o fallida) se
+registra en `assistant_logs` (migración 0022): pregunta, herramientas
+usadas, respuesta, modelo, tokens, latencia, error si lo hubo — sin
+`user_id` (esta app no tiene autenticación por usuario). Limpieza
+automática a 90 días: pendiente, fuera de esta fase.
+
+### Fuera de alcance (Fase 2)
+
+`search_campaign` (campañas de descuento VTEX + campañas UTM de Analytics
+combinadas por coincidencia de texto), `get_diagnosis` (reutilizar el
+motor del cambio de `/resumen`, con un segundo período de comparación),
+`get_analytics` (cortes de GA4), y la limpieza automática de
+`assistant_logs`.

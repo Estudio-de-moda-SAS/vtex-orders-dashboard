@@ -7,17 +7,24 @@ import { resolvePeriodPhrase } from '../../common/utils/period-resolver.util';
 import { AssistantToolError } from './assistant-tool.error';
 import { AssistantToolDefinition } from './providers/assistant-llm-provider.interface';
 import {
+  ANALYTICS_BREAKDOWN_TYPES,
   BREAKDOWN_TYPES,
   ComparePeriodsDto,
+  GetAnalyticsDto,
   GetBudgetVsActualDto,
   GetCreditNotesDto,
+  GetDiagnosisDto,
   GetSalesDto,
   GetSmartSaleSalesDto,
   ResolvePeriodDto,
+  SearchCampaignDto,
 } from './dto/assistant-tools.dto';
+import { AnalyticsBreakdownType, AssistantAnalyticsService } from './tools/assistant-analytics.service';
 import { AssistantBudgetService } from './tools/assistant-budget.service';
+import { AssistantCampaignSearchService } from './tools/assistant-campaign-search.service';
 import { AssistantCompareService } from './tools/assistant-compare.service';
 import { AssistantCreditNotesService } from './tools/assistant-credit-notes.service';
+import { AssistantDiagnosisService } from './tools/assistant-diagnosis.service';
 import { AssistantSalesService, SalesBreakdownType } from './tools/assistant-sales.service';
 import { AssistantSmartSaleService } from './tools/assistant-smartsale.service';
 import { AssistantSyncStatusService } from './tools/assistant-sync-status.service';
@@ -25,6 +32,12 @@ import { AssistantSyncStatusService } from './tools/assistant-sync-status.servic
 const DAY_PROPERTY = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Fecha YYYY-MM-DD, ya resuelta por resolve_period.' };
 const STORE_PROPERTY = { type: 'string', enum: ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'] };
 const BREAKDOWN_PROPERTY = { type: 'string', enum: BREAKDOWN_TYPES };
+const ANALYTICS_BREAKDOWN_PROPERTY = { type: 'string', enum: ANALYTICS_BREAKDOWN_TYPES };
+const PERIOD_PROPERTY = {
+  type: 'object',
+  properties: { startDay: DAY_PROPERTY, endDay: DAY_PROPERTY },
+  required: ['startDay', 'endDay'],
+};
 
 const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
@@ -111,10 +124,45 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
       required: ['startDay', 'endDay'],
     },
   },
+  {
+    name: 'get_diagnosis',
+    description:
+      'El "motor del cambio" de /resumen para UNA tienda entre dos períodos: no solo cuánto cambiaron las ventas, sino POR QUÉ (tráfico, conversión o ticket promedio — campo "engine", con "brakes" para lo que fue en contra), más el semáforo (color/grayReason), umbrales adaptativos de esa tienda, un mensaje en español ya redactado ("message"), y "teamRecommendations": a qué equipo(s) avisar, YA DECIDIDO (nunca lo decidas tú — es un cálculo de signos que este proyecto saca del modelo a propósito; lista vacía = ninguna pieza empeoró, no hay equipo que avisar). Úsala cuando el usuario pregunte "por qué" cambiaron las ventas, no solo "cuánto". Nunca inventes una causa ni un equipo que esta herramienta no sustente.',
+    parameters: {
+      type: 'object',
+      properties: { storeId: STORE_PROPERTY, periodA: PERIOD_PROPERTY, periodB: PERIOD_PROPERTY },
+      required: ['storeId', 'periodA', 'periodB'],
+    },
+  },
+  {
+    name: 'get_analytics',
+    description:
+      'Datos de TRÁFICO de Google Analytics 4 (sesiones, conversión según Analytics, tasa de rebote) de una tienda, desglosados por uno de 7 cortes: channel (canal de adquisición), device (dispositivo), landing_page (página de entrada), user_type (nuevo/recurrente), city (ciudad), product (vistas/agregados/compras por producto), campaign (campaña UTM). Dominio DISTINTO de get_sales: esto es tráfico/comportamiento, no venta confirmada de VTEX. storeId es obligatorio.',
+    parameters: {
+      type: 'object',
+      properties: { storeId: STORE_PROPERTY, startDay: DAY_PROPERTY, endDay: DAY_PROPERTY, breakdown: ANALYTICS_BREAKDOWN_PROPERTY },
+      required: ['storeId', 'startDay', 'endDay', 'breakdown'],
+    },
+  },
+  {
+    name: 'search_campaign',
+    description:
+      'Busca una campaña por coincidencia de texto (ej. "bazar") en LOS DOS sistemas de campaña que existen, que miden cosas distintas: campañas de descuento de VTEX (lado venta, en pesos, sin doble conteo) y campañas UTM de Analytics (lado tráfico, en sesiones). Devuelve ambos resultados por separado — preséntalos los dos si ambos tienen coincidencias, nunca asumas cuál quiso decir el usuario. Sin coincidencias en alguno de los dos no es un error, solo significa que no hay campañas con ese nombre ahí.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Texto a buscar dentro del nombre de la campaña.' },
+        startDay: DAY_PROPERTY,
+        endDay: DAY_PROPERTY,
+        storeId: { ...STORE_PROPERTY, description: 'Opcional — sin esto, todas las tiendas.' },
+      },
+      required: ['query', 'startDay', 'endDay'],
+    },
+  },
 ];
 
 /**
- * Registro + dispatcher de las 7 herramientas del asistente. Valida cada
+ * Registro + dispatcher de las 10 herramientas del asistente. Valida cada
  * input con la MISMA pareja `class-transformer`/`class-validator` que usan
  * los controllers HTTP (`ValidationPipe`) — sin introducir `zod`. Un error
  * de validación o un `AssistantToolError` se propaga tal cual (mensaje
@@ -130,6 +178,9 @@ export class AssistantToolsRegistry {
     private readonly creditNotesService: AssistantCreditNotesService,
     private readonly syncStatusService: AssistantSyncStatusService,
     private readonly smartSaleService: AssistantSmartSaleService,
+    private readonly diagnosisService: AssistantDiagnosisService,
+    private readonly analyticsService: AssistantAnalyticsService,
+    private readonly campaignSearchService: AssistantCampaignSearchService,
   ) {}
 
   getToolDefinitions(): AssistantToolDefinition[] {
@@ -177,6 +228,18 @@ export class AssistantToolsRegistry {
       case 'get_smartsale_sales': {
         const input = this.validate(GetSmartSaleSalesDto, rawInput);
         return this.smartSaleService.getSmartSaleSales(input.startDay, input.endDay, input.storeId);
+      }
+      case 'get_diagnosis': {
+        const input = this.validate(GetDiagnosisDto, rawInput);
+        return this.diagnosisService.getDiagnosis(input.storeId, input.periodA, input.periodB);
+      }
+      case 'get_analytics': {
+        const input = this.validate(GetAnalyticsDto, rawInput);
+        return this.analyticsService.getAnalyticsBreakdown(input.storeId, input.startDay, input.endDay, input.breakdown as AnalyticsBreakdownType);
+      }
+      case 'search_campaign': {
+        const input = this.validate(SearchCampaignDto, rawInput);
+        return this.campaignSearchService.searchCampaigns(input.query, input.startDay, input.endDay, input.storeId);
       }
       default:
         throw new AssistantToolError(`Herramienta desconocida: "${toolName}".`);

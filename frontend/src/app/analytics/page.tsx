@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
 
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
@@ -75,6 +75,7 @@ export default function AnalyticsPage() {
 function AnalyticsContent() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-analytics-range');
   const [storeId, setStoreId] = useState<string>('');
+  const [resyncState, setResyncState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
 
   // Siempre se trae TODAS las tiendas de una sola vez (nunca con `storeId` en
   // la consulta) — el selector de tienda solo decide qué parte de esto se
@@ -114,6 +115,27 @@ function AnalyticsContent() {
   const isLoading = requestState.status === 'loading';
   const selectedStoreName = STORES.find((s) => s.id === storeId)?.name;
 
+  /**
+   * Dispara EN VIVO una sincronización de GA4 para el rango consultado —
+   * escape manual para cuando el cron (cada `GA_SYNC_CRON_HOURS`,
+   * encadenado al final del cron de VTEX) no ha corrido a tiempo o una
+   * corrida anterior falló. A diferencia del resync de VTEX, no expone
+   * progreso: GA4 solo trae reportes agregados, tarda segundos.
+   */
+  const handleResyncGa = useCallback(async () => {
+    if (!startDate || !endDate) return;
+    setResyncState('loading');
+    try {
+      await analyticsGaService.resyncGa(startDate, endDate);
+      setResyncState('done');
+      await runQuery();
+    } catch {
+      setResyncState('error');
+    }
+  }, [startDate, endDate, runQuery]);
+
+  const storesWithSyncError = requestState.status === 'success' ? requestState.data.overview.stores.filter((s) => s.lastSyncStatus === 'error') : [];
+
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-1">
@@ -141,6 +163,32 @@ function AnalyticsContent() {
         onSubmit={() => runQuery()}
         isLoading={isLoading}
       />
+
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-surface-border bg-surface-panel px-4 py-3 text-sm">
+        <button
+          type="button"
+          onClick={handleResyncGa}
+          disabled={resyncState === 'loading' || !startDate || !endDate}
+          className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 font-medium text-accent transition hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {resyncState === 'loading' ? 'Resincronizando…' : 'Resincronizar Analytics'}
+        </button>
+        <span className="text-ink-faint">
+          Si Analytics se ve desactualizado (el cron corre cada {' '}
+          {/* GA_SYNC_CRON_HOURS — ver `ga-sync-cron.service.ts` */} 12h, encadenado al de VTEX), esto trae en vivo
+          el rango de fechas de arriba para las 6 tiendas.
+        </span>
+        {resyncState === 'done' && <span className="font-medium text-positive">✓ Resincronización completa</span>}
+        {resyncState === 'error' && <span className="font-medium text-danger">✗ Falló la resincronización</span>}
+      </div>
+
+      {storesWithSyncError.length > 0 && (
+        <div className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-xs font-medium text-danger">
+          ⚠ La sincronización de GA4 falló en la última corrida para:{' '}
+          {storesWithSyncError.map((s) => STORES.find((st) => st.id === s.storeId)?.name ?? s.storeId).join(', ')} —
+          estos datos podrían no estar al día. Prueba &quot;Resincronizar Analytics&quot; arriba.
+        </div>
+      )}
 
       <label className="flex items-center gap-2 text-sm text-ink-muted">
         Tienda

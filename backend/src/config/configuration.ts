@@ -150,8 +150,6 @@ export interface AppConfig {
     syncCronHours: number;
     /** Días hacia atrás que recalcula cada corrida (igual idea que `sync.recalcWindowDays`, GA también puede ajustar datos de días recientes). */
     recalcWindowDays: number;
-    /** Si corre una sincronización de GA4 al arrancar el backend, además del ciclo normal. */
-    syncOnBoot: boolean;
     /**
      * % mínimo de variación que debe tener un componente (tráfico,
      * conversión o ticket) para considerarse "el motor" del cambio en
@@ -272,7 +270,6 @@ export default (): { app: AppConfig } => ({
       serviceAccountJson: process.env.GA_SERVICE_ACCOUNT_JSON ?? null,
       syncCronHours: parseInt(process.env.GA_SYNC_CRON_HOURS ?? '12', 10),
       recalcWindowDays: parseInt(process.env.GA_RECALC_WINDOW_DAYS ?? '3', 10),
-      syncOnBoot: process.env.GA_SYNC_ON_BOOT === 'true',
       changeEngineThresholdPercent: parseInt(process.env.GA_CHANGE_ENGINE_THRESHOLD_PERCENT ?? '5', 10),
     },
     creditNotes: {

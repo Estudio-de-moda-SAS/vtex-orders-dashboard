@@ -15,7 +15,20 @@ function buildRegistry(overrides: { getSalesBreakdown?: (...args: unknown[]) => 
   const creditNotesService = { getCreditNotes: async () => ({ ok: true }) } as any;
   const syncStatusService = { getSyncStatus: async () => ({ ok: true }) } as any;
   const smartSaleService = { getSmartSaleSales: async () => ({ ok: true }) } as any;
-  return new AssistantToolsRegistry(salesService, compareService, budgetService, creditNotesService, syncStatusService, smartSaleService);
+  const diagnosisService = { getDiagnosis: async () => ({ ok: true }) } as any;
+  const analyticsService = { getAnalyticsBreakdown: async () => ({ ok: true }) } as any;
+  const campaignSearchService = { searchCampaigns: async () => ({ ok: true }) } as any;
+  return new AssistantToolsRegistry(
+    salesService,
+    compareService,
+    budgetService,
+    creditNotesService,
+    syncStatusService,
+    smartSaleService,
+    diagnosisService,
+    analyticsService,
+    campaignSearchService,
+  );
 }
 
 test('resolve_period: frase reconocida devuelve un rango', async () => {
@@ -78,6 +91,9 @@ test('get_smartsale_sales: storeId es opcional', async () => {
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async (...args: unknown[]) => { received = args; return { totalSmartSaleSales: 500 }; } } as any,
+    { getDiagnosis: async () => ({}) } as any,
+    { getAnalyticsBreakdown: async () => ({}) } as any,
+    { searchCampaigns: async () => ({}) } as any,
   );
   const result = await registry.execute('get_smartsale_sales', { startDay: '2026-10-01', endDay: '2026-10-10' });
   assert.deepEqual(received, ['2026-10-01', '2026-10-10', undefined]);
@@ -88,6 +104,99 @@ test('get_smartsale_sales: storeId inválido lanza AssistantToolError', async ()
   const registry = buildRegistry();
   await assert.rejects(
     () => registry.execute('get_smartsale_sales', { startDay: '2026-10-01', endDay: '2026-10-10', storeId: 'no-existe' }),
+    AssistantToolError,
+  );
+});
+
+test('get_diagnosis: input válido delega al servicio con storeId/periodA/periodB', async () => {
+  let received: unknown[] = [];
+  const registry = new AssistantToolsRegistry(
+    { getSalesBreakdown: async () => ({}) } as any,
+    { comparePeriods: async () => ({}) } as any,
+    { getBudgetVsActual: async () => ({}) } as any,
+    { getCreditNotes: async () => ({}) } as any,
+    { getSyncStatus: async () => ({}) } as any,
+    { getSmartSaleSales: async () => ({}) } as any,
+    { getDiagnosis: async (...args: unknown[]) => { received = args; return { color: 'verde' }; } } as any,
+    { getAnalyticsBreakdown: async () => ({}) } as any,
+    { searchCampaigns: async () => ({}) } as any,
+  );
+  const result = await registry.execute('get_diagnosis', {
+    storeId: 'pilatos',
+    periodA: { startDay: '2026-10-01', endDay: '2026-10-10' },
+    periodB: { startDay: '2026-09-01', endDay: '2026-09-10' },
+  });
+  // `plainToInstance` convierte los objetos anidados en instancias de `PeriodInputDto` (no objetos
+  // planos) — comparar vía JSON descarta el prototipo y deja solo los valores, que es lo que importa acá.
+  assert.deepEqual(JSON.parse(JSON.stringify(received)), [
+    'pilatos',
+    { startDay: '2026-10-01', endDay: '2026-10-10' },
+    { startDay: '2026-09-01', endDay: '2026-09-10' },
+  ]);
+  assert.deepEqual(result, { color: 'verde' });
+});
+
+test('get_diagnosis: storeId inválido lanza AssistantToolError antes de llamar al servicio', async () => {
+  const registry = buildRegistry();
+  await assert.rejects(
+    () =>
+      registry.execute('get_diagnosis', {
+        storeId: 'no-existe',
+        periodA: { startDay: '2026-10-01', endDay: '2026-10-10' },
+        periodB: { startDay: '2026-09-01', endDay: '2026-09-10' },
+      }),
+    AssistantToolError,
+  );
+});
+
+test('get_analytics: input válido delega al servicio con los 4 argumentos', async () => {
+  let received: unknown[] = [];
+  const registry = new AssistantToolsRegistry(
+    { getSalesBreakdown: async () => ({}) } as any,
+    { comparePeriods: async () => ({}) } as any,
+    { getBudgetVsActual: async () => ({}) } as any,
+    { getCreditNotes: async () => ({}) } as any,
+    { getSyncStatus: async () => ({}) } as any,
+    { getSmartSaleSales: async () => ({}) } as any,
+    { getDiagnosis: async () => ({}) } as any,
+    { getAnalyticsBreakdown: async (...args: unknown[]) => { received = args; return { rows: [] }; } } as any,
+    { searchCampaigns: async () => ({}) } as any,
+  );
+  const result = await registry.execute('get_analytics', { storeId: 'pilatos', startDay: '2026-10-01', endDay: '2026-10-10', breakdown: 'channel' });
+  assert.deepEqual(received, ['pilatos', '2026-10-01', '2026-10-10', 'channel']);
+  assert.deepEqual(result, { rows: [] });
+});
+
+test('get_analytics: breakdown inválido lanza AssistantToolError', async () => {
+  const registry = buildRegistry();
+  await assert.rejects(
+    () => registry.execute('get_analytics', { storeId: 'pilatos', startDay: '2026-10-01', endDay: '2026-10-10', breakdown: 'no-existe' }),
+    AssistantToolError,
+  );
+});
+
+test('search_campaign: input válido delega al servicio con los 4 argumentos', async () => {
+  let received: unknown[] = [];
+  const registry = new AssistantToolsRegistry(
+    { getSalesBreakdown: async () => ({}) } as any,
+    { comparePeriods: async () => ({}) } as any,
+    { getBudgetVsActual: async () => ({}) } as any,
+    { getCreditNotes: async () => ({}) } as any,
+    { getSyncStatus: async () => ({}) } as any,
+    { getSmartSaleSales: async () => ({}) } as any,
+    { getDiagnosis: async () => ({}) } as any,
+    { getAnalyticsBreakdown: async () => ({}) } as any,
+    { searchCampaigns: async (...args: unknown[]) => { received = args; return { vtexCampaigns: {}, gaCampaigns: {} }; } } as any,
+  );
+  const result = await registry.execute('search_campaign', { query: 'bazar', startDay: '2026-10-01', endDay: '2026-10-10' });
+  assert.deepEqual(received, ['bazar', '2026-10-01', '2026-10-10', undefined]);
+  assert.deepEqual(result, { vtexCampaigns: {}, gaCampaigns: {} });
+});
+
+test('search_campaign: query vacío lanza AssistantToolError', async () => {
+  const registry = buildRegistry();
+  await assert.rejects(
+    () => registry.execute('search_campaign', { query: '', startDay: '2026-10-01', endDay: '2026-10-10' }),
     AssistantToolError,
   );
 });

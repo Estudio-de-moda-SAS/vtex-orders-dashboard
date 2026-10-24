@@ -16,5 +16,7 @@ import { ResumenService } from './resumen.service';
   imports: [DatabaseModule],
   controllers: [ResumenController],
   providers: [ResumenService],
+  /** `ResumenService`: lo reutiliza `AssistantModule` para la herramienta `get_diagnosis` del asistente. */
+  exports: [ResumenService],
 })
 export class ResumenModule {}

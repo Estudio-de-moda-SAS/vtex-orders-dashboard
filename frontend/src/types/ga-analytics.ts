@@ -223,3 +223,12 @@ export interface GaCampaignsResponse {
   byStore: Record<string, GaCampaignBreakdownRow[]>;
   totalSessionsByStore: Record<string, number>;
 }
+
+/** Espejo de `SyncLogSummary` (`sync-logs.repository.ts`) — una entrada por tienda. */
+export interface GaSyncLogSummary {
+  storeId: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: 'success' | 'error' | 'partial' | null;
+}
+
+export type GaSyncStatusResponse = Record<string, GaSyncLogSummary>;

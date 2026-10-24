@@ -55,12 +55,9 @@ export function AssistantChat() {
         {messages.length === 0 && (
           <div className="flex flex-col gap-2 text-sm text-ink-muted">
             <p>
-              Soy Vico. Pregúntame por ventas, presupuesto o notas crédito de cualquier tienda — por ejemplo
-              &ldquo;¿cuánto vendió Pilatos ayer?&rdquo; o &ldquo;¿cómo va Kipling este mes contra el presupuesto?&rdquo;
-            </p>
-            <p className="text-xs text-ink-faint">
-              Por ahora no responde preguntas sobre campañas, el diagnóstico de tráfico/conversión/ticket de{' '}
-              <span className="font-medium">/resumen</span>, ni cortes de Analytics — esas llegan en una fase futura.
+              Soy Vico. Pregúntame por ventas, presupuesto, notas crédito, campañas o Analytics de cualquier tienda —
+              por ejemplo &ldquo;¿cuánto vendió Pilatos ayer?&rdquo; o &ldquo;¿por qué bajaron las ventas de Kipling
+              esta semana?&rdquo;
             </p>
           </div>
         )}

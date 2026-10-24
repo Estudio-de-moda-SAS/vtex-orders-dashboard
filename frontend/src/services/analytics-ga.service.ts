@@ -6,6 +6,7 @@ import {
   GaLandingPagesResponse,
   GaOverviewResponse,
   GaProductsResponse,
+  GaSyncStatusResponse,
   GaUserTypesResponse,
 } from '@/types/ga-analytics';
 
@@ -24,6 +25,30 @@ async function request<T>(path: string): Promise<T> {
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error(
+      'No fue posible conectarse con el backend. Verifique que esté en ejecución y que NEXT_PUBLIC_API_BASE_URL sea correcta.',
+    );
+  }
+
+  if (!response.ok) {
+    const body = await safeParseJson(response);
+    const message = extractErrorMessage(body) ?? `Error ${response.status} consultando el backend`;
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+/** Mismo patrón que `request`, en POST — usado por `resyncGa`. */
+async function postRequest<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
@@ -119,5 +144,22 @@ export const analyticsGaService = {
     const params = new URLSearchParams({ startDate, endDate });
     if (storeId) params.set('storeId', storeId);
     return request<GaCampaignsResponse>(`/api/analytics/ga/campaigns?${params.toString()}`);
+  },
+
+  /** Última sincronización de GA4 por tienda (`sync_logs`, fuente `ga4_api`) — para mostrar frescura/fallas en `/analytics`. */
+  getGaSyncStatus(): Promise<GaSyncStatusResponse> {
+    return request<GaSyncStatusResponse>('/api/analytics/ga/sync-status');
+  },
+
+  /**
+   * Dispara EN VIVO una sincronización de GA4 para el rango dado (las 6
+   * tiendas), sin esperar el cooldown normal del cron — escape manual
+   * para cuando el cron no corrió a tiempo o falló. A diferencia del
+   * resync de VTEX, no expone progreso: GA4 solo trae reportes agregados
+   * (sin enriquecer orden por orden), tarda segundos, no minutos.
+   */
+  resyncGa(startDate: string, endDate: string): Promise<{ ok: true }> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return postRequest<{ ok: true }>(`/api/analytics/ga/resync?${params.toString()}`);
   },
 };

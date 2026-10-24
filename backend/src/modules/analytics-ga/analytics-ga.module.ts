@@ -24,6 +24,7 @@ import { VtexCatalogLinkService } from './vtex-catalog-link.service';
   imports: [DatabaseModule, HttpModule],
   controllers: [GaQueryController],
   providers: [GaClientService, GaSyncService, GaSyncCronService, GaQueryService, VtexCatalogLinkService],
-  exports: [GaClientService, GaSyncService, GaSyncCronService, VtexCatalogLinkService],
+  /** `GaQueryService`: lo reutiliza `AssistantModule` para `get_analytics`/`search_campaign` (lado GA). */
+  exports: [GaClientService, GaSyncService, GaSyncCronService, VtexCatalogLinkService, GaQueryService],
 })
 export class AnalyticsGaModule {}

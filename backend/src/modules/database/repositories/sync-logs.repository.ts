@@ -98,4 +98,26 @@ export class SyncLogsRepository {
     }
     return summary;
   }
+
+  /**
+   * `started_at` del intento más reciente de `source`, sin importar el
+   * resultado (éxito, error o en curso) — `null` si nunca se ha intentado.
+   * Usado por `GaSyncCronService.maybeSync` para decidir si ya pasaron
+   * las horas del cooldown configurado ANTES de volver a intentar. Se basa
+   * en el intento (no en el éxito) a propósito: si GA4 está fallando, no
+   * queremos reintentar en cada tick de VTEX (podría ser cada pocos
+   * minutos durante pruebas), sino esperar el cooldown completo igual.
+   * Tiene que vivir en la base de datos, NO en memoria del proceso — un
+   * campo en memoria se reinicia en cada restart del backend, y si los
+   * restarts son más frecuentes que el cooldown (confirmado en
+   * producción: nunca se llegó a sincronizar GA4 por esto), el sync
+   * queda "hambriento" para siempre.
+   */
+  async getLastAttemptAt(source: SyncSource): Promise<Date | null> {
+    const result = await this.pool.query<{ started_at: Date | null }>(
+      `SELECT MAX(started_at) AS started_at FROM sync_logs WHERE source = $1`,
+      [source],
+    );
+    return result.rows[0]?.started_at ?? null;
+  }
 }

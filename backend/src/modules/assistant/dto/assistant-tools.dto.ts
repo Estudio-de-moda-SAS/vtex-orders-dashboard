@@ -94,4 +94,52 @@ export class GetSmartSaleSalesDto {
   storeId?: string;
 }
 
-export { STORE_IDS, BREAKDOWN_TYPES };
+/** Input de `get_diagnosis` — reusa el mismo `PeriodInputDto` anidado que `compare_periods`. */
+export class GetDiagnosisDto {
+  @IsIn(STORE_IDS, { message: `storeId debe ser una de: ${STORE_IDS.join(', ')}` })
+  storeId!: string;
+
+  @ValidateNested()
+  @Type(() => PeriodInputDto)
+  periodA!: PeriodInputDto;
+
+  @ValidateNested()
+  @Type(() => PeriodInputDto)
+  periodB!: PeriodInputDto;
+}
+
+const ANALYTICS_BREAKDOWN_TYPES = ['channel', 'device', 'landing_page', 'user_type', 'city', 'product', 'campaign'];
+
+/** Input de `get_analytics` — `storeId` es OBLIGATORIO acá (a diferencia de `get_sales`): ninguna de las lecturas de GA tiene un "combinado de las 6 tiendas" ya resuelto en el código existente. */
+export class GetAnalyticsDto {
+  @IsIn(STORE_IDS, { message: `storeId debe ser una de: ${STORE_IDS.join(', ')}` })
+  storeId!: string;
+
+  @Matches(DAY_REGEX, { message: 'startDay debe tener formato YYYY-MM-DD' })
+  startDay!: string;
+
+  @Matches(DAY_REGEX, { message: 'endDay debe tener formato YYYY-MM-DD' })
+  endDay!: string;
+
+  @IsIn(ANALYTICS_BREAKDOWN_TYPES, { message: `breakdown debe ser una de: ${ANALYTICS_BREAKDOWN_TYPES.join(', ')}` })
+  breakdown!: string;
+}
+
+/** Input de `search_campaign` — `storeId` opcional (sin él, todas las tiendas). */
+export class SearchCampaignDto {
+  @IsNotEmpty({ message: 'query es obligatorio' })
+  @IsString()
+  query!: string;
+
+  @Matches(DAY_REGEX, { message: 'startDay debe tener formato YYYY-MM-DD' })
+  startDay!: string;
+
+  @Matches(DAY_REGEX, { message: 'endDay debe tener formato YYYY-MM-DD' })
+  endDay!: string;
+
+  @IsOptional()
+  @IsIn(STORE_IDS, { message: `storeId debe ser una de: ${STORE_IDS.join(', ')}` })
+  storeId?: string;
+}
+
+export { STORE_IDS, BREAKDOWN_TYPES, ANALYTICS_BREAKDOWN_TYPES };

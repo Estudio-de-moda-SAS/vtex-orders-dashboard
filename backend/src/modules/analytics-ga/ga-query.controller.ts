@@ -1,8 +1,11 @@
-import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Query, ValidationPipe } from '@nestjs/common';
 
+import { SyncLogsRepository } from '../database/repositories/sync-logs.repository';
 import { OrdersQueryDto } from '../orders/dto/orders-query.dto';
+import { ResyncQueryDto } from '../orders/dto/resync-query.dto';
 import { GaQueryDto } from './ga-query.dto';
 import { GaQueryService } from './ga-query.service';
+import { GaSyncService } from './ga-sync.service';
 
 /**
  * Endpoints de lectura del módulo GA4 — prefijo propio `api/analytics/ga`
@@ -12,7 +15,49 @@ import { GaQueryService } from './ga-query.service';
  */
 @Controller('api/analytics/ga')
 export class GaQueryController {
-  constructor(private readonly gaQueryService: GaQueryService) {}
+  constructor(
+    private readonly gaQueryService: GaQueryService,
+    private readonly gaSyncService: GaSyncService,
+    private readonly syncLogsRepository: SyncLogsRepository,
+  ) {}
+
+  /**
+   * GET /api/analytics/ga/sync-status
+   *
+   * Última corrida de GA4 por tienda (`sync_logs`, fuente `'ga4_api'`) —
+   * el cron normal depende de `GaSyncCronService.maybeSync()` (cada
+   * `GA_SYNC_CRON_HOURS`, encadenado al final de cada tick de VTEX). Este
+   * endpoint deja ver esa frescura desde el frontend, igual que
+   * `GET /api/sync/status` para VTEX.
+   */
+  @Get('sync-status')
+  getSyncStatus() {
+    return this.syncLogsRepository.getLatestStatusByStore('ga4_api');
+  }
+
+  /**
+   * POST /api/analytics/ga/resync?startDate=2026-10-14&endDate=2026-10-23
+   *
+   * Dispara EN VIVO (sin esperar el cooldown de `GaSyncCronService`) una
+   * sincronización de GA4 para el rango dado, las 6 tiendas — vía de
+   * escape manual para cuando el cron no corrió a tiempo o una corrida
+   * anterior falló (ver `GaSyncService.syncAllStores`, que ya atrapa sus
+   * propios errores por tienda y los deja en `sync_logs`, nunca relanza).
+   * Síncrono a propósito, mismo criterio que `POST /api/sync/resync` de
+   * VTEX: quien lo dispara quiere saber si terminó. GA4 no tiene
+   * enriquecimiento por orden (solo reportes agregados de la API), así
+   * que no hace falta trocear en bloques ni exponer progreso — tarda
+   * segundos, no minutos.
+   */
+  @Post('resync')
+  async resync(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: ResyncQueryDto,
+  ): Promise<{ ok: true }> {
+    ResyncQueryDto.assertRange(query.startDate, query.endDate);
+    await this.gaSyncService.syncAllStores(query.startDate, query.endDate);
+    return { ok: true };
+  }
 
   /** GET /api/analytics/ga/overview?startDate&endDate&storeId */
   @Get('overview')

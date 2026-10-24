@@ -44,7 +44,10 @@ import { TrendsService } from './services/trends.service';
     SmartSaleService,
     PaymentMethodsTrendService,
   ],
-  /** `SmartSaleService`: lo reutiliza `AssistantModule` para la herramienta `get_smartsale_sales` del asistente. */
-  exports: [SmartSaleService],
+  /**
+   * `SmartSaleService`: lo reutiliza `AssistantModule` para `get_smartsale_sales`.
+   * `ProductAnalyticsService`: lo reutiliza para `search_campaign` (`getCampaignComboTotal`).
+   */
+  exports: [SmartSaleService, ProductAnalyticsService],
 })
 export class OrdersModule {}

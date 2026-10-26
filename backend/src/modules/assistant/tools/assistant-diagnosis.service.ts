@@ -4,6 +4,7 @@ import { buildTeamRecommendations, TeamRecommendation } from '../../../common/ut
 import { ResumenService } from '../../resumen/resumen.service';
 import { ResumenStoreResult } from '../../resumen/resumen.interface';
 import { AssistantToolError } from '../assistant-tool.error';
+import { AssistantSalesService } from './assistant-sales.service';
 
 export interface AssistantPeriodInput {
   startDay: string;
@@ -21,6 +22,8 @@ export interface AssistantDiagnosisResult extends ResumenStoreResult {
    * nunca decidirlo de nuevo por su cuenta.
    */
   teamRecommendations: TeamRecommendation[];
+  /** SIEMPRE presente (nunca vacío) — nota discreta de cuándo sincronizó VTEX por última vez, ver `sync-freshness.util.ts`. */
+  syncNote: string;
 }
 
 /**
@@ -33,7 +36,10 @@ export interface AssistantDiagnosisResult extends ResumenStoreResult {
  */
 @Injectable()
 export class AssistantDiagnosisService {
-  constructor(private readonly resumenService: ResumenService) {}
+  constructor(
+    private readonly resumenService: ResumenService,
+    private readonly salesService: AssistantSalesService,
+  ) {}
 
   async getDiagnosis(storeId: string, periodA: AssistantPeriodInput, periodB: AssistantPeriodInput): Promise<AssistantDiagnosisResult> {
     const response = await this.resumenService.getSummary(periodA.startDay, periodA.endDay, periodB.startDay, periodB.endDay);
@@ -50,6 +56,7 @@ export class AssistantDiagnosisService {
       store.ticket.changePercent,
       store.mix?.reading,
     );
-    return { ...store, teamRecommendations };
+    const syncNote = await this.salesService.getSyncNote(storeId);
+    return { ...store, teamRecommendations, syncNote };
   }
 }

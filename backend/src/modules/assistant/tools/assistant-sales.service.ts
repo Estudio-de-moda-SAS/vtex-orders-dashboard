@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
+import { buildSyncNote, checkSyncFreshness } from '../../../common/utils/sync-freshness.util';
 import { matchRevenueStatusDefinition } from '../../../common/utils/revenue-status.util';
 import { getRevenueStatusDefinitions } from '../../../config/revenue-status.config';
+import { getStoresConfig } from '../../../config/stores.config';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
+import { SyncLogsRepository } from '../../database/repositories/sync-logs.repository';
 import { AssistantToolError } from '../assistant-tool.error';
 
 export type SalesBreakdownType =
@@ -35,6 +38,8 @@ export interface SalesBreakdownResult {
   totalOrders: number | null;
   /** Avisos sobre limitaciones conocidas del corte pedido — ver comentarios de cada caso abajo. */
   warnings: string[];
+  /** SIEMPRE presente (nunca vacío) — nota discreta de cuándo sincronizó VTEX por última vez, ver `sync-freshness.util.ts`. */
+  syncNote: string;
 }
 
 const PILATOS_STORE_ID = 'pilatos';
@@ -53,8 +58,12 @@ const PILATOS_ONLY_BREAKDOWNS: SalesBreakdownType[] = ['seller', 'marketplace'];
 @Injectable()
 export class AssistantSalesService {
   private readonly revenueStatusDefinitions = getRevenueStatusDefinitions();
+  private readonly storesById = new Map(getStoresConfig().map((store) => [store.id, store]));
 
-  constructor(private readonly dashboardQueryRepository: DashboardQueryRepository) {}
+  constructor(
+    private readonly dashboardQueryRepository: DashboardQueryRepository,
+    private readonly syncLogsRepository: SyncLogsRepository,
+  ) {}
 
   async getSalesBreakdown(
     storeId: string,
@@ -72,8 +81,25 @@ export class AssistantSalesService {
     const totalSales = rows.reduce((acc, r) => acc + r.sales, 0);
     const hasOrders = rows.some((r) => r.orders !== null);
     const totalOrders = hasOrders ? rows.reduce((acc, r) => acc + (r.orders ?? 0), 0) : null;
+    const syncNote = await this.getSyncNote(storeId);
 
-    return { storeId, startDay, endDay, breakdown, rows, totalSales, totalOrders, warnings };
+    return { storeId, startDay, endDay, breakdown, rows, totalSales, totalOrders, warnings, syncNote };
+  }
+
+  /**
+   * Nota SIEMPRE presente (nunca vacía) con cuándo sincronizó VTEX por
+   * última vez esta tienda — discreta cuando está al día, y escala a una
+   * recomendación de resincronizar cuando pasan 12h sin correr (3 ciclos
+   * seguidos del cron de 4h: el mismo tipo de falla silenciosa que tuvo
+   * GA4 este mes, ver `ga-sync-cron.service.ts`, esta vez detectable y
+   * avisable directo desde el chat). Apunta al botón "Resincronizar" del
+   * Dashboard, el único mecanismo manual de resync de VTEX que existe hoy.
+   */
+  async getSyncNote(storeId: string): Promise<string> {
+    const statusByStore = await this.syncLogsRepository.getLatestStatusByStore('vtex_api');
+    const check = checkSyncFreshness(statusByStore[storeId]?.lastSyncedAt ?? null);
+    const storeName = this.storesById.get(storeId)?.name ?? storeId;
+    return buildSyncNote(storeName, check);
   }
 
   private async loadRows(

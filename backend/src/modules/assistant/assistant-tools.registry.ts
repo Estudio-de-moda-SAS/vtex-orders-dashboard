@@ -53,7 +53,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'get_sales',
     description:
-      'Ventas de una tienda en un rango, desglosadas por uno de 9 cortes: status, payment (método de pago), city, category, brand, collection, discount_bucket (rango de descuento), seller o marketplace (estos dos últimos SOLO existen para Pilatos). Devuelve filas ya sumadas — nunca sumes ni dividas los resultados tú mismo.',
+      'Ventas de una tienda en un rango, desglosadas por uno de 9 cortes: status, payment (método de pago), city, category, brand, collection, discount_bucket (rango de descuento), seller o marketplace (estos dos últimos SOLO existen para Pilatos). Devuelve filas ya sumadas — nunca sumes ni dividas los resultados tú mismo. Incluye "syncNote": SIEMPRE presente (nunca null) — di cuándo sincronizó VTEX por última vez, como nota discreta; el propio texto escala a una recomendación de resincronizar si pasaron más de 12h.',
     parameters: {
       type: 'object',
       properties: {
@@ -68,7 +68,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'compare_periods',
     description:
-      'Compara las ventas de una tienda entre dos períodos (A y B) y devuelve el % de cambio YA CALCULADO — nunca restes ni dividas tú mismo los totales de get_sales para esto, usa siempre esta herramienta.',
+      'Compara las ventas de una tienda entre dos períodos (A y B) y devuelve el % de cambio YA CALCULADO — nunca restes ni dividas tú mismo los totales de get_sales para esto, usa siempre esta herramienta. Incluye "syncNote" (ver get_sales) — SIEMPRE preséntalo, aunque sea breve.',
     parameters: {
       type: 'object',
       properties: {
@@ -127,7 +127,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'get_diagnosis',
     description:
-      'El "motor del cambio" de /resumen para UNA tienda entre dos períodos: no solo cuánto cambiaron las ventas, sino POR QUÉ (tráfico, conversión o ticket promedio — campo "engine", con "brakes" para lo que fue en contra), más el semáforo (color/grayReason), umbrales adaptativos de esa tienda, un mensaje en español ya redactado ("message"), y "teamRecommendations": a qué equipo(s) avisar, YA DECIDIDO (nunca lo decidas tú — es un cálculo de signos que este proyecto saca del modelo a propósito; lista vacía = ninguna pieza empeoró, no hay equipo que avisar). Úsala cuando el usuario pregunte "por qué" cambiaron las ventas, no solo "cuánto". Nunca inventes una causa ni un equipo que esta herramienta no sustente.',
+      'El "motor del cambio" de /resumen para UNA tienda entre dos períodos: no solo cuánto cambiaron las ventas, sino POR QUÉ (tráfico, conversión o ticket promedio — campo "engine", con "brakes" para lo que fue en contra), más el semáforo (color/grayReason), umbrales adaptativos de esa tienda, un mensaje en español ya redactado ("message"), "teamRecommendations" (a qué equipo(s) avisar, YA DECIDIDO — nunca lo decidas tú, es un cálculo de signos que este proyecto saca del modelo a propósito; lista vacía = ninguna pieza empeoró, no hay equipo que avisar), y "syncNote" (ver get_sales — SIEMPRE preséntalo, aunque sea breve). Úsala cuando el usuario pregunte "por qué" cambiaron las ventas, no solo "cuánto". Nunca inventes una causa ni un equipo que esta herramienta no sustente.',
     parameters: {
       type: 'object',
       properties: { storeId: STORE_PROPERTY, periodA: PERIOD_PROPERTY, periodB: PERIOD_PROPERTY },
@@ -147,7 +147,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'search_campaign',
     description:
-      'Busca una campaña por coincidencia de texto (ej. "bazar") en LOS DOS sistemas de campaña que existen, que miden cosas distintas: campañas de descuento de VTEX (lado venta, en pesos, sin doble conteo) y campañas UTM de Analytics (lado tráfico, en sesiones). Devuelve ambos resultados por separado — preséntalos los dos si ambos tienen coincidencias, nunca asumas cuál quiso decir el usuario. Sin coincidencias en alguno de los dos no es un error, solo significa que no hay campañas con ese nombre ahí.',
+      'Busca una campaña por coincidencia de texto (ej. "bazar") en LOS DOS sistemas de campaña que existen, que miden cosas distintas: campañas de descuento de VTEX (lado venta, en "vtexCampaigns.totalsByStore", YA son ventas contabilizadas — no hay un campo bruto que incluya canceladas, cita "orders"/"sales" tal cual) y campañas UTM de Analytics (lado tráfico, en sesiones). Devuelve ambos resultados por separado — preséntalos los dos si ambos tienen coincidencias, nunca asumas cuál quiso decir el usuario. Sin coincidencias en alguno de los dos no es un error, solo significa que no hay campañas con ese nombre ahí.',
     parameters: {
       type: 'object',
       properties: {

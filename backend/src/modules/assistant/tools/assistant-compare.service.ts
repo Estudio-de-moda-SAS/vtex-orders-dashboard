@@ -11,6 +11,8 @@ export interface ComparePeriodsResult {
   /** % de cambio de A respecto a B (B es la base) — `null` si B tuvo 0 ventas. */
   salesChangePercent: number | null;
   ordersChangePercent: number | null;
+  /** SIEMPRE presente (nunca vacío) — nota discreta de cuándo sincronizó VTEX por última vez, ver `sync-freshness.util.ts`. */
+  syncNote: string;
 }
 
 /**
@@ -48,6 +50,9 @@ export class AssistantCompareService {
       salesChangePercent: percentChange(resultB.totalSales, resultA.totalSales),
       ordersChangePercent:
         resultA.totalOrders !== null && resultB.totalOrders !== null ? percentChange(resultB.totalOrders, resultA.totalOrders) : null,
+      // La nota de sincronización es por TIENDA, no por período — alcanza con la de A
+      // (ya la calculó `getSalesBreakdown`, no hace falta repetir la consulta).
+      syncNote: resultA.syncNote,
     };
   }
 }

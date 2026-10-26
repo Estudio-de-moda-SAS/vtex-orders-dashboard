@@ -3,17 +3,30 @@ import { Injectable } from '@nestjs/common';
 import { GaQueryService } from '../../analytics-ga/ga-query.service';
 import { GaCampaignBreakdownRow } from '../../analytics-ga/ga-analytics.interface';
 import { DashboardQueryRepository } from '../../database/repositories/dashboard-query.repository';
-import { CampaignComboTotal, CampaignComboTotalsByStore } from '../../orders/interfaces/product-analytics.interface';
 import { ProductAnalyticsService } from '../../orders/services/product-analytics.service';
+
+/**
+ * SOLO ventas contabilizadas (lo que VTEX reporta como venta real, sin
+ * canceladas) — a propósito NO expone el total bruto (`orders`/`sales`
+ * de `CampaignComboTotal`, que incluye canceladas) junto al contabilizado
+ * (`revenueOrders`/`revenueSales`): confirmado en producción, dejar los
+ * dos campos lado a lado hacía que el modelo citara el bruto como si
+ * fuera la venta real, un número que no coincidía con lo que el usuario
+ * veía al buscar la misma campaña directo en VTEX.
+ */
+export interface CampaignStoreTotal {
+  orders: number;
+  sales: number;
+}
 
 export interface CampaignSearchResult {
   query: string;
   startDay: string;
   endDay: string;
-  /** Campañas de DESCUENTO de VTEX (ratesAndBenefitsData) — miden venta en pesos, sin doble conteo. */
+  /** Campañas de DESCUENTO de VTEX (ratesAndBenefitsData) — miden venta CONTABILIZADA en pesos, sin doble conteo. */
   vtexCampaigns: {
     matchedNames: string[];
-    totalsByStore: CampaignComboTotalsByStore;
+    totalsByStore: Record<string, CampaignStoreTotal>;
   };
   /** Campañas UTM de Google Analytics — miden tráfico/sesiones, sistema totalmente distinto del de arriba. */
   gaCampaigns: {
@@ -55,7 +68,7 @@ export class AssistantCampaignSearchService {
     startDay: string,
     endDay: string,
     storeId?: string,
-  ): Promise<{ matchedNames: string[]; totalsByStore: CampaignComboTotalsByStore }> {
+  ): Promise<{ matchedNames: string[]; totalsByStore: Record<string, CampaignStoreTotal> }> {
     const rows = await this.dashboardQueryRepository.queryGrouped(
       'sales_daily_by_discount_campaign',
       'campaign_name',
@@ -73,13 +86,13 @@ export class AssistantCampaignSearchService {
       return { matchedNames: [], totalsByStore: {} };
     }
 
-    const totalsByStore = await this.productAnalyticsService.getCampaignComboTotal(startDay, endDay, matchedNames);
-    if (!storeId) return { matchedNames, totalsByStore };
-
-    const filtered: CampaignComboTotalsByStore = {};
-    const storeTotal: CampaignComboTotal | undefined = totalsByStore[storeId];
-    if (storeTotal) filtered[storeId] = storeTotal;
-    return { matchedNames, totalsByStore: filtered };
+    const rawTotalsByStore = await this.productAnalyticsService.getCampaignComboTotal(startDay, endDay, matchedNames);
+    const totalsByStore: Record<string, CampaignStoreTotal> = {};
+    for (const [store, total] of Object.entries(rawTotalsByStore)) {
+      if (storeId && store !== storeId) continue;
+      totalsByStore[store] = { orders: total.revenueOrders, sales: total.revenueSales };
+    }
+    return { matchedNames, totalsByStore };
   }
 
   private async searchGaCampaigns(

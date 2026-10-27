@@ -11,6 +11,9 @@ export interface SmartSaleCombinedPersonBreakdown {
   vtexSales: number;
   posOrders: number;
   posSales: number;
+  /** `vtexSales + posSales`/`vtexOrders + posOrders`, ya sumados en el backend. */
+  totalSales: number;
+  totalOrders: number;
 }
 
 export interface SmartSaleCombinedStoreSummary {
@@ -19,7 +22,21 @@ export interface SmartSaleCombinedStoreSummary {
   vtexSales: number;
   posOrders: number;
   posSales: number;
+  totalSales: number;
+  totalOrders: number;
   byPerson: SmartSaleCombinedPersonBreakdown[];
+}
+
+/** `category` es el nombre canónico de VTEX cuando hubo equivalencia, o el nombre crudo de POS cuando no la hubo (ver `category-normalize.util.ts` en el backend). */
+export interface SmartSaleCombinedCategoryBreakdown {
+  category: string;
+  vtexUnits: number;
+  vtexSales: number;
+  posUnits: number;
+  posSales: number;
+  /** `vtexSales + posSales`/`vtexUnits + posUnits`, ya sumados en el backend. */
+  totalSales: number;
+  totalUnits: number;
 }
 
 export interface SmartSaleCombinedSummaryResponse {
@@ -30,6 +47,7 @@ export interface SmartSaleCombinedSummaryResponse {
   totalPosSales: number;
   byStore: SmartSaleCombinedStoreSummary[];
   bySeller: SmartSaleCombinedPersonBreakdown[];
+  byCategory: SmartSaleCombinedCategoryBreakdown[];
 }
 
 export interface SmartSaleCombinedMonthlyTrendPoint {

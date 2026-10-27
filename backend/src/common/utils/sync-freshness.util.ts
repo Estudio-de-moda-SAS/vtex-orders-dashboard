@@ -57,3 +57,22 @@ export function buildSyncNote(storeName: string, check: SyncFreshnessCheck): str
   }
   return `${storeName} no se sincroniza con VTEX desde hace ${hoursLabel} (más de lo normal) — estos datos podrían estar desactualizados. Considera resincronizar manualmente desde el Dashboard ("Resincronizar este rango con VTEX").`;
 }
+
+/**
+ * Igual que `buildSyncNote`, pero para fuentes del ERP ("Conní") que se
+ * sincronizan a mano desde una máquina con VPN (notas crédito, ventas
+ * POS — ver `cli/pos-sales-sync.ts`/`cli/credit-notes-sync.ts`), NUNCA
+ * automático como VTEX. El mensaje dice "sincronizar manualmente" en vez
+ * de apuntar al botón del Dashboard (que no aplica acá), y nunca menciona
+ * "VTEX" (sería engañoso: esta fuente no tiene nada que ver con VTEX).
+ */
+export function buildErpSyncNote(sourceName: string, check: SyncFreshnessCheck): string {
+  if (check.hoursSinceSync === null) {
+    return `${sourceName} no tiene ninguna sincronización registrada todavía — estos datos podrían no existir o estar muy desactualizados.`;
+  }
+  const hoursLabel = formatHours(check.hoursSinceSync);
+  if (!check.isStale) {
+    return `sync ${sourceName.toLowerCase()}: hace ${hoursLabel}`;
+  }
+  return `${sourceName} no se sincroniza desde hace ${hoursLabel} (más de lo normal) — estos datos podrían estar desactualizados. Esta fuente requiere sincronizar manualmente desde una máquina conectada a la VPN de la compañía.`;
+}

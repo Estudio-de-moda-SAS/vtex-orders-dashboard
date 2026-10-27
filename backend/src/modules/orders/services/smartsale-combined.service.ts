@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
+import { canonicalizeVtexCategory, matchPosCategoryToVtex } from '../../../common/utils/category-normalize.util';
 import { getGrowthThresholds } from '../../../config/growth-thresholds.config';
 import { getStoresConfig } from '../../../config/stores.config';
 import { PosSalesQueryService } from '../../pos-sales/pos-sales-query.service';
 import {
+  SmartSaleCombinedCategoryBreakdown,
   SmartSaleCombinedMonthlyTrendPoint,
   SmartSaleCombinedPersonBreakdown,
   SmartSaleCombinedStoreSummary,
@@ -12,11 +14,16 @@ import {
 import { classifyMonthlyGrowth, SmartSaleService } from './smartsale.service';
 
 function emptyPerson(name: string): SmartSaleCombinedPersonBreakdown {
-  return { name, vtexOrders: 0, vtexSales: 0, posOrders: 0, posSales: 0 };
+  return { name, vtexOrders: 0, vtexSales: 0, posOrders: 0, posSales: 0, totalSales: 0, totalOrders: 0 };
 }
 
 function combinedSales(p: SmartSaleCombinedPersonBreakdown): number {
   return p.vtexSales + p.posSales;
+}
+
+/** Rellena `totalSales`/`totalOrders` — se llama SIEMPRE justo antes de devolver un `SmartSaleCombinedPersonBreakdown`, nunca a mitad de una acumulación (ver comentario del campo en la interfaz). */
+function finalizePerson(p: SmartSaleCombinedPersonBreakdown): SmartSaleCombinedPersonBreakdown {
+  return { ...p, totalSales: p.vtexSales + p.posSales, totalOrders: p.vtexOrders + p.posOrders };
 }
 
 /**
@@ -42,9 +49,10 @@ export class SmartSaleCombinedService {
   ) {}
 
   async getCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
-    const [vtexByStore, posSummary] = await Promise.all([
+    const [vtexByStore, posSummary, vtexCategoryContribution] = await Promise.all([
       this.smartSaleService.getSummary(startDate, endDate),
       this.posSalesQueryService.getSummary(startDate, endDate),
+      this.smartSaleService.getCategoryContribution(startDate, endDate),
     ]);
     const posByStoreId = new Map(posSummary.byStore.map((s) => [s.storeId, s]));
 
@@ -76,7 +84,9 @@ export class SmartSaleCombinedService {
         entry.posSales = person.sales;
         byPersonMap.set(person.name, entry);
       }
-      const byPerson = Array.from(byPersonMap.values()).sort((a, b) => combinedSales(b) - combinedSales(a));
+      const byPerson = Array.from(byPersonMap.values())
+        .sort((a, b) => combinedSales(b) - combinedSales(a))
+        .map(finalizePerson);
 
       for (const person of byPerson) {
         const total = sellerTotals.get(person.name) ?? emptyPerson(person.name);
@@ -87,10 +97,22 @@ export class SmartSaleCombinedService {
         sellerTotals.set(person.name, total);
       }
 
-      return { storeId, vtexOrders, vtexSales, posOrders, posSales, byPerson };
+      return {
+        storeId,
+        vtexOrders,
+        vtexSales,
+        posOrders,
+        posSales,
+        totalSales: vtexSales + posSales,
+        totalOrders: vtexOrders + posOrders,
+        byPerson,
+      };
     });
 
-    const bySeller = Array.from(sellerTotals.values()).sort((a, b) => combinedSales(b) - combinedSales(a));
+    const bySeller = Array.from(sellerTotals.values())
+      .sort((a, b) => combinedSales(b) - combinedSales(a))
+      .map(finalizePerson);
+    const byCategory = this.buildCombinedCategories(vtexCategoryContribution.general, posSummary.byCategory);
 
     return {
       filters: { startDate, endDate },
@@ -100,7 +122,55 @@ export class SmartSaleCombinedService {
       totalPosSales,
       byStore,
       bySeller,
+      byCategory,
     };
+  }
+
+  /**
+   * Combina categorías VTEX (nombre general, ej. "Camisetas") con
+   * categorías POS (mucho más granulares, ej. "CAMISETA M/C") — ver
+   * `category-normalize.util.ts` para el porqué del emparejamiento por
+   * prefijo en vez de una comparación de texto directa. Las categorías de
+   * VTEX con duplicados conocidos (Buzo/Buzos, Gorro/Gorros, Polo/Polos)
+   * se colapsan PRIMERO (`canonicalizeVtexCategory`), antes de intentar
+   * emparejar nada de POS contra ellas.
+   */
+  private buildCombinedCategories(
+    vtexGeneral: Record<string, { quantity: number; value: number }>,
+    posByCategory: { categoria: string; units: number; sales: number }[],
+  ): SmartSaleCombinedCategoryBreakdown[] {
+    const emptyCategory = (category: string): SmartSaleCombinedCategoryBreakdown => ({
+      category,
+      vtexUnits: 0,
+      vtexSales: 0,
+      posUnits: 0,
+      posSales: 0,
+      totalSales: 0,
+      totalUnits: 0,
+    });
+
+    const byCategory = new Map<string, SmartSaleCombinedCategoryBreakdown>();
+    for (const [rawName, breakdown] of Object.entries(vtexGeneral)) {
+      const canonical = canonicalizeVtexCategory(rawName);
+      const entry = byCategory.get(canonical) ?? emptyCategory(canonical);
+      entry.vtexUnits += breakdown.quantity;
+      entry.vtexSales += breakdown.value;
+      byCategory.set(canonical, entry);
+    }
+
+    const vtexCategoryNames = Array.from(byCategory.keys());
+    for (const pos of posByCategory) {
+      const matched = matchPosCategoryToVtex(pos.categoria, vtexCategoryNames);
+      const key = matched ?? pos.categoria;
+      const entry = byCategory.get(key) ?? emptyCategory(key);
+      entry.posUnits += pos.units;
+      entry.posSales += pos.sales;
+      byCategory.set(key, entry);
+    }
+
+    return Array.from(byCategory.values())
+      .map((entry) => ({ ...entry, totalSales: entry.vtexSales + entry.posSales, totalUnits: entry.vtexUnits + entry.posUnits }))
+      .sort((a, b) => b.totalSales - a.totalSales);
   }
 
   /**

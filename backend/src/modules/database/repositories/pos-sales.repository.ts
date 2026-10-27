@@ -63,6 +63,21 @@ export interface PosSalesStoreSellerRow {
   sales: number;
 }
 
+/**
+ * `categoria` CRUDA, combinando las 6 tiendas — ver comentario de
+ * `getByCategory`. `units` (no `orders`): un documento puede tener varias
+ * categorías a la vez (ej. una camiseta y un pantalón en la misma
+ * venta), así que "número de órdenes" no es una métrica que tenga
+ * sentido por categoría — unidades sí, y es la MISMA métrica que ya usa
+ * VTEX para sus categorías (`smartsale_daily_by_category.revenue_units`),
+ * necesaria para poder combinarlas en "Resumen".
+ */
+export interface PosSalesCategoryRow {
+  categoria: string;
+  units: number;
+  sales: number;
+}
+
 /** `marca` CRUDA (no `store_id`) — solo tiene sentido pedirla para Pilatos, la única tienda multimarca. */
 export interface PosSalesBrandRow {
   marca: string;
@@ -237,6 +252,29 @@ export class PosSalesRepository {
       [startDay, endDay, storeId],
     );
     return result.rows.map((r) => ({ marca: r.marca, orders: Number(r.orders), sales: Number(r.sales) }));
+  }
+
+  /**
+   * Venta por `categoria` CRUDA, combinando las 6 tiendas (a diferencia de
+   * `getByMarca`, que es solo para Pilatos) — el nombre de categoría de
+   * POS es mucho más granular que el de VTEX (ej. "CAMISETA M/C" en vez
+   * de "Camisetas") y NO se normaliza acá; el cruce VTEX+POS por
+   * categoría (si llega a construirse) necesita una tabla de equivalencia
+   * explícita, no una comparación de texto directa. Excluye fletes
+   * (`categoria = "NO APLICA"`, no es una categoría real) y ya neta de
+   * notas crédito (ver comentario de `getTotals`).
+   */
+  async getByCategory(startDay: string, endDay: string): Promise<PosSalesCategoryRow[]> {
+    const result = await this.pool.query<{ categoria: string; units: string; sales: string }>(
+      `SELECT categoria,
+              COALESCE(SUM(cantidad_inv), 0) AS units,
+              COALESCE(SUM(valor_neto), 0) AS sales
+       FROM pos_sales
+       WHERE fecha BETWEEN $1 AND $2 AND NOT is_freight
+       GROUP BY categoria ORDER BY sales DESC`,
+      [startDay, endDay],
+    );
+    return result.rows.map((r) => ({ categoria: r.categoria, units: Number(r.units), sales: Number(r.sales) }));
   }
 
   /**

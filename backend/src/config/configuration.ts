@@ -174,6 +174,28 @@ export interface AppConfig {
     /** Confirmado en producción: un mes completo puede tardar cerca de 20-25s en responder — se deja bastante margen (no es una API rápida, es un reporte del ERP). */
     requestTimeoutMs: number;
   };
+  posSales: {
+    /**
+     * Mismo API "Conní" del ERP que `creditNotes` (mismo host, SOLO
+     * alcanzable desde la VPN) — distinta consulta (`queryName`). El
+     * backend desplegado NUNCA la llama; la sincronización corre
+     * manualmente con `cli/pos-sales-sync.ts` desde una máquina
+     * conectada a la VPN.
+     */
+    apiUrl: string;
+    companyId: string;
+    queryName: string;
+    /**
+     * `null` si no están configuradas en `.env` — ver `PosSalesClientService`.
+     * Por defecto REUSA `CREDIT_NOTES_CONNI_KEY`/`CREDIT_NOTES_CONNI_TOKEN`
+     * (confirmado por el usuario: son las mismas credenciales); solo hace
+     * falta definir `POS_SALES_CONNI_KEY`/`POS_SALES_CONNI_TOKEN` si esto
+     * cambia en el futuro.
+     */
+    connectionKey: string | null;
+    connectionToken: string | null;
+    requestTimeoutMs: number;
+  };
   assistant: {
     /**
      * Qué proveedor de LLM narra la conversación — 'openai' | 'anthropic'.
@@ -279,6 +301,14 @@ export default (): { app: AppConfig } => ({
       connectionKey: process.env.CREDIT_NOTES_CONNI_KEY ?? null,
       connectionToken: process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
       requestTimeoutMs: parseInt(process.env.CREDIT_NOTES_REQUEST_TIMEOUT_MS ?? '90000', 10),
+    },
+    posSales: {
+      apiUrl: process.env.POS_SALES_API_URL ?? process.env.CREDIT_NOTES_API_URL ?? 'http://10.10.21.7:82/v4.1/ejecutarconsulta',
+      companyId: process.env.POS_SALES_COMPANY_ID ?? process.env.CREDIT_NOTES_COMPANY_ID ?? '2198',
+      queryName: process.env.POS_SALES_QUERY_NAME ?? 'estudiodemoda_Ventas_Smartsale_Pos',
+      connectionKey: process.env.POS_SALES_CONNI_KEY ?? process.env.CREDIT_NOTES_CONNI_KEY ?? null,
+      connectionToken: process.env.POS_SALES_CONNI_TOKEN ?? process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
+      requestTimeoutMs: parseInt(process.env.POS_SALES_REQUEST_TIMEOUT_MS ?? '90000', 10),
     },
     assistant: {
       provider: process.env.ASSISTANT_PROVIDER ?? 'openai',

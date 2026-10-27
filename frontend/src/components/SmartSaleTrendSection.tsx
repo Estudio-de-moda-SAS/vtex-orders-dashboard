@@ -26,14 +26,15 @@ function getAllMonthsThisYear(): string[] {
 }
 
 /**
- * Tendencia de ventas del canal SmartSale (general, las 6 tiendas
- * combinadas) — siempre el año completo en curso (Enero a Diciembre), sin
- * filtro: los meses sin datos todavía (antes del lanzamiento en
- * Septiembre, o meses futuros) quedan como huecos en la línea, y se van
- * llenando solos mes a mes según entra información real. El semáforo de
- * abajo solo lista los meses que YA tienen datos — el primero de esos
- * siempre muestra "Sin dato" porque no hay mes anterior con el cual
- * comparar, no porque falte información (ver el valor real en su lugar).
+ * Tendencia de ventas del canal SmartSale (VTEX + POS, las 6 tiendas
+ * combinadas — pestaña "Resumen" de `/smartsale`) — siempre el año
+ * completo en curso (Enero a Diciembre), sin filtro: los meses sin datos
+ * todavía (antes del lanzamiento en Septiembre, o meses futuros) quedan
+ * como huecos en la línea, y se van llenando solos mes a mes según entra
+ * información real. El semáforo de abajo solo lista los meses que YA
+ * tienen datos — el primero de esos siempre muestra "Sin dato" porque no
+ * hay mes anterior con el cual comparar, no porque falte información (ver
+ * el valor real en su lugar).
  */
 export function SmartSaleTrendSection({ monthly }: SmartSaleTrendSectionProps) {
   const allMonthsThisYear = useMemo(() => getAllMonthsThisYear(), []);
@@ -59,8 +60,8 @@ export function SmartSaleTrendSection({ monthly }: SmartSaleTrendSectionProps) {
     <div className="flex flex-col gap-4">
       <ChartPanel title="Tendencia de ventas SmartSale">
         <p className="-mt-1 mb-3 text-xs text-ink-faint">
-          Venta del canal SmartSale (todas las tiendas combinadas) — año completo en curso, Enero a Diciembre. Los
-          meses sin datos todavía quedan como huecos en la línea y se van completando solos mes a mes.
+          Venta del canal SmartSale (VTEX + POS, todas las tiendas combinadas) — año completo en curso, Enero a
+          Diciembre. Los meses sin datos todavía quedan como huecos en la línea y se van completando solos mes a mes.
         </p>
 
         <ResponsiveContainer width="100%" height={280}>

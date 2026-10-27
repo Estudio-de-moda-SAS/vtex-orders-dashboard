@@ -17,6 +17,8 @@ import {
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
 import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
+import { PosSalesSummaryResponse } from '@/types/pos-sales';
+import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 import {
   SmartSaleCampaignsByStore,
   SmartSaleMonthlyTrendPoint,
@@ -295,6 +297,23 @@ export const ordersService = {
   getSmartSaleSegments(startDate: string, endDate: string): Promise<SmartSaleSegmentsResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<SmartSaleSegmentsResponse>(`/api/analytics/smartsale/segments?${params.toString()}`);
+  },
+
+  /** Resumen de ventas POS del canal SmartSale (pestaña "Ventas POS" de `/smartsale`) — API "Conní" del ERP, ya sincronizada en Supabase. */
+  getPosSalesSummary(startDate: string, endDate: string): Promise<PosSalesSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<PosSalesSummaryResponse>(`/api/pos-sales/summary?${params.toString()}`);
+  },
+
+  /** Igual que `getSmartSaleSummary`, pero sumando VTEX+POS (pestaña "Resumen" de `/smartsale`). */
+  getSmartSaleCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<SmartSaleCombinedSummaryResponse>(`/api/analytics/smartsale/combined-summary?${params.toString()}`);
+  },
+
+  /** Igual que `getSmartSaleMonthlyTrend`, pero sumando VTEX+POS (pestaña "Resumen" de `/smartsale`). Año en curso completo, sin filtro de fechas. */
+  getSmartSaleCombinedMonthlyTrend(): Promise<SmartSaleCombinedMonthlyTrendPoint[]> {
+    return request<SmartSaleCombinedMonthlyTrendPoint[]>('/api/analytics/smartsale/combined-monthly-trend');
   },
 
   /** Presupuesto (canal VTEX, `/presupuesto`) — herramienta manual protegida por código compartido, sin relación con el pipeline de VTEX. */

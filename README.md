@@ -707,6 +707,18 @@ nunca antes— dispara GA4 si ya pasaron `GA_SYNC_CRON_HOURS` desde la
 uno después del otro en la misma cadena de `await`, es imposible que se
 crucen — no hace falta ningún candado.
 
+**"La última vez" se consulta en `sync_logs` (`SyncLogsRepository.getLastAttemptAt('ga4_api')`),
+NUNCA en una variable en memoria del proceso.** Así era originalmente, y
+causó un bug real en producción: un campo `lastSyncAt` en memoria se
+reinicia en cada restart del backend, así que si los restarts (deploys,
+reinicios manuales) son más frecuentes que `GA_SYNC_CRON_HOURS`, GA4
+queda "hambriento" para siempre — nunca pasa suficiente tiempo SEGUIDO
+sin reiniciar como para que el cooldown se cumpla. Confirmado: GA4 estuvo
+9 días sin sincronizar (`ga_daily` atascado) con cero filas en
+`sync_logs` para `'ga4_api'`, a pesar de más de 150 ticks de VTEX en un
+solo día. El cooldown debe vivir en la base (persistente, sobrevive
+cualquier cantidad de restarts), nunca en memoria del proceso.
+
 ### Esquema
 
 Migración `backend/src/modules/database/migrations/0012_add_ga4.sql` —
@@ -905,24 +917,35 @@ aparte, cruce con presupuesto vs. real, y un puntaje combinado de "salud"
 de tienda — el ranking se ordena solo por variación de ventas, mostrando
 sesiones/conversión/ticket al lado, nunca un solo número compuesto.
 
-## 17. Asistente conversacional de ventas (`/asistente`) — Fase 1
+## 17. Asistente conversacional de ventas (`/asistente`) — "Vico"
 
 Endpoint: `POST /api/assistant/chat` (Server-Sent Events). Módulo propio
 (`backend/src/modules/assistant/`), desacoplado — mismo criterio que
-`ResumenModule`/`AnalyticsGaModule`. El modelo NUNCA calcula una cifra por
-su cuenta: cada número que menciona viene literalmente del resultado de
-una herramienta determinista de TypeScript, que a su vez solo lee
-`sales_daily*`/`credit_notes`/`budgets_daily` ya sincronizados — nunca
-llama a VTEX/Google/el ERP en vivo.
+`ResumenModule`/`AnalyticsGaModule`. No es una página aparte: es un botón
+flotante global (`frontend/src/components/AssistantWidget.tsx`), montado
+en `layout.tsx`, visible en todas las páginas del dashboard. El modelo
+NUNCA calcula una cifra, un signo (mejoró/empeoró) ni una fecha por su
+cuenta: cada dato que menciona viene literalmente del resultado de una
+herramienta determinista de TypeScript, que a su vez solo lee
+`sales_daily*`/`credit_notes`/`budgets_daily`/`ga_daily*` ya sincronizados
+— nunca llama a VTEX/Google/el ERP en vivo.
 
-### Las 6 herramientas (Fase 1)
+### Las 10 herramientas
 
 - **`resolve_period`** — convierte una frase en español ("ayer", "esta
   semana", "mes pasado", etc., o un rango explícito
   `YYYY-MM-DD..YYYY-MM-DD`) en `{startDay, endDay}`
   (`common/utils/period-resolver.util.ts`, puro, sin DB). Vocabulario fijo
   — una frase no reconocida devuelve un error claro en vez de inventar una
-  fecha.
+  fecha. **Regla absoluta reforzada en el manual** (confirmado en
+  producción, no hipotético): el modelo tiene su propia idea de "qué día
+  es hoy" (probablemente en UTC) que puede estar un día adelantada
+  respecto a la hora de Colombia — una vez que `resolve_period` devuelve
+  `{startDay, endDay}`, el modelo debe usar EXACTAMENTE esos valores en
+  cualquier otra llamada del mismo turno, nunca recalcularlos ni
+  sustituirlos por su propia estimación (se vio fallar así: llamó
+  `resolve_period("hoy")`, recibió la fecha correcta, y en la siguiente
+  herramienta usó el día siguiente de todas formas).
 - **`get_sales`** — ventas de una tienda/rango por uno de 9 cortes:
   status, payment, city, category, brand, collection, discount_bucket,
   seller, marketplace. Reutiliza las MISMAS tablas `sales_daily_by_*` que
@@ -934,9 +957,11 @@ llama a VTEX/Google/el ERP en vivo.
     puede incluir canceladas (la herramienta avisa esto en `warnings`).
   - `category`/`collection`/`discount_bucket` traen unidades, no conteo
     de órdenes (`orders: null` en esas filas).
+  - Trae `syncNote` (ver más abajo).
 - **`compare_periods`** — compara el total de ventas de una tienda entre
   dos rangos y devuelve el `%` de cambio YA CALCULADO
   (`percent-change.util.ts`) — nunca le pide al modelo restar/dividir.
+  También trae `syncNote`.
 - **`get_budget_vs_actual`** — cruza `BudgetsService.getRangeSummary`
   (presupuesto) con la venta real contabilizada del mismo rango/tienda —
   no existía un endpoint que hiciera este cruce para una sola tienda
@@ -954,16 +979,105 @@ llama a VTEX/Google/el ERP en vivo.
 - **`get_sync_status`** — última sincronización de VTEX/GA4 (por tienda,
   `sync_logs`) + de notas crédito (global). El presupuesto no aparece acá
   — es 100% manual, sin concepto de sincronización.
+- **`get_smartsale_sales`** — total del canal SmartSale (ventas por
+  WhatsApp, atribuidas por vendedor vía `utmiCampaign`, ver
+  `config/smartsale.config.ts`) y desglose por persona
+  (`SmartSaleService.getSummary` reusado tal cual). `storeId` opcional —
+  sin él, combina las 6 tiendas sumando por persona.
+- **`get_diagnosis`** — el "motor del cambio" de `/resumen` para UNA
+  tienda entre dos períodos: envoltorio delgado sobre
+  `ResumenService.getSummary` (MISMO semáforo, MISMOS umbrales adaptativos
+  de `resumen-semaphore.config.ts` — nunca reimplementado). Agrega
+  `teamRecommendations` (ver abajo) y `syncNote`.
+- **`get_analytics`** — cortes de GA4 (channel/device/landing_page/
+  user_type/city/product/campaign) para UNA tienda, envolviendo
+  `GaQueryService`. `storeId` es obligatorio acá (a diferencia de
+  `get_sales`) — no existe un mecanismo de "combinar las 6 tiendas" para
+  tráfico. Dominio DISTINTO de `get_sales` (sesiones/comportamiento, no
+  venta confirmada de VTEX).
+- **`search_campaign`** — busca por coincidencia de texto en DOS sistemas
+  de "campaña" completamente distintos a la vez (nunca se adivina cuál
+  quiso decir el usuario): campañas de descuento de VTEX
+  (`sales_daily_by_discount_campaign`, de-duplicadas vía
+  `ProductAnalyticsService.getCampaignComboTotal`) y campañas UTM de
+  Analytics (`GaQueryService.getCampaigns`, sin tope — trae todas para que
+  la búsqueda de texto funcione sobre la lista completa). **El lado VTEX
+  expone SOLO la venta contabilizada** (`revenueOrders`/`revenueSales`
+  mapeados a `orders`/`sales`) — a propósito NO expone también el total
+  bruto (incluye canceladas) al lado del contabilizado: confirmado en
+  producción, tenerlos los dos visibles hacía que el modelo citara el
+  bruto como si fuera la venta real, un número que no coincidía con lo
+  que VTEX mismo reporta.
 
-### Modos de conversación (ver `prompts/system-manual.md`)
+### El "motor del cambio" decide el equipo a avisar — en código, no en el prompt
+
+`get_diagnosis` incluye `teamRecommendations: TeamRecommendation[]`
+(`common/utils/team-recommendation.util.ts`, puro, con pruebas) — a qué
+equipo(s) avisar, YA DECIDIDO. Esto se movió a código después de
+confirmar en producción que pedirle al modelo razonar "¿esta pieza mejoró
+o empeoró respecto al total?" daba una respuesta distinta en cada corrida
+(el mismo tipo de cálculo que esta regla general del asistente prohíbe).
+Reglas de negocio (confirmadas con el usuario, ver `equipos.md` suyo — 5
+equipos reales, ningún otro nombre es válido):
+
+- `engine` va en la MISMA dirección que el total: solo "empeoró" (y
+  amerita aviso) si el total BAJÓ. Un `engine` que coincide con un total
+  que SUBIÓ es una buena noticia, nunca se avisa por ahí.
+- Cada `brake` va en dirección CONTRARIA al total: solo "empeoró" si el
+  total SUBIÓ (es el lado flojo pese al buen resultado general).
+- **Ticket es la única pieza que se evalúa también de forma
+  INDEPENDIENTE** de `engine`/`brakes` — a diferencia de tráfico/
+  conversión (que necesitan sesiones de GA para existir), el ticket es
+  100% VTEX (`sales ÷ orders`), así que un ticket que cayó amerita avisar
+  a Producto aunque `engine`/`brakes` hayan salido `null` por cobertura
+  de GA incompleta (días provisionales, etc. — confirmado en producción:
+  un rango con días provisionales bloqueaba la recomendación a pesar de
+  que el ticket había caído con toda claridad). El criterio acá es
+  absoluto, no relativo al total: "el ticket cayó ≥5%", punto — nunca
+  "dirección contraria al total" (eso SÍ causó un bug: un ticket que subió
+  mientras el total bajaba no es un problema y no debe avisarse).
+- Mapeo pieza → equipo: **ticket → Producto** (ordenamiento de productos,
+  gestión de descuentos, complementos en ficha). **tráfico → Marketing**
+  (segmentación de canales, landing vs. promesa del anuncio).
+  **conversión → Marketing revisa el embudo + Producto evalúa el flujo** —
+  y SOLO SI confirman una anomalía real, Desarrollo la ejecuta (NUNCA se
+  avisa directo a Desarrollo primero; Desarrollo solo ejecuta correcciones
+  técnicas, no diagnostica). Si `get_diagnosis.mix.reading === 'mezcla'`
+  (el cambio de conversión vino de la MEZCLA de canales, no de dentro de
+  uno mismo), la recomendación de conversión apunta solo a Marketing en
+  vez del flujo completo de 3 pasos.
+- Marketplace (mezcla de sellers/canales de Pilatos) y SmartSale no salen
+  de `teamRecommendations` — los maneja el manual por prompt, para cuando
+  el hallazgo viene de un desglose específico (`get_sales breakdown:
+  "marketplace"`, `get_smartsale_sales`), no del motor del cambio general.
+
+### `syncNote` — frescura de VTEX, siempre presente, nunca una advertencia a secas
+
+`get_sales`/`compare_periods`/`get_diagnosis` SIEMPRE traen `syncNote`
+(`common/utils/sync-freshness.util.ts`, puro, con pruebas) — nunca
+`null`. Al día: una etiqueta mínima a propósito (`"sync: hace 2 horas"`),
+para que el modelo la muestre como algo muy discreto, nunca como el punto
+principal de la respuesta. Pasadas 12 horas sin sincronizar (3 ciclos
+seguidos del cron de VTEX, que corre cada 4h — señal real de que algo
+falló, mismo tipo de falla silenciosa que tuvo GA4, ver sección 16) el
+texto mismo escala a una oración completa recomendando resincronizar
+manualmente desde el botón del Dashboard — el modelo no decide el tono,
+solo lo reproduce.
+
+### Modos de conversación (ver `prompts/system-manual.ts`)
 
 **Modo A** (dato puntual): resuelve el período, llama la herramienta que
-corresponda, responde directo. **Modo B** (análisis con niveles de
-certeza): usa `compare_periods`, gradúa su certeza según el tamaño del
-cambio — en esta fase SIN la atribución tráfico/conversión/ticket de
-`/resumen` (llega en una fase futura, ver abajo). **Modo C** (evaluación
-contra presupuesto): como todavía no hay catálogo de temporadas, pide una
-FECHA/rango (no un nombre de temporada), evalúa con
+corresponda, responde directo — SIEMPRE con el conteo de órdenes al lado
+de cualquier cifra de ventas, nunca el peso solo. **Modo B** (análisis con
+niveles de certeza): su herramienta principal es `get_diagnosis` (no
+`compare_periods`, que ahora queda solo para comparar un corte específico)
+— cualquier pedido de "análisis"/"cómo le fue"/"por qué" cuenta, no solo
+la pregunta literal "por qué". Siempre reporta los 4 pares (ventas,
+sesiones, conversión, ticket), nunca nombra el color del semáforo (dice
+qué significa, en palabras), explica `engine`/`brakes` con su propio % y
+en qué dirección, y cierra con `teamRecommendations`. **Modo C**
+(evaluación contra presupuesto): como todavía no hay catálogo de
+temporadas, pide una FECHA/rango (no un nombre de temporada), evalúa con
 `get_budget_vs_actual`, y SOLO DESPUÉS pregunta si el usuario quiere
 comparar contra otro período (año anterior/semana anterior/mes
 anterior/uno a su elección) — nunca trae esa comparación sin que el
@@ -971,7 +1085,7 @@ usuario la pida.
 
 ### Proveedor de LLM — intercambiable (Anthropic ↔ OpenAI)
 
-Las 6 herramientas, su validación (`class-validator`, sin `zod`) y el
+Las 10 herramientas, su validación (`class-validator`, sin `zod`) y el
 prompt son 100% independientes del proveedor. Lo único que cambia entre
 Anthropic y OpenAI es qué modelo narra la conversación — mismo
 comportamiento, misma calidad de respuesta esperada, solo distinto costo/
@@ -1024,10 +1138,9 @@ usadas, respuesta, modelo, tokens, latencia, error si lo hubo — sin
 `user_id` (esta app no tiene autenticación por usuario). Limpieza
 automática a 90 días: pendiente, fuera de esta fase.
 
-### Fuera de alcance (Fase 2)
+### Pendiente (nada bloqueante)
 
-`search_campaign` (campañas de descuento VTEX + campañas UTM de Analytics
-combinadas por coincidencia de texto), `get_diagnosis` (reutilizar el
-motor del cambio de `/resumen`, con un segundo período de comparación),
-`get_analytics` (cortes de GA4), y la limpieza automática de
-`assistant_logs`.
+La limpieza automática de `assistant_logs` a 90 días — hoy crece sin
+límite, sin un cron que lo pode. Todo lo demás de las fases originales
+(Fase 1 y Fase 2: las 10 herramientas, los 3 modos, el proveedor
+intercambiable) ya está construido y en producción.

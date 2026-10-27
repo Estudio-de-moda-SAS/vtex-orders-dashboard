@@ -82,7 +82,7 @@ test('get_sync_status: no requiere input', async () => {
   assert.deepEqual(result, { ok: true });
 });
 
-test('get_smartsale_sales: storeId es opcional', async () => {
+test('get_smartsale_sales: storeId y periodB son opcionales', async () => {
   let received: unknown[] = [];
   const registry = new AssistantToolsRegistry(
     { getSalesBreakdown: async () => ({}) } as any,
@@ -90,20 +90,48 @@ test('get_smartsale_sales: storeId es opcional', async () => {
     { getBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
-    { getSmartSaleSales: async (...args: unknown[]) => { received = args; return { totalSmartSaleSales: 500 }; } } as any,
+    { getSmartSaleSales: async (...args: unknown[]) => { received = args; return { periodA: { totalSales: 500 } }; } } as any,
     { getDiagnosis: async () => ({}) } as any,
     { getAnalyticsBreakdown: async () => ({}) } as any,
     { searchCampaigns: async () => ({}) } as any,
   );
-  const result = await registry.execute('get_smartsale_sales', { startDay: '2026-10-01', endDay: '2026-10-10' });
-  assert.deepEqual(received, ['2026-10-01', '2026-10-10', undefined]);
-  assert.deepEqual(result, { totalSmartSaleSales: 500 });
+  const result = await registry.execute('get_smartsale_sales', { periodA: { startDay: '2026-10-01', endDay: '2026-10-10' } });
+  // `plainToInstance` convierte el objeto anidado en una instancia de `PeriodInputDto` (no un objeto
+  // plano) — comparar vía JSON descarta el prototipo y deja solo los valores, que es lo que importa acá.
+  // `JSON.stringify` convierte `undefined` en `null` dentro de un arreglo — es lo esperado acá, no un objeto vacío.
+  assert.deepEqual(JSON.parse(JSON.stringify(received)), [{ startDay: '2026-10-01', endDay: '2026-10-10' }, null, null]);
+  assert.deepEqual(result, { periodA: { totalSales: 500 } });
+});
+
+test('get_smartsale_sales: con periodB, delega al servicio con los dos períodos', async () => {
+  let received: unknown[] = [];
+  const registry = new AssistantToolsRegistry(
+    { getSalesBreakdown: async () => ({}) } as any,
+    { comparePeriods: async () => ({}) } as any,
+    { getBudgetVsActual: async () => ({}) } as any,
+    { getCreditNotes: async () => ({}) } as any,
+    { getSyncStatus: async () => ({}) } as any,
+    { getSmartSaleSales: async (...args: unknown[]) => { received = args; return {}; } } as any,
+    { getDiagnosis: async () => ({}) } as any,
+    { getAnalyticsBreakdown: async () => ({}) } as any,
+    { searchCampaigns: async () => ({}) } as any,
+  );
+  await registry.execute('get_smartsale_sales', {
+    periodA: { startDay: '2026-10-01', endDay: '2026-10-10' },
+    periodB: { startDay: '2026-09-01', endDay: '2026-09-10' },
+    storeId: 'pilatos',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(received)), [
+    { startDay: '2026-10-01', endDay: '2026-10-10' },
+    { startDay: '2026-09-01', endDay: '2026-09-10' },
+    'pilatos',
+  ]);
 });
 
 test('get_smartsale_sales: storeId inválido lanza AssistantToolError', async () => {
   const registry = buildRegistry();
   await assert.rejects(
-    () => registry.execute('get_smartsale_sales', { startDay: '2026-10-01', endDay: '2026-10-10', storeId: 'no-existe' }),
+    () => registry.execute('get_smartsale_sales', { periodA: { startDay: '2026-10-01', endDay: '2026-10-10' }, storeId: 'no-existe' }),
     AssistantToolError,
   );
 });

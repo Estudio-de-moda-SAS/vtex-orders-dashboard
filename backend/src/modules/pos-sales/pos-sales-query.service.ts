@@ -36,12 +36,13 @@ export class PosSalesQueryService {
     const startDay = toDayBucketColombia(normalizeStartDate(rawStartDate));
     const endDay = toDayBucketColombia(normalizeEndDate(rawEndDate));
 
-    const [totals, bySellerRaw, byStoreRaw, bySellerByStoreRaw, pilatosByBrandRaw] = await Promise.all([
+    const [totals, bySellerRaw, byStoreRaw, bySellerByStoreRaw, pilatosByBrandRaw, byCategoryRaw] = await Promise.all([
       this.repository.getTotals(startDay, endDay, storeId),
       this.repository.getBySeller(startDay, endDay, storeId),
       this.repository.getByStore(startDay, endDay),
       this.repository.getBySellerByStore(startDay, endDay),
       this.repository.getByMarca(startDay, endDay, PILATOS_STORE_ID),
+      this.repository.getByCategory(startDay, endDay),
     ]);
 
     const sellersByStoreId = new Map<string, PosSalesStoreSellerRow[]>();
@@ -66,6 +67,7 @@ export class PosSalesQueryService {
         bySeller: (sellersByStoreId.get(store.storeId) ?? []).map(toSellerSummary),
       })),
       pilatosByBrand: pilatosByBrandRaw,
+      byCategory: byCategoryRaw,
     };
   }
 

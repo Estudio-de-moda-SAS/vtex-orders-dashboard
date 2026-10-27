@@ -16,6 +16,9 @@ import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } 
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
 
+/** Entre VTEX y POS combinadas son 40+ categorías — se muestran solo las de más venta para que la lista no quede interminable. */
+const MAX_CATEGORIES_SHOWN = 20;
+
 interface ResumenData {
   summary: SmartSaleCombinedSummaryResponse;
   monthlyTrend: SmartSaleCombinedMonthlyTrendPoint[];
@@ -39,7 +42,9 @@ export function ResumenTab() {
   const storeById = new Map(stores.map((s) => [s.id, s]));
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
-    `smartsale-resumen:v1:${startDate}:${endDate}`,
+    // "v2": agrega desglose combinado de categorías (VTEX + POS).
+    // "v3": agrega totalSales/totalOrders/totalUnits ya sumados por el backend (antes se sumaban en el cliente).
+    `smartsale-resumen:v3:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -125,8 +130,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
         ) : (
           <ul className="flex flex-col gap-2">
             {summary.bySeller.map((seller) => {
-              const sellerSales = seller.vtexSales + seller.posSales;
-              const sellerOrders = seller.vtexOrders + seller.posOrders;
+              const sellerSales = seller.totalSales;
+              const sellerOrders = seller.totalOrders;
               return (
                 <li key={seller.name} className="flex items-center justify-between text-sm">
                   <span className="font-medium text-ink">{seller.name}</span>
@@ -144,8 +149,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {orderedByStore.map((store) => {
           const info = storeById.get(store.storeId);
-          const storeSales = store.vtexSales + store.posSales;
-          const storeOrders = store.vtexOrders + store.posOrders;
+          const storeSales = store.totalSales;
+          const storeOrders = store.totalOrders;
           const percentage = totalSales > 0 ? (storeSales / totalSales) * 100 : 0;
           return (
             <div
@@ -172,8 +177,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {store.byPerson.map((person) => {
-                    const personSales = person.vtexSales + person.posSales;
-                    const personOrders = person.vtexOrders + person.posOrders;
+                    const personSales = person.totalSales;
+                    const personOrders = person.totalOrders;
                     return (
                       <li key={person.name} className="flex items-center justify-between text-xs">
                         <span className="text-ink-muted">{person.name}</span>
@@ -193,6 +198,33 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           );
         })}
       </div>
+
+      {summary.byCategory.length > 0 && (
+        <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
+          <h3 className="mb-1 font-display text-base font-semibold text-ink">Categorías más vendidas (VTEX + POS)</h3>
+          <p className="mb-3 text-xs text-ink-faint">
+            En unidades vendidas. Las categorías de POS son más granulares que las de VTEX (ej. &quot;CAMISETA
+            M/C&quot; dentro de &quot;Camisetas&quot;) — cuando una categoría de POS no tiene una equivalencia clara
+            en VTEX, aparece sola con su nombre tal cual del ERP.
+            {summary.byCategory.length > MAX_CATEGORIES_SHOWN && ` Mostrando las ${MAX_CATEGORIES_SHOWN} con más venta.`}
+          </p>
+          <ul className="flex flex-col gap-2">
+            {summary.byCategory.slice(0, MAX_CATEGORIES_SHOWN).map((category) => {
+              const units = category.totalUnits;
+              const sales = category.totalSales;
+              return (
+                <li key={category.category} className="flex items-center justify-between text-sm">
+                  <span className="font-medium text-ink">{category.category}</span>
+                  <span className="font-medium tabular-nums text-ink">
+                    {formatNumber(units)} und. · {formatCOP(sales)}{' '}
+                    <span className="text-ink-faint">({formatPercentage(totalSales > 0 ? (sales / totalSales) * 100 : 0)})</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <SmartSaleTrendSection monthly={monthlyTrend} />
     </div>

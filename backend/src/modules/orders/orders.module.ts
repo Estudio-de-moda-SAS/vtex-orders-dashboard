@@ -48,9 +48,11 @@ import { TrendsService } from './services/trends.service';
     PaymentMethodsTrendService,
   ],
   /**
-   * `SmartSaleService`: lo reutiliza `AssistantModule` para `get_smartsale_sales`.
-   * `ProductAnalyticsService`: lo reutiliza para `search_campaign` (`getCampaignComboTotal`).
+   * `SmartSaleService`/`SmartSaleCombinedService`: los reutiliza
+   * `AssistantModule` para `get_smartsale_sales` (VTEX+POS combinado, ver
+   * `AssistantSmartSaleService`). `ProductAnalyticsService`: lo reutiliza
+   * para `search_campaign` (`getCampaignComboTotal`).
    */
-  exports: [SmartSaleService, ProductAnalyticsService],
+  exports: [SmartSaleService, SmartSaleCombinedService, ProductAnalyticsService],
 })
 export class OrdersModule {}

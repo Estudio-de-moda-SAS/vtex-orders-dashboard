@@ -2,6 +2,7 @@ import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
 
 import { CampaignComboQueryDto } from '../dto/campaign-combo-query.dto';
 import { SmartSaleQueryDto } from '../dto/smartsale-query.dto';
+import { SmartSaleCombinedService } from '../services/smartsale-combined.service';
 import { SmartSaleService } from '../services/smartsale.service';
 
 /**
@@ -12,7 +13,10 @@ import { SmartSaleService } from '../services/smartsale.service';
  */
 @Controller('api/analytics/smartsale')
 export class SmartSaleController {
-  constructor(private readonly smartSaleService: SmartSaleService) {}
+  constructor(
+    private readonly smartSaleService: SmartSaleService,
+    private readonly smartSaleCombinedService: SmartSaleCombinedService,
+  ) {}
 
   /** GET /api/analytics/smartsale/summary — card de tienda + total del canal + desglose por persona. */
   @Get('summary')
@@ -25,6 +29,19 @@ export class SmartSaleController {
   @Get('monthly-trend')
   getMonthlyTrend() {
     return this.smartSaleService.getMonthlyTrend();
+  }
+
+  /** GET /api/analytics/smartsale/combined-summary — igual que `summary`, pero sumando VTEX+POS (pestaña "Resumen"). */
+  @Get('combined-summary')
+  getCombinedSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: SmartSaleQueryDto) {
+    SmartSaleQueryDto.assertRange(query.startDate, query.endDate);
+    return this.smartSaleCombinedService.getCombinedSummary(query.startDate, query.endDate);
+  }
+
+  /** GET /api/analytics/smartsale/combined-monthly-trend — igual que `monthly-trend`, pero sumando VTEX+POS (pestaña "Resumen"). Año en curso completo. */
+  @Get('combined-monthly-trend')
+  getCombinedMonthlyTrend() {
+    return this.smartSaleCombinedService.getCombinedMonthlyTrend();
   }
 
   @Get('discounts')

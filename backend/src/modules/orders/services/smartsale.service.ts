@@ -408,8 +408,13 @@ export class SmartSaleService {
   }
 }
 
-/** `prior === null` cuando no hay mes anterior en la serie (primer punto — sin histórico, siempre el primer mes real). */
-function classifyMonthlyGrowth(
+/**
+ * `prior === null` cuando no hay mes anterior en la serie (primer punto —
+ * sin histórico, siempre el primer mes real). Exportada para que
+ * `SmartSaleCombinedService` reuse el mismo criterio de clasificación al
+ * combinar la tendencia VTEX+POS, en vez de duplicar la lógica.
+ */
+export function classifyMonthlyGrowth(
   current: number,
   prior: number | null,
   thresholds: GrowthThresholds,

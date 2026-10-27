@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { DatabaseModule } from '../database/database.module';
+import { PosSalesModule } from '../pos-sales/pos-sales.module';
 import { SyncModule } from '../sync/sync.module';
 import { OrdersController } from './controllers/orders.controller';
 import { PaymentMethodsTrendController } from './controllers/payment-methods-trend.controller';
@@ -14,6 +15,7 @@ import { OrdersService } from './services/orders.service';
 import { PaymentMethodsTrendService } from './services/payment-methods-trend.service';
 import { PilatosMixService } from './services/pilatos-mix.service';
 import { ProductAnalyticsService } from './services/product-analytics.service';
+import { SmartSaleCombinedService } from './services/smartsale-combined.service';
 import { SmartSaleService } from './services/smartsale.service';
 import { TrendsService } from './services/trends.service';
 
@@ -25,7 +27,7 @@ import { TrendsService } from './services/trends.service';
  * toca VTEX, y solo para esos días puntuales faltantes.
  */
 @Module({
-  imports: [DatabaseModule, SyncModule],
+  imports: [DatabaseModule, SyncModule, PosSalesModule],
   controllers: [
     OrdersController,
     SyncStatusController,
@@ -42,6 +44,7 @@ import { TrendsService } from './services/trends.service';
     TrendsService,
     PilatosMixService,
     SmartSaleService,
+    SmartSaleCombinedService,
     PaymentMethodsTrendService,
   ],
   /**

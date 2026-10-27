@@ -18,6 +18,9 @@ const PILATOS_STORE_ID = 'pilatos';
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta, para que la grilla no reordene cada vez que cambia el rango de fechas. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
 
+/** El ERP del POS trae categorías muy granulares (30+) — se muestran solo las de más venta para que la lista no quede interminable. */
+const MAX_CATEGORIES_SHOWN = 20;
+
 /**
  * Ventas POS del canal SmartSale (API "Conní" del ERP, ya sincronizada en
  * Supabase vía `npm run pos-sales:sync`, nunca en vivo desde el navegador
@@ -39,8 +42,8 @@ export function VentasPosTab() {
   const storeById = new Map(stores.map((s) => [s.id, s]));
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<PosSalesSummaryResponse>(
-    // "v3": "Ventas totales POS" ahora resta las notas crédito (antes las excluía, sin restarlas).
-    `pos-sales:v3:${startDate}:${endDate}`,
+    // "v5": desglose por categoría ahora mide unidades, no documentos (un documento puede tener varias categorías a la vez).
+    `pos-sales:v5:${startDate}:${endDate}`,
     () => ordersService.getPosSalesSummary(startDate, endDate),
     { autoFetchOnKeyChange: false },
   );
@@ -194,6 +197,30 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
                   {formatNumber(brand.orders)} doc. · {formatCOP(brand.sales)}{' '}
                   <span className="text-ink-faint">
                     ({formatPercentage(data.totalSales > 0 ? (brand.sales / data.totalSales) * 100 : 0)})
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {data.byCategory.length > 0 && (
+        <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
+          <h3 className="mb-1 font-display text-base font-semibold text-ink">Por categoría</h3>
+          <p className="mb-3 text-xs text-ink-faint">
+            Combinando las 6 tiendas, en unidades vendidas (un documento puede tener varias categorías a la vez).
+            Categoría tal cual la registra el ERP del POS — más granular que las categorías de VTEX.
+            {data.byCategory.length > MAX_CATEGORIES_SHOWN && ` Mostrando las ${MAX_CATEGORIES_SHOWN} con más venta.`}
+          </p>
+          <ul className="flex flex-col gap-2">
+            {data.byCategory.slice(0, MAX_CATEGORIES_SHOWN).map((category) => (
+              <li key={category.categoria} className="flex items-center justify-between text-sm">
+                <span className="font-medium text-ink">{category.categoria}</span>
+                <span className="font-medium tabular-nums text-ink">
+                  {formatNumber(category.units)} und. · {formatCOP(category.sales)}{' '}
+                  <span className="text-ink-faint">
+                    ({formatPercentage(data.totalSales > 0 ? (category.sales / data.totalSales) * 100 : 0)})
                   </span>
                 </span>
               </li>

@@ -43,6 +43,13 @@ export interface PosSalesBrandSummary {
   sales: number;
 }
 
+/** `units` (no `orders`): un documento puede tener varias categorías a la vez — ver comentario de `PosSalesCategoryRow` en el repositorio. */
+export interface PosSalesCategorySummary {
+  categoria: string;
+  units: number;
+  sales: number;
+}
+
 export interface PosSalesSummaryResponse {
   filters: { startDate: string; endDate: string };
   /** DEFINITIVO: incluye fletes y YA RESTA las notas crédito. */
@@ -62,4 +69,6 @@ export interface PosSalesSummaryResponse {
    * adicional para ver cuál marca vende más dentro de esa tienda.
    */
   pilatosByBrand: PosSalesBrandSummary[];
+  /** Combinando las 6 tiendas — categoría CRUDA de POS, sin normalizar contra las categorías de VTEX. */
+  byCategory: PosSalesCategorySummary[];
 }

@@ -117,11 +117,15 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'get_smartsale_sales',
     description:
-      'Ventas del canal SmartSale (ventas asistidas por un vendedor específico a través de su link personalizado) en un rango: total del canal y desglose por persona (nombre, ventas, órdenes, % del canal). Úsala para preguntas como "cuánto vendió [nombre de una persona]" o "cuánto vendió SmartSale". Si se omite storeId, combina las 6 tiendas.',
+      'Ventas del canal SmartSale (ventas asistidas por un vendedor a través de su link personalizado) — FUENTE ÚNICA para cualquier pregunta de SmartSale: SIEMPRE combina VTEX + POS ("Resumen"), nunca un canal por separado salvo que el usuario pida explícitamente solo VTEX o solo POS (para eso ya vienen desglosados "vtexSales"/"posSales" en la misma respuesta — nunca los calcules sumando otra herramienta). Incluye desglose por persona ("bySeller"), por tienda ("byStore", null si se filtró por storeId), y por categoría ("byCategory" — SIEMPRE combinada de las 6 tiendas, úsala para "¿cuál ha sido la categoría más vendida?"). "periodB" es OPCIONAL: solo si el usuario pide comparar contra otro período (ej. "¿cómo va vs. el mes pasado?") — ahí la respuesta trae también el total de ese período y el % de cambio YA CALCULADO ("totalSalesChangePercent"/"vtexSalesChangePercent"/"posSalesChangePercent"), nunca lo calcules tú mismo. Si se omite storeId, combina las 6 tiendas.',
     parameters: {
       type: 'object',
-      properties: { startDay: DAY_PROPERTY, endDay: DAY_PROPERTY, storeId: { ...STORE_PROPERTY, description: 'Opcional — sin esto, combina las 6 tiendas.' } },
-      required: ['startDay', 'endDay'],
+      properties: {
+        periodA: PERIOD_PROPERTY,
+        periodB: { ...PERIOD_PROPERTY, description: 'Opcional — solo si el usuario pide comparar contra otro período.' },
+        storeId: { ...STORE_PROPERTY, description: 'Opcional — sin esto, combina las 6 tiendas.' },
+      },
+      required: ['periodA'],
     },
   },
   {
@@ -227,7 +231,7 @@ export class AssistantToolsRegistry {
         return this.syncStatusService.getSyncStatus();
       case 'get_smartsale_sales': {
         const input = this.validate(GetSmartSaleSalesDto, rawInput);
-        return this.smartSaleService.getSmartSaleSales(input.startDay, input.endDay, input.storeId);
+        return this.smartSaleService.getSmartSaleSales(input.periodA, input.periodB, input.storeId);
       }
       case 'get_diagnosis': {
         const input = this.validate(GetDiagnosisDto, rawInput);

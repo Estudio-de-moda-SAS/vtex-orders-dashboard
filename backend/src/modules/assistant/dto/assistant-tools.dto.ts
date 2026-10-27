@@ -81,13 +81,16 @@ export class GetCreditNotesDto {
   storeId?: string;
 }
 
-/** Input de `get_smartsale_sales` — `storeId` opcional (sin él, combina las 6 tiendas). */
+/** Input de `get_smartsale_sales` — `periodB` opcional, para pedir la comparación contra otro período en la misma llamada (mismo patrón que `compare_periods`/`get_diagnosis`). `storeId` opcional (sin él, combina las 6 tiendas). */
 export class GetSmartSaleSalesDto {
-  @Matches(DAY_REGEX, { message: 'startDay debe tener formato YYYY-MM-DD' })
-  startDay!: string;
+  @ValidateNested()
+  @Type(() => PeriodInputDto)
+  periodA!: PeriodInputDto;
 
-  @Matches(DAY_REGEX, { message: 'endDay debe tener formato YYYY-MM-DD' })
-  endDay!: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PeriodInputDto)
+  periodB?: PeriodInputDto;
 
   @IsOptional()
   @IsIn(STORE_IDS, { message: `storeId debe ser una de: ${STORE_IDS.join(', ')}` })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildSyncNote, checkSyncFreshness } from './sync-freshness.util';
+import { buildErpSyncNote, buildSyncNote, checkSyncFreshness } from './sync-freshness.util';
 
 const NOW = new Date('2026-10-25T12:00:00.000Z').getTime();
 
@@ -55,4 +55,20 @@ test('buildSyncNote: caso sin sincronización nunca registrada tiene su propio m
   const note = buildSyncNote('Kipling', check);
   assert.match(note, /Kipling/);
   assert.match(note, /ninguna sincronización/);
+});
+
+test('buildErpSyncNote: al día, nunca menciona "VTEX" (sería engañoso para una fuente del ERP)', () => {
+  const check = checkSyncFreshness('2026-10-25T06:00:00.000Z', 12, NOW);
+  const note = buildErpSyncNote('Ventas POS', check);
+  assert.equal(note, 'sync ventas pos: hace 6 horas');
+  assert.doesNotMatch(note, /VTEX/);
+});
+
+test('buildErpSyncNote: desactualizado, recomienda sincronizar manualmente (no el botón del Dashboard)', () => {
+  const check = checkSyncFreshness('2026-10-24T00:00:00.000Z', 12, NOW);
+  const note = buildErpSyncNote('Ventas POS', check);
+  assert.match(note, /Ventas POS/);
+  assert.match(note, /36 horas/);
+  assert.match(note, /VPN/);
+  assert.doesNotMatch(note, /Dashboard/);
 });

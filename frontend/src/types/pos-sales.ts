@@ -20,6 +20,13 @@ export interface PosSalesBrandSummary {
   sales: number;
 }
 
+/** `units` (no `orders`): un documento puede tener varias categorías a la vez, así que se mide en unidades vendidas — misma métrica que usa VTEX para poder combinarlas en "Resumen". */
+export interface PosSalesCategorySummary {
+  categoria: string;
+  units: number;
+  sales: number;
+}
+
 export interface PosSalesSummaryResponse {
   filters: { startDate: string; endDate: string };
   /** DEFINITIVO: incluye fletes y YA RESTA las notas crédito. */
@@ -35,4 +42,6 @@ export interface PosSalesSummaryResponse {
   byStore: PosSalesStoreSummary[];
   /** Desglose por marca real DENTRO de Pilatos (única tienda multimarca) — no cambia el total de Pilatos en `byStore`. */
   pilatosByBrand: PosSalesBrandSummary[];
+  /** Combinando las 6 tiendas — categoría CRUDA de POS, sin normalizar contra las categorías de VTEX. */
+  byCategory: PosSalesCategorySummary[];
 }

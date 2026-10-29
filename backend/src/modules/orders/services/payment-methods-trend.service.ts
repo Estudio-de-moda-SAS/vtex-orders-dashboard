@@ -16,16 +16,21 @@ import { PaymentMethodMonthlyPoint, PaymentMethodsTrendResponse } from '../inter
  * calcula) para el desglose por método, y `sales_daily_by_status` para el
  * total contabilizado de cada mes (denominador del % de participación).
  */
-const OTHER_METHODS_LABEL = 'Otros métodos';
 /**
- * Cuántos métodos de pago se muestran como serie propia (el resto se
- * agrupa en "Otros métodos") — hay ~30 valores distintos de
- * `payment_method` en producción, la mayoría placeholders de marketplace
- * ("Assumed value by affiliate X") con <1% de participación cada uno; sin
- * este tope el gráfico de líneas queda ilegible. Confirmado con datos
- * reales: los 9 principales ya cubren >96% de la venta del año.
+ * Sin tope por cantidad — se muestran TODOS los métodos de pago con venta
+ * real tal cual los reporta VTEX (decisión explícita del usuario: prefiere
+ * ver cada uno, aunque el gráfico quede recargado con ~20-30 series).
+ * Antes había un tope (`TOP_METHODS_LIMIT = 9`) por ranking; se quitó a
+ * propósito. Lo único que SÍ se agrupa en "Otros métodos" es un método en
+ * un MES PUNTUAL con $0 ese mes (ej. un método que solo se usó en algunos
+ * meses del año) — ese mes concreto se consolida en "Otros métodos" en vez
+ * de mostrar "$0"/un "-100%" confuso bajo el nombre del propio método; en
+ * los meses donde SÍ tuvo venta real sigue como serie propia (decisión
+ * explícita del usuario: la consolidación es mes a mes, no por el total
+ * del rango completo — "Otros métodos" siempre da $0 en cualquier mes,
+ * porque solo recibe contribuciones que ya eran $0, ver `buildBreakdown`).
  */
-const TOP_METHODS_LIMIT = 9;
+const OTHER_METHODS_LABEL = 'Otros métodos';
 
 @Injectable()
 export class PaymentMethodsTrendService {
@@ -91,12 +96,14 @@ export class PaymentMethodsTrendService {
 
   /**
    * Agrupa `rows` (ya cubriendo año actual + año anterior) por mes, SIN
-   * filtrar por rango — eso lo hace `getTrend` al armar `points`. Solo los
-   * `TOP_METHODS_LIMIT` métodos con mayor venta DENTRO DEL RANGO A MOSTRAR
-   * (`startYearMonth`..`endYearMonth`, nunca contando el año anterior)
-   * quedan como serie propia — el resto se consolida en
-   * `OTHER_METHODS_LABEL` (ver nota en la constante) en TODOS los meses,
-   * incluyendo los del año anterior usados solo como referencia.
+   * filtrar por rango — eso lo hace `getTrend` al armar `points`. La
+   * consolidación en `OTHER_METHODS_LABEL` es MES A MES: una fila con
+   * `revenue_sales <= 0` se agrupa ahí para ESE mes puntual,
+   * independientemente de si ese mismo método tuvo venta real en otros
+   * meses (ver comentario de la constante). `names` sale ordenado por
+   * venta DENTRO DEL RANGO A MOSTRAR (`startYearMonth`..`endYearMonth`,
+   * nunca contando el año anterior) — solo entran ahí los métodos con
+   * AL MENOS un mes con venta real en ese rango.
    */
   private buildBreakdown(
     rows: Record<string, string | number>[],
@@ -104,38 +111,31 @@ export class PaymentMethodsTrendService {
     endYearMonth: string,
   ): { byMonth: Map<string, Record<string, number>>; names: string[] } {
     const totalByNameDisplay = new Map<string, number>();
-    const byMonthRaw = new Map<string, Record<string, number>>();
+    const byMonth = new Map<string, Record<string, number>>();
+    let hasOthersInDisplayRange = false;
 
     for (const row of rows) {
       const month = monthKey(row.year, row.month);
       const name = String(row.payment_method);
       const value = Number(row.revenue_sales);
-      if (month >= startYearMonth && month <= endYearMonth) {
-        totalByNameDisplay.set(name, (totalByNameDisplay.get(name) ?? 0) + value);
+      const inDisplayRange = month >= startYearMonth && month <= endYearMonth;
+
+      if (value > 0) {
+        if (inDisplayRange) totalByNameDisplay.set(name, (totalByNameDisplay.get(name) ?? 0) + value);
+      } else if (inDisplayRange) {
+        hasOthersInDisplayRange = true;
       }
-      const bucket = byMonthRaw.get(month) ?? {};
-      bucket[name] = (bucket[name] ?? 0) + value;
-      byMonthRaw.set(month, bucket);
+
+      const key = value > 0 ? name : OTHER_METHODS_LABEL;
+      const bucket = byMonth.get(month) ?? {};
+      bucket[key] = (bucket[key] ?? 0) + value;
+      byMonth.set(month, bucket);
     }
 
-    const topNames = Array.from(totalByNameDisplay.entries())
+    const names = Array.from(totalByNameDisplay.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, TOP_METHODS_LIMIT)
       .map(([name]) => name);
-    const topNamesSet = new Set(topNames);
-    const hasOthers = totalByNameDisplay.size > topNames.length;
-
-    const byMonth = new Map<string, Record<string, number>>();
-    for (const [month, bucket] of byMonthRaw.entries()) {
-      const consolidated: Record<string, number> = {};
-      for (const [name, value] of Object.entries(bucket)) {
-        const key = topNamesSet.has(name) ? name : OTHER_METHODS_LABEL;
-        consolidated[key] = (consolidated[key] ?? 0) + value;
-      }
-      byMonth.set(month, consolidated);
-    }
-
-    const names = hasOthers ? [...topNames, OTHER_METHODS_LABEL] : topNames;
+    if (hasOthersInDisplayRange) names.push(OTHER_METHODS_LABEL);
     return { byMonth, names };
   }
 }

@@ -38,7 +38,8 @@ export default function MetodosPagoPage() {
     // "v2": se agregó `vsYearAgo` a `ParticipationPoint` — mismo motivo que el bump en `/pilatos`.
     // "v3": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
     // caché guardado en sessionStorage de ANTES de esa carga.
-    `metodos-pago:v3:${todayKey()}:${storeId}`,
+    // "v4": se quitó el agrupamiento en "Otros métodos" — ahora salen todos los métodos individuales.
+    `metodos-pago:v4:${todayKey()}:${storeId}`,
     () => {
       const { startDate, endDate } = getYearToDateRange();
       return ordersService.getPaymentMethodsTrend(startDate, endDate, storeId || undefined);
@@ -49,7 +50,7 @@ export default function MetodosPagoPage() {
   const storeName = STORES.find((s) => s.id === storeId)?.name;
 
   return (
-    <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto flex max-w-screen-2xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-accent">
@@ -68,9 +69,9 @@ export default function MetodosPagoPage() {
         <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Tendencia de métodos de pago</h1>
         <p className="max-w-2xl text-sm text-ink-muted">
           Cómo evoluciona mes a mes la participación de cada método de pago sobre el total vendido, y si esa
-          participación viene creciendo o cayendo. Ventas contabilizadas del año en curso. Los métodos con menor
-          volumen (sobre todo etiquetas internas de marketplace) se agrupan en &quot;Otros métodos&quot; para que el
-          gráfico se pueda leer.
+          participación viene creciendo o cayendo. Ventas contabilizadas del año en curso. Se muestran TODOS los
+          métodos tal cual los reporta VTEX, sin agrupar — el gráfico puede verse recargado si hay muchos con poco
+          volumen, pero la tabla de abajo siempre es legible por fila.
         </p>
       </header>
 

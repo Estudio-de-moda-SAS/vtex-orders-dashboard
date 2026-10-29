@@ -34,16 +34,27 @@ interface TooltipPayloadEntry {
   payload: Record<string, string | number>;
 }
 
+/** "Otros métodos"/"Otros" — igual que en `buildBreakdown`, un sumidero que nunca debe ocultarse del tooltip aunque dé $0 ese mes (ver comentario de `ParticipationTooltip`). */
+const CATCH_ALL_NAMES = new Set(['Otros métodos', 'Otros']);
+
 /**
  * Tooltip propio: junto al % de participación (lo que dibuja la línea)
  * muestra la venta en pesos de ese mes — el número comparativo detrás del
  * %. También muestra, una sola vez arriba, el TOTAL contabilizado de ese
  * mes (el denominador sobre el que se calculan todos los % de abajo) —
  * sin esto no quedaba claro sobre qué base se estaba midiendo cada %.
+ *
+ * Oculta las series en $0 ese mes puntual (ej. un método de pago que ese
+ * mes no se usó) — con ~30 series posibles (`/metodos-pago` sin tope),
+ * mostrarlas todas igual sería una pared de "X: 0% ($0)" sin ninguna
+ * información real; ese $0 ya está contabilizado dentro de "Otros
+ * métodos"/"Otros" (ver `payment-methods-trend.service.ts`), que SÍ
+ * siempre se muestra, incluso en $0, porque es el sumidero explícito.
  */
 function ParticipationTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayloadEntry[]; label?: string }) {
   if (!active || !payload || payload.length === 0) return null;
   const total = Number(payload[0].payload[TOTAL_KEY] ?? 0);
+  const visibleEntries = payload.filter((entry) => entry.value > 0 || CATCH_ALL_NAMES.has(entry.dataKey));
   return (
     <div className="rounded-xl border border-surface-border bg-white p-3 text-xs shadow-panel">
       <p className="mb-0.5 font-semibold text-ink">{label}</p>
@@ -51,7 +62,7 @@ function ParticipationTooltip({ active, payload, label }: { active?: boolean; pa
         Total del mes: <span className="font-medium tabular-nums text-ink-muted">{formatCOP(total)}</span>
       </p>
       <div className="flex flex-col gap-1">
-        {payload.map((entry) => (
+        {visibleEntries.map((entry) => (
           <div key={entry.dataKey} className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="font-medium text-ink">{entry.dataKey}:</span>

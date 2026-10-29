@@ -40,7 +40,7 @@ export function Navbar() {
 
   return (
     <nav className="sticky top-0 z-40 border-b border-surface-border bg-surface-panel">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <Link
           href="/"
           title={APP_MEANING}

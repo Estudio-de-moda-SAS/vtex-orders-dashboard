@@ -14,16 +14,32 @@ import {
 import { classifyMonthlyGrowth, SmartSaleService } from './smartsale.service';
 
 function emptyPerson(name: string): SmartSaleCombinedPersonBreakdown {
-  return { name, vtexOrders: 0, vtexSales: 0, posOrders: 0, posSales: 0, totalSales: 0, totalOrders: 0 };
+  return {
+    name,
+    vtexOrders: 0,
+    vtexSales: 0,
+    posOrders: 0,
+    posSales: 0,
+    vtexUnits: 0,
+    posUnits: 0,
+    totalSales: 0,
+    totalOrders: 0,
+    totalUnits: 0,
+  };
 }
 
 function combinedSales(p: SmartSaleCombinedPersonBreakdown): number {
   return p.vtexSales + p.posSales;
 }
 
-/** Rellena `totalSales`/`totalOrders` — se llama SIEMPRE justo antes de devolver un `SmartSaleCombinedPersonBreakdown`, nunca a mitad de una acumulación (ver comentario del campo en la interfaz). */
+/** Rellena `totalSales`/`totalOrders`/`totalUnits` — se llama SIEMPRE justo antes de devolver un `SmartSaleCombinedPersonBreakdown`, nunca a mitad de una acumulación (ver comentario del campo en la interfaz). */
 function finalizePerson(p: SmartSaleCombinedPersonBreakdown): SmartSaleCombinedPersonBreakdown {
-  return { ...p, totalSales: p.vtexSales + p.posSales, totalOrders: p.vtexOrders + p.posOrders };
+  return {
+    ...p,
+    totalSales: p.vtexSales + p.posSales,
+    totalOrders: p.vtexOrders + p.posOrders,
+    totalUnits: p.vtexUnits + p.posUnits,
+  };
 }
 
 /**
@@ -60,6 +76,8 @@ export class SmartSaleCombinedService {
     let totalVtexSales = 0;
     let totalPosOrders = 0;
     let totalPosSales = 0;
+    let totalVtexUnits = 0;
+    let totalPosUnits = 0;
     const sellerTotals = new Map<string, SmartSaleCombinedPersonBreakdown>();
 
     const byStore: SmartSaleCombinedStoreSummary[] = this.storeIds.map((storeId) => {
@@ -69,19 +87,29 @@ export class SmartSaleCombinedService {
       const vtexSales = vtex?.smartSaleSales ?? 0;
       const posOrders = pos?.orders ?? 0;
       const posSales = pos?.sales ?? 0;
+      const vtexUnits = vtex?.smartSaleUnits ?? 0;
+      const posUnits = pos?.units ?? 0;
       totalVtexOrders += vtexOrders;
       totalVtexSales += vtexSales;
       totalPosOrders += posOrders;
       totalPosSales += posSales;
+      totalVtexUnits += vtexUnits;
+      totalPosUnits += posUnits;
 
       const byPersonMap = new Map<string, SmartSaleCombinedPersonBreakdown>();
       for (const person of vtex?.byPerson ?? []) {
-        byPersonMap.set(person.name, { ...emptyPerson(person.name), vtexOrders: person.orders, vtexSales: person.sales });
+        byPersonMap.set(person.name, {
+          ...emptyPerson(person.name),
+          vtexOrders: person.orders,
+          vtexSales: person.sales,
+          vtexUnits: person.units,
+        });
       }
       for (const person of pos?.bySeller ?? []) {
         const entry = byPersonMap.get(person.name) ?? emptyPerson(person.name);
         entry.posOrders = person.orders;
         entry.posSales = person.sales;
+        entry.posUnits = person.units;
         byPersonMap.set(person.name, entry);
       }
       const byPerson = Array.from(byPersonMap.values())
@@ -94,6 +122,8 @@ export class SmartSaleCombinedService {
         total.vtexSales += person.vtexSales;
         total.posOrders += person.posOrders;
         total.posSales += person.posSales;
+        total.vtexUnits += person.vtexUnits;
+        total.posUnits += person.posUnits;
         sellerTotals.set(person.name, total);
       }
 
@@ -103,8 +133,11 @@ export class SmartSaleCombinedService {
         vtexSales,
         posOrders,
         posSales,
+        vtexUnits,
+        posUnits,
         totalSales: vtexSales + posSales,
         totalOrders: vtexOrders + posOrders,
+        totalUnits: vtexUnits + posUnits,
         byPerson,
       };
     });
@@ -120,6 +153,8 @@ export class SmartSaleCombinedService {
       totalVtexSales,
       totalPosOrders,
       totalPosSales,
+      totalVtexUnits,
+      totalPosUnits,
       byStore,
       bySeller,
       byCategory,

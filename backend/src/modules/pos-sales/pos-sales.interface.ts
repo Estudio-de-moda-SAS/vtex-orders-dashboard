@@ -27,12 +27,14 @@ export interface PosSalesSellerSummary {
   name: string;
   orders: number;
   sales: number;
+  units: number;
 }
 
 export interface PosSalesStoreSummary {
   storeId: string;
   orders: number;
   sales: number;
+  units: number;
   /** Vendedores DENTRO de esta tienda únicamente (a diferencia de `bySeller`, que combina las 6). */
   bySeller: PosSalesSellerSummary[];
 }
@@ -41,6 +43,7 @@ export interface PosSalesBrandSummary {
   marca: string;
   orders: number;
   sales: number;
+  units: number;
 }
 
 /** `units` (no `orders`): un documento puede tener varias categorías a la vez — ver comentario de `PosSalesCategoryRow` en el repositorio. */
@@ -59,6 +62,8 @@ export interface PosSalesSummaryResponse {
   /** YA incluido (restado) en `totalSales` — se muestra aparte solo como referencia, no hay que restarlo de nuevo. */
   totalCreditNotes: number;
   totalOrders: number;
+  /** Unidades totales (excluye fletes) — base del UPT general del canal POS. */
+  totalUnits: number;
   averageTicket: number;
   /** Combinando las 6 tiendas — para el cuadro "Total por vendedor". */
   bySeller: PosSalesSellerSummary[];

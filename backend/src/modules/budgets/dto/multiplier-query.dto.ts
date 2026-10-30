@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsInt, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
-/** DTO de entrada para GET /api/budgets/multiplier. */
+/** DTO de entrada para GET /api/budgets/multiplier y GET /api/budgets/summary. */
 export class MultiplierQueryDto {
   @Type(() => Number)
   @IsInt({ message: 'year debe ser un número entero' })
@@ -14,4 +14,9 @@ export class MultiplierQueryDto {
   @Min(1, { message: 'month debe estar entre 1 y 12' })
   @Max(12, { message: 'month debe estar entre 1 y 12' })
   month!: number;
+
+  /** `'vtex'` por defecto si no viene — ver migración 0025. */
+  @IsOptional()
+  @IsIn(['vtex', 'smartsale'], { message: 'channel debe ser "vtex" o "smartsale"' })
+  channel?: string;
 }

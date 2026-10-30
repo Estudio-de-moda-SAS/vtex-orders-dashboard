@@ -15,6 +15,8 @@ export interface SmartSalePersonBreakdown {
   name: string;
   orders: number;
   sales: number;
+  /** Unidades contabilizadas — ver migración 0024. Base del UPT de este vendedor. */
+  units: number;
   /** % sobre `smartSaleSales` (el total del canal, no el de la tienda). */
   percentage: number;
 }
@@ -24,6 +26,8 @@ export interface SmartSaleStoreSummary {
   storeTotalSales: number;
   smartSaleOrders: number;
   smartSaleSales: number;
+  /** Unidades contabilizadas del canal SmartSale en esta tienda — ver migración 0024. */
+  smartSaleUnits: number;
   byPerson: SmartSalePersonBreakdown[];
 }
 

@@ -10,6 +10,7 @@ export interface SmartSalePersonBreakdown {
   name: string;
   orders: number;
   sales: number;
+  units: number;
   percentage: number;
 }
 
@@ -17,6 +18,7 @@ export interface SmartSaleStoreSummary {
   storeTotalSales: number;
   smartSaleOrders: number;
   smartSaleSales: number;
+  smartSaleUnits: number;
   byPerson: SmartSalePersonBreakdown[];
 }
 

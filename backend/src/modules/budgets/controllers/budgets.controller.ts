@@ -29,35 +29,35 @@ export class BudgetsController {
 
   @Get('multiplier')
   getMultiplier(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: MultiplierQueryDto) {
-    return this.budgetsService.getMultiplier(query.year, query.month);
+    return this.budgetsService.getMultiplier(query.year, query.month, query.channel);
   }
 
   /** GET /api/budgets/summary — PÚBLICO (sin código): totales por marca + total de canal, para las cards de resumen. */
   @Get('summary')
   getMonthSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: MultiplierQueryDto) {
-    return this.budgetsService.getMonthSummary(query.year, query.month);
+    return this.budgetsService.getMonthSummary(query.year, query.month, query.channel);
   }
 
   /** GET /api/budgets/range-summary — PÚBLICO (sin código): presupuesto de un rango arbitrario de fechas, para "venta real vs. presupuesto". */
   @Get('range-summary')
   getRangeSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: BudgetRangeQueryDto) {
-    return this.budgetsService.getRangeSummary(query.startDate, query.endDate);
+    return this.budgetsService.getRangeSummary(query.startDate, query.endDate, query.channel);
   }
 
   @UseGuards(BudgetCodeGuard)
   @Post('multiplier')
   setMultiplier(@Body(new ValidationPipe({ transform: true, whitelist: true })) body: SetMultiplierDto) {
-    return this.budgetsService.setMultiplier(body.year, body.month, body.multiplier, Boolean(body.confirmOverwrite));
+    return this.budgetsService.setMultiplier(body.year, body.month, body.multiplier, Boolean(body.confirmOverwrite), body.channel);
   }
 
   @Get()
   getBudgets(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: BudgetsQueryDto) {
-    return this.budgetsService.getBudgets(query.storeId, query.year, query.month);
+    return this.budgetsService.getBudgets(query.storeId, query.year, query.month, query.channel);
   }
 
   @UseGuards(BudgetCodeGuard)
   @Post('bulk')
   saveBulk(@Body(new ValidationPipe({ transform: true, whitelist: true })) body: BulkBudgetsDto) {
-    return this.budgetsService.saveBulk(body.storeId, body.year, body.month, body.rawValues, Boolean(body.confirmOverwrite));
+    return this.budgetsService.saveBulk(body.storeId, body.year, body.month, body.rawValues, Boolean(body.confirmOverwrite), body.channel);
   }
 }

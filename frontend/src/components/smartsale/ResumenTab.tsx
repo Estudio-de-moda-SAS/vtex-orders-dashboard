@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
 import { SmartSaleTrendSection } from '@/components/SmartSaleTrendSection';
-import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, formatUpt } from '@/lib/format';
 import { getTodayRange } from '@/lib/date';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
@@ -44,7 +44,8 @@ export function ResumenTab() {
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
     // "v2": agrega desglose combinado de categorías (VTEX + POS).
     // "v3": agrega totalSales/totalOrders/totalUnits ya sumados por el backend (antes se sumaban en el cliente).
-    `smartsale-resumen:v3:${startDate}:${endDate}`,
+    // "v4": se agregó `vtexUnits`/`posUnits`/`totalUnits` (UPT) a `byStore`/`byPerson` y `totalVtexUnits`/`totalPosUnits` al total general.
+    `smartsale-resumen:v4:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -90,6 +91,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
   const { summary, monthlyTrend } = data;
   const totalSales = summary.totalVtexSales + summary.totalPosSales;
   const totalOrders = summary.totalVtexOrders + summary.totalPosOrders;
+  const totalUnits = summary.totalVtexUnits + summary.totalPosUnits;
 
   const orderedByStore = [...summary.byStore].sort(
     (a, b) => STORE_DISPLAY_ORDER.indexOf(a.storeId) - STORE_DISPLAY_ORDER.indexOf(b.storeId),
@@ -101,7 +103,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
         <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales SmartSale (VTEX + POS)</p>
         <p className="mt-0.5 font-display text-3xl font-semibold text-ink">{formatCOP(totalSales)}</p>
         <p className="text-xs text-ink-faint">
-          {formatNumber(totalOrders)} orden(es)/documento(s) · AVT {formatAverageTicket(totalSales, totalOrders)}
+          {formatNumber(totalOrders)} orden(es)/documento(s) · {formatNumber(totalUnits)} und. · AVT{' '}
+          {formatAverageTicket(totalSales, totalOrders)} · UPT {formatUpt(totalUnits, totalOrders)}
         </p>
       </div>
 
@@ -110,14 +113,18 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas VTEX</p>
           <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.totalVtexSales)}</p>
           <p className="text-xs text-ink-faint">
-            {formatNumber(summary.totalVtexOrders)} orden(es) · AVT {formatAverageTicket(summary.totalVtexSales, summary.totalVtexOrders)}
+            {formatNumber(summary.totalVtexOrders)} orden(es) · {formatNumber(summary.totalVtexUnits)} und. · AVT{' '}
+            {formatAverageTicket(summary.totalVtexSales, summary.totalVtexOrders)} · UPT{' '}
+            {formatUpt(summary.totalVtexUnits, summary.totalVtexOrders)}
           </p>
         </div>
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas POS</p>
           <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.totalPosSales)}</p>
           <p className="text-xs text-ink-faint">
-            {formatNumber(summary.totalPosOrders)} documento(s) · AVT {formatAverageTicket(summary.totalPosSales, summary.totalPosOrders)}
+            {formatNumber(summary.totalPosOrders)} documento(s) · {formatNumber(summary.totalPosUnits)} und. · AVT{' '}
+            {formatAverageTicket(summary.totalPosSales, summary.totalPosOrders)} · UPT{' '}
+            {formatUpt(summary.totalPosUnits, summary.totalPosOrders)}
           </p>
         </div>
       </div>
@@ -132,11 +139,13 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
             {summary.bySeller.map((seller) => {
               const sellerSales = seller.totalSales;
               const sellerOrders = seller.totalOrders;
+              const sellerUnits = seller.totalUnits;
               return (
                 <li key={seller.name} className="flex items-center justify-between text-sm">
                   <span className="font-medium text-ink">{seller.name}</span>
                   <span className="font-medium tabular-nums text-ink">
-                    {formatNumber(sellerOrders)} ord. · {formatCOP(sellerSales)} · AVT {formatAverageTicket(sellerSales, sellerOrders)}{' '}
+                    {formatNumber(sellerOrders)} ord. · {formatNumber(sellerUnits)} und. · {formatCOP(sellerSales)} · AVT{' '}
+                    {formatAverageTicket(sellerSales, sellerOrders)} · UPT {formatUpt(sellerUnits, sellerOrders)}{' '}
                     <span className="text-ink-faint">({formatPercentage(totalSales > 0 ? (sellerSales / totalSales) * 100 : 0)})</span>
                   </span>
                 </li>
@@ -151,6 +160,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           const info = storeById.get(store.storeId);
           const storeSales = store.totalSales;
           const storeOrders = store.totalOrders;
+          const storeUnits = store.totalUnits;
           const percentage = totalSales > 0 ? (storeSales / totalSales) * 100 : 0;
           return (
             <div
@@ -167,7 +177,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales SmartSale</p>
                 <p className="font-display text-xl font-semibold text-ink">{formatCOP(storeSales)}</p>
                 <p className="text-xs text-ink-faint">
-                  {formatNumber(storeOrders)} ord./doc. · AVT {formatAverageTicket(storeSales, storeOrders)} ·{' '}
+                  {formatNumber(storeOrders)} ord./doc. · {formatNumber(storeUnits)} und. · AVT{' '}
+                  {formatAverageTicket(storeSales, storeOrders)} · UPT {formatUpt(storeUnits, storeOrders)} ·{' '}
                   {formatPercentage(percentage)} del total
                 </p>
               </div>
@@ -179,12 +190,13 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                   {store.byPerson.map((person) => {
                     const personSales = person.totalSales;
                     const personOrders = person.totalOrders;
+                    const personUnits = person.totalUnits;
                     return (
                       <li key={person.name} className="flex items-center justify-between text-xs">
                         <span className="text-ink-muted">{person.name}</span>
                         <span className="font-medium tabular-nums text-ink">
-                          {formatNumber(personOrders)} ord. · {formatCOP(personSales)} · AVT{' '}
-                          {formatAverageTicket(personSales, personOrders)}{' '}
+                          {formatNumber(personOrders)} ord. · {formatNumber(personUnits)} und. · {formatCOP(personSales)} · AVT{' '}
+                          {formatAverageTicket(personSales, personOrders)} · UPT {formatUpt(personUnits, personOrders)}{' '}
                           <span className="text-ink-faint">
                             ({formatPercentage(storeSales > 0 ? (personSales / storeSales) * 100 : 0)})
                           </span>

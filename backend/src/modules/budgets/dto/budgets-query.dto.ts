@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
-const STORE_IDS = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
+const STORE_IDS = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay', 'smartsale'];
 
 /** DTO de entrada para GET /api/budgets. */
 export class BudgetsQueryDto {
@@ -19,4 +19,9 @@ export class BudgetsQueryDto {
   @Min(1, { message: 'month debe estar entre 1 y 12' })
   @Max(12, { message: 'month debe estar entre 1 y 12' })
   month!: number;
+
+  /** `'vtex'` por defecto si no viene — ver migración 0025. */
+  @IsOptional()
+  @IsIn(['vtex', 'smartsale'], { message: 'channel debe ser "vtex" o "smartsale"' })
+  channel?: string;
 }

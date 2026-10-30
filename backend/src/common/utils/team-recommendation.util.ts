@@ -2,10 +2,11 @@ import { ChangePieceName } from './change-engine.util';
 import { MixDecompositionResult } from './channel-mix.util';
 
 /**
- * Equipos reales de Estudio de Moda (ver `equipos.md` del usuario) a los
- * que el asistente puede recomendar avisar — ningún otro nombre es
- * válido. Marketplace/SmartSale no salen de acá (no son piezas del motor
- * del cambio): el manual del asistente los maneja aparte, por prompt.
+ * Equipos reales de Estudio de Moda (ver `equipos.md` en la raíz del
+ * repo) a los que el asistente puede recomendar avisar — ningún otro
+ * nombre es válido. Marketplace/SmartSale no salen de acá (no son piezas
+ * del motor del cambio): el manual del asistente los maneja aparte, por
+ * prompt.
  */
 export type RecommendedTeam = 'Producto' | 'Marketing y Producto' | 'Marketing';
 

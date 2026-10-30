@@ -25,6 +25,12 @@ export interface SmartSalePeriodTotals {
   vtexOrders: number;
   posSales: number;
   posOrders: number;
+  /** `vtexUnits + posUnits`. */
+  totalUnits: number;
+  vtexUnits: number;
+  posUnits: number;
+  /** `totalUnits ÷ totalOrders`, YA CALCULADO — nunca lo calcules tú mismo. `null` si `totalOrders` es 0. Unidades promedio por pedido/documento del canal SmartSale. */
+  upt: number | null;
 }
 
 export interface AssistantSmartSaleResult {
@@ -60,26 +66,58 @@ export interface AssistantSmartSaleResult {
   vtexSyncNote: string | null;
 }
 
-function toPeriodTotals(startDay: string, endDay: string, vtexSales: number, vtexOrders: number, posSales: number, posOrders: number): SmartSalePeriodTotals {
+function toPeriodTotals(
+  startDay: string,
+  endDay: string,
+  vtexSales: number,
+  vtexOrders: number,
+  posSales: number,
+  posOrders: number,
+  vtexUnits: number,
+  posUnits: number,
+): SmartSalePeriodTotals {
+  const totalOrders = vtexOrders + posOrders;
+  const totalUnits = vtexUnits + posUnits;
   return {
     startDay,
     endDay,
     totalSales: vtexSales + posSales,
-    totalOrders: vtexOrders + posOrders,
+    totalOrders,
     vtexSales,
     vtexOrders,
     posSales,
     posOrders,
+    totalUnits,
+    vtexUnits,
+    posUnits,
+    upt: totalOrders > 0 ? Number((totalUnits / totalOrders).toFixed(2)) : null,
   };
 }
 
 /** Extrae los totales VTEX+POS de UNA tienda (o de las 6 combinadas si `storeId` es `null`) de una respuesta de `SmartSaleCombinedService.getCombinedSummary`. */
-function extractTotals(summary: SmartSaleCombinedSummaryResponse, storeId: string | null): { vtexSales: number; vtexOrders: number; posSales: number; posOrders: number } {
+function extractTotals(
+  summary: SmartSaleCombinedSummaryResponse,
+  storeId: string | null,
+): { vtexSales: number; vtexOrders: number; posSales: number; posOrders: number; vtexUnits: number; posUnits: number } {
   if (!storeId) {
-    return { vtexSales: summary.totalVtexSales, vtexOrders: summary.totalVtexOrders, posSales: summary.totalPosSales, posOrders: summary.totalPosOrders };
+    return {
+      vtexSales: summary.totalVtexSales,
+      vtexOrders: summary.totalVtexOrders,
+      posSales: summary.totalPosSales,
+      posOrders: summary.totalPosOrders,
+      vtexUnits: summary.totalVtexUnits,
+      posUnits: summary.totalPosUnits,
+    };
   }
   const store = summary.byStore.find((s) => s.storeId === storeId);
-  return { vtexSales: store?.vtexSales ?? 0, vtexOrders: store?.vtexOrders ?? 0, posSales: store?.posSales ?? 0, posOrders: store?.posOrders ?? 0 };
+  return {
+    vtexSales: store?.vtexSales ?? 0,
+    vtexOrders: store?.vtexOrders ?? 0,
+    posSales: store?.posSales ?? 0,
+    posOrders: store?.posOrders ?? 0,
+    vtexUnits: store?.vtexUnits ?? 0,
+    posUnits: store?.posUnits ?? 0,
+  };
 }
 
 /**
@@ -119,9 +157,27 @@ export class AssistantSmartSaleService {
       totalsB = extractTotals(summaryB, effectiveStoreId);
     }
 
-    const periodATotals = toPeriodTotals(periodA.startDay, periodA.endDay, totalsA.vtexSales, totalsA.vtexOrders, totalsA.posSales, totalsA.posOrders);
+    const periodATotals = toPeriodTotals(
+      periodA.startDay,
+      periodA.endDay,
+      totalsA.vtexSales,
+      totalsA.vtexOrders,
+      totalsA.posSales,
+      totalsA.posOrders,
+      totalsA.vtexUnits,
+      totalsA.posUnits,
+    );
     const periodBTotals = periodB && totalsB
-      ? toPeriodTotals(periodB.startDay, periodB.endDay, totalsB.vtexSales, totalsB.vtexOrders, totalsB.posSales, totalsB.posOrders)
+      ? toPeriodTotals(
+          periodB.startDay,
+          periodB.endDay,
+          totalsB.vtexSales,
+          totalsB.vtexOrders,
+          totalsB.posSales,
+          totalsB.posOrders,
+          totalsB.vtexUnits,
+          totalsB.posUnits,
+        )
       : null;
 
     const byPerson = effectiveStoreId

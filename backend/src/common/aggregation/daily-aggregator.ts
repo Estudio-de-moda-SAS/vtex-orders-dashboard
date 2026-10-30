@@ -98,12 +98,14 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
       const personKey = `${date}::${storeId}::${order.utmiCampaign}`;
       const personRow =
         smartSaleByPerson.get(personKey) ??
-        { date, storeId, utmiCampaign: order.utmiCampaign as string, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0 };
+        { date, storeId, utmiCampaign: order.utmiCampaign as string, orders: 0, sales: 0, revenueOrders: 0, revenueSales: 0, units: 0, revenueUnits: 0 };
       personRow.orders += 1;
       personRow.sales += order.totalValue;
+      personRow.units += units;
       if (isRevenue) {
         personRow.revenueOrders += 1;
         personRow.revenueSales += order.totalValue;
+        personRow.revenueUnits += units;
       }
       smartSaleByPerson.set(personKey, personRow);
     }
@@ -116,9 +118,10 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
     const dailyKey = `${date}::${storeId}`;
     const daily =
       salesDaily.get(dailyKey) ??
-      { date, storeId, orders: 0, units: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 };
+      { date, storeId, orders: 0, units: 0, revenueUnits: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 };
     daily.orders += 1;
     daily.units += units;
+    if (isRevenue) daily.revenueUnits += units;
     daily.sales += order.totalValue;
     daily.discounts += Math.max(0, discounts);
     salesDaily.set(dailyKey, daily);

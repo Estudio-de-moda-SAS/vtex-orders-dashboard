@@ -3,14 +3,6 @@ import { Pool } from 'pg';
 
 import { PG_POOL } from '../../database/pg-pool.provider';
 
-/**
- * Canal fijo de esta herramienta — ver migración 0009. Ya se sabe que
- * habrá un presupuesto ERP más adelante, distinto de este; `channel`
- * queda listo para diferenciarlos, pero por ahora ningún endpoint lo
- * expone: siempre es 'vtex'.
- */
-const BUDGET_CHANNEL = 'vtex';
-
 export interface BudgetDayRow {
   date: string;
   rawValue: number;
@@ -21,27 +13,27 @@ export interface BudgetDayRow {
 export class BudgetsRepository {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async getMultiplier(year: number, month: number): Promise<number | null> {
+  async getMultiplier(year: number, month: number, channel: string): Promise<number | null> {
     const result = await this.pool.query<{ multiplier: string }>(
-      `SELECT multiplier FROM budget_multipliers WHERE year = $1 AND month = $2`,
-      [year, month],
+      `SELECT multiplier FROM budget_multipliers WHERE year = $1 AND month = $2 AND channel = $3`,
+      [year, month, channel],
     );
     return result.rows[0] ? Number(result.rows[0].multiplier) : null;
   }
 
-  async upsertMultiplier(year: number, month: number, multiplier: number): Promise<void> {
+  async upsertMultiplier(year: number, month: number, multiplier: number, channel: string): Promise<void> {
     await this.pool.query(
-      `INSERT INTO budget_multipliers (year, month, multiplier, updated_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (year, month) DO UPDATE SET multiplier = EXCLUDED.multiplier, updated_at = now()`,
-      [year, month, multiplier],
+      `INSERT INTO budget_multipliers (year, month, channel, multiplier, updated_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (year, month, channel) DO UPDATE SET multiplier = EXCLUDED.multiplier, updated_at = now()`,
+      [year, month, channel, multiplier],
     );
   }
 
-  async hasExistingBudgets(storeId: string, year: number, month: number): Promise<boolean> {
+  async hasExistingBudgets(storeId: string, year: number, month: number, channel: string): Promise<boolean> {
     const result = await this.pool.query(
       `SELECT 1 FROM budgets_daily WHERE store_id = $1 AND channel = $2 AND year = $3 AND month = $4 LIMIT 1`,
-      [storeId, BUDGET_CHANNEL, year, month],
+      [storeId, channel, year, month],
     );
     return (result.rowCount ?? 0) > 0;
   }
@@ -55,36 +47,36 @@ export class BudgetsRepository {
    * aplicado a todas. Días sin fila (presupuesto no cargado) simplemente
    * no aportan nada — no hace falta tratarlos aparte.
    */
-  async getRangeTotalsByStore(startDate: string, endDate: string): Promise<{ storeId: string; total: number }[]> {
+  async getRangeTotalsByStore(startDate: string, endDate: string, channel: string): Promise<{ storeId: string; total: number }[]> {
     const result = await this.pool.query<{ store_id: string; total: string }>(
       `SELECT bd.store_id, COALESCE(SUM(bd.raw_value * bm.multiplier), 0) AS total
        FROM budgets_daily bd
-       JOIN budget_multipliers bm ON bm.year = bd.year AND bm.month = bd.month
+       JOIN budget_multipliers bm ON bm.year = bd.year AND bm.month = bd.month AND bm.channel = bd.channel
        WHERE bd.channel = $1 AND bd.date BETWEEN $2 AND $3
        GROUP BY bd.store_id`,
-      [BUDGET_CHANNEL, startDate, endDate],
+      [channel, startDate, endDate],
     );
     return result.rows.map((r) => ({ storeId: r.store_id, total: Number(r.total) }));
   }
 
   /** Total crudo (SUM de `raw_value`) por tienda para un mes — para las cards de resumen público (todas las marcas a la vez, sin filtrar por una sola). */
-  async getMonthRawTotalsByStore(year: number, month: number): Promise<{ storeId: string; rawTotal: number }[]> {
+  async getMonthRawTotalsByStore(year: number, month: number, channel: string): Promise<{ storeId: string; rawTotal: number }[]> {
     const result = await this.pool.query<{ store_id: string; raw_total: string }>(
       `SELECT store_id, COALESCE(SUM(raw_value), 0) AS raw_total
        FROM budgets_daily
        WHERE channel = $1 AND year = $2 AND month = $3
        GROUP BY store_id`,
-      [BUDGET_CHANNEL, year, month],
+      [channel, year, month],
     );
     return result.rows.map((r) => ({ storeId: r.store_id, rawTotal: Number(r.raw_total) }));
   }
 
-  async getBudgetsForMonth(storeId: string, year: number, month: number): Promise<BudgetDayRow[]> {
+  async getBudgetsForMonth(storeId: string, year: number, month: number, channel: string): Promise<BudgetDayRow[]> {
     const result = await this.pool.query<{ date: string; raw_value: string }>(
       `SELECT date::text, raw_value FROM budgets_daily
        WHERE store_id = $1 AND channel = $2 AND year = $3 AND month = $4
        ORDER BY date`,
-      [storeId, BUDGET_CHANNEL, year, month],
+      [storeId, channel, year, month],
     );
     return result.rows.map((r) => ({ date: r.date, rawValue: Number(r.raw_value) }));
   }
@@ -94,13 +86,13 @@ export class BudgetsRepository {
    * marca/mes/canal e inserta las nuevas — mismo criterio "sobrescribe,
    * no incrementa" que `sales-aggregates.repository.ts`.
    */
-  async replaceMonth(storeId: string, year: number, month: number, days: BudgetDayRow[]): Promise<void> {
+  async replaceMonth(storeId: string, year: number, month: number, days: BudgetDayRow[], channel: string): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       await client.query(`DELETE FROM budgets_daily WHERE store_id = $1 AND channel = $2 AND year = $3 AND month = $4`, [
         storeId,
-        BUDGET_CHANNEL,
+        channel,
         year,
         month,
       ]);
@@ -108,7 +100,7 @@ export class BudgetsRepository {
         const params: unknown[] = [];
         const valuesSql = days
           .map((d) => {
-            params.push(d.date, storeId, BUDGET_CHANNEL, d.rawValue);
+            params.push(d.date, storeId, channel, d.rawValue);
             const i = params.length;
             return `($${i - 3}, $${i - 2}, $${i - 1}, $${i}, now())`;
           })

@@ -18,6 +18,7 @@ import { AssistantCompareService } from './tools/assistant-compare.service';
 import { AssistantCreditNotesService } from './tools/assistant-credit-notes.service';
 import { AssistantDiagnosisService } from './tools/assistant-diagnosis.service';
 import { AssistantSalesService } from './tools/assistant-sales.service';
+import { AssistantSmartSaleBudgetService } from './tools/assistant-smartsale-budget.service';
 import { AssistantSmartSaleService } from './tools/assistant-smartsale.service';
 import { AssistantSyncStatusService } from './tools/assistant-sync-status.service';
 
@@ -41,6 +42,7 @@ import { AssistantSyncStatusService } from './tools/assistant-sync-status.servic
     AssistantSalesService,
     AssistantCompareService,
     AssistantBudgetService,
+    AssistantSmartSaleBudgetService,
     AssistantCreditNotesService,
     AssistantSyncStatusService,
     AssistantSmartSaleService,

@@ -36,6 +36,19 @@ export interface SalesBreakdownResult {
   rows: SalesBreakdownRow[];
   totalSales: number;
   totalOrders: number | null;
+  /**
+   * Unidades contabilizadas del TOTAL de la tienda en el rango (de
+   * `sales_daily.revenue_units`, igual fuente que el UPT del Dashboard) —
+   * SOLO presente cuando `breakdown` es "status", el único corte cuyo
+   * `totalOrders` representa la tienda completa (en los demás cortes
+   * `totalOrders` es un subconjunto — por ciudad, método de pago, etc. —
+   * y dividir unidades de TODA la tienda entre esas órdenes daría un UPT
+   * falso). Para "unidades por categoría/colección/marca/descuento" usa
+   * el campo `units` de cada fila, ya presente en esos cortes.
+   */
+  totalUnits?: number;
+  /** `totalUnits ÷ totalOrders`, YA CALCULADO — nunca lo calcules tú mismo. `null` sin base (totalOrders es null o 0). Solo presente junto con `totalUnits`. */
+  upt?: number | null;
   /** Avisos sobre limitaciones conocidas del corte pedido — ver comentarios de cada caso abajo. */
   warnings: string[];
   /** SIEMPRE presente (nunca vacío) — nota discreta de cuándo sincronizó VTEX por última vez, ver `sync-freshness.util.ts`. */
@@ -83,7 +96,20 @@ export class AssistantSalesService {
     const totalOrders = hasOrders ? rows.reduce((acc, r) => acc + (r.orders ?? 0), 0) : null;
     const syncNote = await this.getSyncNote(storeId);
 
-    return { storeId, startDay, endDay, breakdown, rows, totalSales, totalOrders, warnings, syncNote };
+    let totalUnits: number | undefined;
+    let upt: number | null | undefined;
+    if (breakdown === 'status') {
+      totalUnits = await this.getStoreUnitsTotal(storeId, startDay, endDay);
+      upt = totalOrders && totalOrders > 0 ? Number((totalUnits / totalOrders).toFixed(2)) : null;
+    }
+
+    return { storeId, startDay, endDay, breakdown, rows, totalSales, totalOrders, totalUnits, upt, warnings, syncNote };
+  }
+
+  /** `sales_daily.revenue_units` de TODA la tienda en el rango — misma fuente que el UPT del Dashboard (`StoreCard.tsx`). */
+  private async getStoreUnitsTotal(storeId: string, startDay: string, endDay: string): Promise<number> {
+    const [totals] = await this.dashboardQueryRepository.getStoreTotals(startDay, endDay, storeId);
+    return totals?.revenueUnits ?? 0;
   }
 
   /**

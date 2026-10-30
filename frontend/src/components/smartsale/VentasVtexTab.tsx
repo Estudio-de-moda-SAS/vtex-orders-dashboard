@@ -64,9 +64,8 @@ export function VentasVtexTab() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-range', getTodayRange);
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<SmartSaleData>(
-    // "v2": import histórico de 2025-2026 recargado en Supabase — invalida cualquier
-    // caché guardado en sessionStorage de ANTES de esa carga.
-    `smartsale:v2:${startDate}:${endDate}`,
+    // "v3": se agregó `units`/`smartSaleUnits` (UPT) por vendedor y por tienda.
+    `smartsale:v3:${startDate}:${endDate}`,
     async () => {
       const [dashboard, summary, discounts, campaigns, categories, categoryContribution, categoryBrands, cities, segments] =
         await Promise.all([

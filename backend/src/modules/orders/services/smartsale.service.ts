@@ -50,7 +50,7 @@ export class SmartSaleService {
       this.dashboardQueryRepository.queryGrouped(
         'smartsale_daily_by_person',
         'utmi_campaign',
-        ['revenue_orders', 'revenue_sales'],
+        ['revenue_orders', 'revenue_sales', 'revenue_units'],
         startDay,
         endDay,
       ),
@@ -66,6 +66,7 @@ export class SmartSaleService {
       const storePersonRows = personRows.filter((r) => r.store_id === store.id);
       const smartSaleOrders = storePersonRows.reduce((acc, r) => acc + Number(r.revenue_orders), 0);
       const smartSaleSales = storePersonRows.reduce((acc, r) => acc + Number(r.revenue_sales), 0);
+      const smartSaleUnits = storePersonRows.reduce((acc, r) => acc + Number(r.revenue_units), 0);
 
       const byPerson = storePersonRows
         .map((r) => {
@@ -76,12 +77,13 @@ export class SmartSaleService {
             name: this.personName(utmiCampaign),
             orders: Number(r.revenue_orders),
             sales,
+            units: Number(r.revenue_units),
             percentage: smartSaleSales > 0 ? Number(((sales / smartSaleSales) * 100).toFixed(2)) : 0,
           };
         })
         .sort((a, b) => b.sales - a.sales);
 
-      result[store.id] = { storeTotalSales, smartSaleOrders, smartSaleSales, byPerson };
+      result[store.id] = { storeTotalSales, smartSaleOrders, smartSaleSales, smartSaleUnits, byPerson };
     }
     return result;
   }

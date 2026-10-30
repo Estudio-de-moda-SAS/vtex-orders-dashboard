@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
 
 /** DTO de entrada para POST /api/budgets/multiplier. */
 export class SetMultiplierDto {
@@ -23,4 +23,9 @@ export class SetMultiplierDto {
   @IsOptional()
   @IsBoolean()
   confirmOverwrite?: boolean;
+
+  /** `'vtex'` por defecto si no viene — ver migración 0025. */
+  @IsOptional()
+  @IsIn(['vtex', 'smartsale'], { message: 'channel debe ser "vtex" o "smartsale"' })
+  channel?: string;
 }

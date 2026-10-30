@@ -321,20 +321,24 @@ export const ordersService = {
     return postJson<{ ok: true }>('/api/budgets/verify-code', { code });
   },
 
-  getBudgetMultiplier(year: number, month: number): Promise<MultiplierResponse> {
-    const params = new URLSearchParams({ year: String(year), month: String(month) });
+  getBudgetMultiplier(year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<MultiplierResponse> {
+    const params = new URLSearchParams({ year: String(year), month: String(month), channel });
     return request<MultiplierResponse>(`/api/budgets/multiplier?${params.toString()}`);
   },
 
   /** Resumen público (sin código) por marca + total de canal, para las cards de `/presupuesto`. */
-  getBudgetsSummary(year: number, month: number): Promise<BudgetSummaryResponse> {
-    const params = new URLSearchParams({ year: String(year), month: String(month) });
+  getBudgetsSummary(year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<BudgetSummaryResponse> {
+    const params = new URLSearchParams({ year: String(year), month: String(month), channel });
     return request<BudgetSummaryResponse>(`/api/budgets/summary?${params.toString()}`);
   },
 
   /** Presupuesto de un rango arbitrario de fechas (puede cruzar de mes) — para "venta real vs. presupuesto". */
-  getBudgetRangeSummary(startDate: string, endDate: string): Promise<BudgetRangeSummaryResponse> {
-    const params = new URLSearchParams({ startDate, endDate });
+  getBudgetRangeSummary(
+    startDate: string,
+    endDate: string,
+    channel: 'vtex' | 'smartsale' = 'vtex',
+  ): Promise<BudgetRangeSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate, channel });
     return request<BudgetRangeSummaryResponse>(`/api/budgets/range-summary?${params.toString()}`);
   },
 
@@ -344,12 +348,13 @@ export const ordersService = {
     code: string,
     multiplier: number,
     confirmOverwrite = false,
+    channel: 'vtex' | 'smartsale' = 'vtex',
   ): Promise<SetMultiplierResponse> {
-    return postJson<SetMultiplierResponse>('/api/budgets/multiplier', { year, month, code, multiplier, confirmOverwrite });
+    return postJson<SetMultiplierResponse>('/api/budgets/multiplier', { year, month, code, multiplier, confirmOverwrite, channel });
   },
 
-  getBudgets(storeId: string, year: number, month: number): Promise<GetBudgetsResponse> {
-    const params = new URLSearchParams({ storeId, year: String(year), month: String(month) });
+  getBudgets(storeId: string, year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<GetBudgetsResponse> {
+    const params = new URLSearchParams({ storeId, year: String(year), month: String(month), channel });
     return request<GetBudgetsResponse>(`/api/budgets?${params.toString()}`);
   },
 
@@ -360,7 +365,8 @@ export const ordersService = {
     code: string,
     rawValues: number[],
     confirmOverwrite = false,
+    channel: 'vtex' | 'smartsale' = 'vtex',
   ): Promise<SaveBulkResponse> {
-    return postJson<SaveBulkResponse>('/api/budgets/bulk', { storeId, year, month, code, rawValues, confirmOverwrite });
+    return postJson<SaveBulkResponse>('/api/budgets/bulk', { storeId, year, month, code, rawValues, confirmOverwrite, channel });
   },
 };

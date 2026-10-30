@@ -1,6 +1,6 @@
 import { StoreDashboardResult } from '@/types/dashboard';
 import { SmartSaleSummaryByStore } from '@/types/smartsale';
-import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, formatUpt } from '@/lib/format';
 
 interface SmartSaleSummarySectionProps {
   stores: StoreDashboardResult[];
@@ -27,14 +27,16 @@ export function SmartSaleSummarySection({ stores, summary }: SmartSaleSummarySec
   const totalChannelSales = withData.reduce((acc, store) => acc + summary[store.id].storeTotalSales, 0);
   const totalSmartSaleSales = withData.reduce((acc, store) => acc + summary[store.id].smartSaleSales, 0);
   const totalSmartSaleOrders = withData.reduce((acc, store) => acc + summary[store.id].smartSaleOrders, 0);
+  const totalSmartSaleUnits = withData.reduce((acc, store) => acc + summary[store.id].smartSaleUnits, 0);
   const overallPercentage = totalChannelSales > 0 ? (totalSmartSaleSales / totalChannelSales) * 100 : 0;
 
-  const channelByPerson = new Map<string, { name: string; orders: number; sales: number }>();
+  const channelByPerson = new Map<string, { name: string; orders: number; sales: number; units: number }>();
   for (const store of withData) {
     for (const person of summary[store.id].byPerson) {
-      const current = channelByPerson.get(person.utmiCampaign) ?? { name: person.name, orders: 0, sales: 0 };
+      const current = channelByPerson.get(person.utmiCampaign) ?? { name: person.name, orders: 0, sales: 0, units: 0 };
       current.orders += person.orders;
       current.sales += person.sales;
+      current.units += person.units;
       channelByPerson.set(person.utmiCampaign, current);
     }
   }
@@ -57,7 +59,9 @@ export function SmartSaleSummarySection({ stores, summary }: SmartSaleSummarySec
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Venta total SmartSale (todas las tiendas)</p>
           <p className="mt-0.5 font-display text-2xl font-semibold text-ink">{formatCOP(totalSmartSaleSales)}</p>
           <p className="text-xs text-ink-faint">
-            {formatNumber(totalSmartSaleOrders)} ord. · AVT {formatAverageTicket(totalSmartSaleSales, totalSmartSaleOrders)}
+            {formatNumber(totalSmartSaleOrders)} ord. · {formatNumber(totalSmartSaleUnits)} und. · AVT{' '}
+            {formatAverageTicket(totalSmartSaleSales, totalSmartSaleOrders)} · UPT{' '}
+            {formatUpt(totalSmartSaleUnits, totalSmartSaleOrders)}
           </p>
         </div>
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
@@ -81,8 +85,8 @@ export function SmartSaleSummarySection({ stores, summary }: SmartSaleSummarySec
               <li key={person.utmiCampaign} className="flex items-center justify-between text-sm">
                 <span className="font-medium text-ink">{person.name}</span>
                 <span className="font-medium tabular-nums text-ink">
-                  {formatNumber(person.orders)} ord. · {formatCOP(person.sales)} · AVT{' '}
-                  {formatAverageTicket(person.sales, person.orders)}{' '}
+                  {formatNumber(person.orders)} ord. · {formatNumber(person.units)} und. · {formatCOP(person.sales)} · AVT{' '}
+                  {formatAverageTicket(person.sales, person.orders)} · UPT {formatUpt(person.units, person.orders)}{' '}
                   <span className="text-ink-faint">({formatPercentage(person.percentage)})</span>
                 </span>
               </li>
@@ -114,7 +118,9 @@ export function SmartSaleSummarySection({ stores, summary }: SmartSaleSummarySec
               <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas SmartSale</p>
               <p className="font-display text-xl font-semibold text-ink">{formatCOP(data.smartSaleSales)}</p>
               <p className="text-xs text-ink-faint">
-                {formatNumber(data.smartSaleOrders)} ord. · AVT {formatAverageTicket(data.smartSaleSales, data.smartSaleOrders)} ·{' '}
+                {formatNumber(data.smartSaleOrders)} ord. · {formatNumber(data.smartSaleUnits)} und. · AVT{' '}
+                {formatAverageTicket(data.smartSaleSales, data.smartSaleOrders)} · UPT{' '}
+                {formatUpt(data.smartSaleUnits, data.smartSaleOrders)} ·{' '}
                 {data.storeTotalSales > 0
                   ? formatPercentage((data.smartSaleSales / data.storeTotalSales) * 100)
                   : formatPercentage(0)}{' '}
@@ -130,8 +136,8 @@ export function SmartSaleSummarySection({ stores, summary }: SmartSaleSummarySec
                   <li key={person.utmiCampaign} className="flex items-center justify-between text-xs">
                     <span className="text-ink-muted">{person.name}</span>
                     <span className="font-medium tabular-nums text-ink">
-                      {formatNumber(person.orders)} ord. · {formatCOP(person.sales)} · AVT{' '}
-                      {formatAverageTicket(person.sales, person.orders)}{' '}
+                      {formatNumber(person.orders)} ord. · {formatNumber(person.units)} und. · {formatCOP(person.sales)} · AVT{' '}
+                      {formatAverageTicket(person.sales, person.orders)} · UPT {formatUpt(person.units, person.orders)}{' '}
                       <span className="text-ink-faint">({formatPercentage(person.percentage)})</span>
                     </span>
                   </li>

@@ -11,9 +11,12 @@ export interface SmartSaleCombinedPersonBreakdown {
   vtexSales: number;
   posOrders: number;
   posSales: number;
-  /** `vtexSales + posSales`/`vtexOrders + posOrders`, ya sumados en el backend. */
+  vtexUnits: number;
+  posUnits: number;
+  /** `vtexSales + posSales`/`vtexOrders + posOrders`/`vtexUnits + posUnits`, ya sumados en el backend. */
   totalSales: number;
   totalOrders: number;
+  totalUnits: number;
 }
 
 export interface SmartSaleCombinedStoreSummary {
@@ -22,8 +25,11 @@ export interface SmartSaleCombinedStoreSummary {
   vtexSales: number;
   posOrders: number;
   posSales: number;
+  vtexUnits: number;
+  posUnits: number;
   totalSales: number;
   totalOrders: number;
+  totalUnits: number;
   byPerson: SmartSaleCombinedPersonBreakdown[];
 }
 
@@ -45,6 +51,8 @@ export interface SmartSaleCombinedSummaryResponse {
   totalVtexSales: number;
   totalPosOrders: number;
   totalPosSales: number;
+  totalVtexUnits: number;
+  totalPosUnits: number;
   byStore: SmartSaleCombinedStoreSummary[];
   bySeller: SmartSaleCombinedPersonBreakdown[];
   byCategory: SmartSaleCombinedCategoryBreakdown[];

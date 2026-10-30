@@ -1,5 +1,5 @@
 import { CityBreakdown, StoreDashboardResult } from '@/types/dashboard';
-import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, statusLabel } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, formatUpt, statusLabel } from '@/lib/format';
 import { CategoryBrandRankingResult, CategoryRanking } from '@/types/product-analytics';
 import { DataConsistencyIndicator } from './DataConsistencyIndicator';
 
@@ -54,10 +54,14 @@ export function StoreCard({ store, categoryRanking, brandRanking, cronIntervalHo
                 value={formatCOP(store.data.revenueTotalValue)}
               />
               <Metric
+                label="UPT"
+                value={formatUpt(store.data.totalUnits, store.data.revenueOrders)}
+                hint="Unidades contabilizadas ÷ órdenes contabilizadas"
+              />
+              <Metric
                 label="AVT (ticket promedio)"
                 value={formatAverageTicket(store.data.revenueTotalValue, store.data.realRevenueOrders)}
                 hint="Valor contabilizado ÷ compras reales (agrupadas, no cada fragmento -01/-02 por separado)"
-                span
                 highlight
               />
             </div>

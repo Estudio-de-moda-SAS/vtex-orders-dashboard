@@ -37,6 +37,17 @@ export function formatRatio(value: number, maxFractionDigits = 2): string {
   return new Intl.NumberFormat('es-CO', { maximumFractionDigits: maxFractionDigits }).format(value);
 }
 
+/** UPT (unidades por transacción) = unidades ÷ órdenes. Mismo patrón que `averageTicket`: `null` sin base (0 órdenes). */
+export function upt(units: number, orders: number): number | null {
+  return orders > 0 ? units / orders : null;
+}
+
+/** `formatRatio(upt(...))`, o "—" si no hay base (0 órdenes). */
+export function formatUpt(units: number, orders: number): string {
+  const value = upt(units, orders);
+  return value === null ? '—' : formatRatio(value);
+}
+
 /** Formatea milisegundos como segundos legibles, ej. 1,3s */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;

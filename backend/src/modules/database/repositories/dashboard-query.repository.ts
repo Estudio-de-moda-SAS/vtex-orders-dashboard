@@ -40,19 +40,30 @@ export class DashboardQueryRepository {
     storeId?: string,
     excludedStoreDates?: ExcludedStoreDate[],
   ): Promise<
-    { storeId: string; orders: number; units: number; sales: number; discounts: number; realOrders: number; realRevenueOrders: number }[]
+    {
+      storeId: string;
+      orders: number;
+      units: number;
+      revenueUnits: number;
+      sales: number;
+      discounts: number;
+      realOrders: number;
+      realRevenueOrders: number;
+    }[]
   > {
     const { where, params } = this.buildWhere(startDay, endDay, storeId, excludedStoreDates);
     const result = await this.pool.query<{
       store_id: string;
       orders: string;
       units: string;
+      revenue_units: string;
       sales: string;
       discounts: string;
       real_orders: string;
       real_revenue_orders: string;
     }>(
       `SELECT store_id, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(units), 0) AS units,
+              COALESCE(SUM(revenue_units), 0) AS revenue_units,
               COALESCE(SUM(sales), 0) AS sales, COALESCE(SUM(discounts), 0) AS discounts,
               COALESCE(SUM(real_orders), 0) AS real_orders, COALESCE(SUM(real_revenue_orders), 0) AS real_revenue_orders
        FROM sales_daily WHERE ${where} GROUP BY store_id`,
@@ -62,6 +73,7 @@ export class DashboardQueryRepository {
       storeId: r.store_id,
       orders: Number(r.orders),
       units: Number(r.units),
+      revenueUnits: Number(r.revenue_units),
       sales: Number(r.sales),
       discounts: Number(r.discounts),
       realOrders: Number(r.real_orders),

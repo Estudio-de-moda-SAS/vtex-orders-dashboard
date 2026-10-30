@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
-import { formatAverageTicket, formatCOP, formatNumber, formatPercentage } from '@/lib/format';
+import { formatAverageTicket, formatCOP, formatNumber, formatPercentage, formatUpt } from '@/lib/format';
 import { getTodayRange } from '@/lib/date';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
@@ -42,8 +42,8 @@ export function VentasPosTab() {
   const storeById = new Map(stores.map((s) => [s.id, s]));
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<PosSalesSummaryResponse>(
-    // "v5": desglose por categoría ahora mide unidades, no documentos (un documento puede tener varias categorías a la vez).
-    `pos-sales:v5:${startDate}:${endDate}`,
+    // "v6": se agregó `units`/`totalUnits` (UPT) a vendedores, tiendas y marcas.
+    `pos-sales:v6:${startDate}:${endDate}`,
     () => ordersService.getPosSalesSummary(startDate, endDate),
     { autoFetchOnKeyChange: false },
   );
@@ -93,11 +93,14 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
         <div className="rounded-2xl border border-surface-border bg-accent/5 p-5 shadow-panel">
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales POS</p>
           <p className="mt-0.5 font-display text-2xl font-semibold text-ink">{formatCOP(data.totalSales)}</p>
-          <p className="text-xs text-ink-faint">{formatNumber(data.totalOrders)} documento(s) · incluye flete, resta notas crédito</p>
+          <p className="text-xs text-ink-faint">
+            {formatNumber(data.totalOrders)} documento(s) · {formatNumber(data.totalUnits)} und. · incluye flete, resta notas crédito
+          </p>
         </div>
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ticket promedio (AVT)</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ticket promedio (AVT) · UPT</p>
           <p className="mt-0.5 font-display text-2xl font-semibold text-ink">{formatCOP(data.averageTicket)}</p>
+          <p className="text-xs text-ink-faint">UPT {formatUpt(data.totalUnits, data.totalOrders)} und./doc.</p>
         </div>
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas fletes</p>
@@ -122,8 +125,8 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
               <li key={seller.nitVendedor} className="flex items-center justify-between text-sm">
                 <span className="font-medium text-ink">{seller.name}</span>
                 <span className="font-medium tabular-nums text-ink">
-                  {formatNumber(seller.orders)} doc. · {formatCOP(seller.sales)} · AVT{' '}
-                  {formatAverageTicket(seller.sales, seller.orders)}{' '}
+                  {formatNumber(seller.orders)} doc. · {formatNumber(seller.units)} und. · {formatCOP(seller.sales)} · AVT{' '}
+                  {formatAverageTicket(seller.sales, seller.orders)} · UPT {formatUpt(seller.units, seller.orders)}{' '}
                   <span className="text-ink-faint">
                     ({formatPercentage(data.totalSales > 0 ? (seller.sales / data.totalSales) * 100 : 0)})
                   </span>
@@ -153,7 +156,8 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas POS</p>
                 <p className="font-display text-xl font-semibold text-ink">{formatCOP(store.sales)}</p>
                 <p className="text-xs text-ink-faint">
-                  {formatNumber(store.orders)} doc. · AVT {formatAverageTicket(store.sales, store.orders)} ·{' '}
+                  {formatNumber(store.orders)} doc. · {formatNumber(store.units)} und. · AVT{' '}
+                  {formatAverageTicket(store.sales, store.orders)} · UPT {formatUpt(store.units, store.orders)} ·{' '}
                   {formatPercentage(percentage)} del total POS
                 </p>
               </div>
@@ -166,8 +170,8 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
                     <li key={seller.nitVendedor} className="flex items-center justify-between text-xs">
                       <span className="text-ink-muted">{seller.name}</span>
                       <span className="font-medium tabular-nums text-ink">
-                        {formatNumber(seller.orders)} doc. · {formatCOP(seller.sales)} · AVT{' '}
-                        {formatAverageTicket(seller.sales, seller.orders)}{' '}
+                        {formatNumber(seller.orders)} doc. · {formatNumber(seller.units)} und. · {formatCOP(seller.sales)} · AVT{' '}
+                        {formatAverageTicket(seller.sales, seller.orders)} · UPT {formatUpt(seller.units, seller.orders)}{' '}
                         <span className="text-ink-faint">
                           ({formatPercentage(store.sales > 0 ? (seller.sales / store.sales) * 100 : 0)})
                         </span>
@@ -194,7 +198,7 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
               <li key={brand.marca} className="flex items-center justify-between text-sm">
                 <span className="font-medium text-ink">{brand.marca}</span>
                 <span className="font-medium tabular-nums text-ink">
-                  {formatNumber(brand.orders)} doc. · {formatCOP(brand.sales)}{' '}
+                  {formatNumber(brand.orders)} doc. · {formatNumber(brand.units)} und. · {formatCOP(brand.sales)}{' '}
                   <span className="text-ink-faint">
                     ({formatPercentage(data.totalSales > 0 ? (brand.sales / data.totalSales) * 100 : 0)})
                   </span>

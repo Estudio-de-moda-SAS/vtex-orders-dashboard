@@ -15,6 +15,7 @@ import {
   GetCreditNotesDto,
   GetDiagnosisDto,
   GetSalesDto,
+  GetSmartSaleBudgetVsActualDto,
   GetSmartSaleSalesDto,
   ResolvePeriodDto,
   SearchCampaignDto,
@@ -26,6 +27,7 @@ import { AssistantCompareService } from './tools/assistant-compare.service';
 import { AssistantCreditNotesService } from './tools/assistant-credit-notes.service';
 import { AssistantDiagnosisService } from './tools/assistant-diagnosis.service';
 import { AssistantSalesService, SalesBreakdownType } from './tools/assistant-sales.service';
+import { AssistantSmartSaleBudgetService } from './tools/assistant-smartsale-budget.service';
 import { AssistantSmartSaleService } from './tools/assistant-smartsale.service';
 import { AssistantSyncStatusService } from './tools/assistant-sync-status.service';
 
@@ -53,7 +55,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'get_sales',
     description:
-      'Ventas de una tienda en un rango, desglosadas por uno de 9 cortes: status, payment (método de pago), city, category, brand, collection, discount_bucket (rango de descuento), seller o marketplace (estos dos últimos SOLO existen para Pilatos). Devuelve filas ya sumadas — nunca sumes ni dividas los resultados tú mismo. Incluye "syncNote": SIEMPRE presente (nunca null) — di cuándo sincronizó VTEX por última vez, como nota discreta; el propio texto escala a una recomendación de resincronizar si pasaron más de 12h.',
+      'Ventas de una tienda en un rango, desglosadas por uno de 9 cortes: status, payment (método de pago), city, category, brand, collection, discount_bucket (rango de descuento), seller o marketplace (estos dos últimos SOLO existen para Pilatos). Devuelve filas ya sumadas — nunca sumes ni dividas los resultados tú mismo. Con breakdown="status" (el total general de la tienda), la respuesta TAMBIÉN trae "totalUnits" (unidades contabilizadas de TODA la tienda en el rango) y "upt" (unidades por pedido, YA CALCULADO) — con los demás cortes, usa el campo "units" de cada fila (category/collection/discount_bucket/brand ya lo traen), nunca inventes un UPT para un corte parcial (ej. una sola ciudad). Incluye "syncNote": SIEMPRE presente (nunca null) — di cuándo sincronizó VTEX por última vez, como nota discreta; el propio texto escala a una recomendación de resincronizar si pasaron más de 12h.',
     parameters: {
       type: 'object',
       properties: {
@@ -99,6 +101,16 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
     },
   },
   {
+    name: 'get_smartsale_budget_vs_actual',
+    description:
+      'Presupuesto vs. venta real del CANAL SmartSale completo (las 6 tiendas combinadas, NO por marca — es un único presupuesto de canal, distinto del presupuesto VTEX por tienda de get_budget_vs_actual) en un rango, con el % ya calculado. La venta real es VTEX + POS (mismo criterio que get_smartsale_sales) — VTEX es un acercamiento hasta que haya ERP, dilo si el usuario pregunta por la exactitud. Incluye "bySeller": el presupuesto del canal repartido en PARTES IGUALES entre los vendedores activos (no es un presupuesto propio por vendedor), cruzado contra la venta real de cada uno — nunca calcules tú mismo ese reparto. Si el rango cruza más de un mes calendario, "mes completo" no está disponible (fullMonthAvailable será false) — dilo, no lo inventes.',
+    parameters: {
+      type: 'object',
+      properties: { startDay: DAY_PROPERTY, endDay: DAY_PROPERTY },
+      required: ['startDay', 'endDay'],
+    },
+  },
+  {
     name: 'get_credit_notes',
     description:
       'Notas crédito de un rango (opcionalmente filtradas por tienda): cantidad, valor neto total, % que representa de las ventas, desglose por día y por marca. OJO: se sincronizan manualmente (no en tiempo real) — revisa siempre "warnings" y "meta.lastSyncedAt" antes de afirmar que no hubo notas crédito en una fecha reciente.',
@@ -117,7 +129,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
   {
     name: 'get_smartsale_sales',
     description:
-      'Ventas del canal SmartSale (ventas asistidas por un vendedor a través de su link personalizado) — FUENTE ÚNICA para cualquier pregunta de SmartSale: SIEMPRE combina VTEX + POS ("Resumen"), nunca un canal por separado salvo que el usuario pida explícitamente solo VTEX o solo POS (para eso ya vienen desglosados "vtexSales"/"posSales" en la misma respuesta — nunca los calcules sumando otra herramienta). Incluye desglose por persona ("bySeller"), por tienda ("byStore", null si se filtró por storeId), y por categoría ("byCategory" — SIEMPRE combinada de las 6 tiendas, úsala para "¿cuál ha sido la categoría más vendida?"). "periodB" es OPCIONAL: solo si el usuario pide comparar contra otro período (ej. "¿cómo va vs. el mes pasado?") — ahí la respuesta trae también el total de ese período y el % de cambio YA CALCULADO ("totalSalesChangePercent"/"vtexSalesChangePercent"/"posSalesChangePercent"), nunca lo calcules tú mismo. Si se omite storeId, combina las 6 tiendas.',
+      'Ventas del canal SmartSale (ventas asistidas por un vendedor a través de su link personalizado) — FUENTE ÚNICA para cualquier pregunta de SmartSale: SIEMPRE combina VTEX + POS ("Resumen"), nunca un canal por separado salvo que el usuario pida explícitamente solo VTEX o solo POS (para eso ya vienen desglosados "vtexSales"/"posSales" en la misma respuesta — nunca los calcules sumando otra herramienta). "periodA"/"periodB" ya traen "totalUnits"/"vtexUnits"/"posUnits" y "upt" (unidades por pedido/documento, YA CALCULADO) — nunca dividas tú mismo units entre orders. Incluye desglose por persona ("bySeller"), por tienda ("byStore", null si se filtró por storeId), y por categoría ("byCategory" — SIEMPRE combinada de las 6 tiendas, úsala para "¿cuál ha sido la categoría más vendida?"). "periodB" es OPCIONAL: solo si el usuario pide comparar contra otro período (ej. "¿cómo va vs. el mes pasado?") — ahí la respuesta trae también el total de ese período y el % de cambio YA CALCULADO ("totalSalesChangePercent"/"vtexSalesChangePercent"/"posSalesChangePercent"), nunca lo calcules tú mismo. Si se omite storeId, combina las 6 tiendas.',
     parameters: {
       type: 'object',
       properties: {
@@ -166,7 +178,7 @@ const TOOL_DEFINITIONS: AssistantToolDefinition[] = [
 ];
 
 /**
- * Registro + dispatcher de las 10 herramientas del asistente. Valida cada
+ * Registro + dispatcher de las 11 herramientas del asistente. Valida cada
  * input con la MISMA pareja `class-transformer`/`class-validator` que usan
  * los controllers HTTP (`ValidationPipe`) — sin introducir `zod`. Un error
  * de validación o un `AssistantToolError` se propaga tal cual (mensaje
@@ -179,6 +191,7 @@ export class AssistantToolsRegistry {
     private readonly salesService: AssistantSalesService,
     private readonly compareService: AssistantCompareService,
     private readonly budgetService: AssistantBudgetService,
+    private readonly smartSaleBudgetService: AssistantSmartSaleBudgetService,
     private readonly creditNotesService: AssistantCreditNotesService,
     private readonly syncStatusService: AssistantSyncStatusService,
     private readonly smartSaleService: AssistantSmartSaleService,
@@ -219,6 +232,10 @@ export class AssistantToolsRegistry {
       case 'get_budget_vs_actual': {
         const input = this.validate(GetBudgetVsActualDto, rawInput);
         return this.budgetService.getBudgetVsActual(input.storeId, input.startDay, input.endDay);
+      }
+      case 'get_smartsale_budget_vs_actual': {
+        const input = this.validate(GetSmartSaleBudgetVsActualDto, rawInput);
+        return this.smartSaleBudgetService.getSmartSaleBudgetVsActual(input.startDay, input.endDay);
       }
       case 'get_credit_notes': {
         const input = this.validate(GetCreditNotesDto, rawInput);

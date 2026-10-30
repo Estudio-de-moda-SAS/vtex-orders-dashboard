@@ -73,6 +73,8 @@ export interface StoreDashboardData {
   realOrders: number;
   /** Igual que `realOrders`, pero solo las compras donde algún fragmento calificó como venta contabilizada. */
   realRevenueOrders: number;
+  /** Unidades contabilizadas — base del UPT (`totalUnits ÷ revenueOrders`) mostrado junto al AVT. */
+  totalUnits: number;
   responseTimeMs: number;
   isConsistent: boolean;
   /**

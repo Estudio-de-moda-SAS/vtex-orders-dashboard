@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from 'react';
 
+import { SmartSaleBudgetTab } from '@/components/presupuesto/SmartSaleBudgetTab';
 import { ResumenTab } from '@/components/smartsale/ResumenTab';
 import { VentasPosTab } from '@/components/smartsale/VentasPosTab';
 import { VentasVtexTab } from '@/components/smartsale/VentasVtexTab';
@@ -12,12 +13,7 @@ const TABS: { id: TabId; label: string; disabled?: boolean; placeholder?: string
   { id: 'vtex', label: 'Ventas VTEX' },
   { id: 'pos', label: 'Ventas POS' },
   { id: 'resumen', label: 'Resumen' },
-  {
-    id: 'presupuesto',
-    label: 'Presupuesto',
-    disabled: true,
-    placeholder: 'Presupuesto por canal — falta definir si se arma por tienda, marca o canal.',
-  },
+  { id: 'presupuesto', label: 'Presupuesto' },
   {
     id: 'indicadores',
     label: 'Indicadores',
@@ -74,6 +70,7 @@ function SmartSaleContent() {
       {tab === 'vtex' && <VentasVtexTab />}
       {tab === 'pos' && <VentasPosTab />}
       {tab === 'resumen' && <ResumenTab />}
+      {tab === 'presupuesto' && <SmartSaleBudgetTab />}
       {activeTab?.placeholder && (
         <p className="rounded-2xl border border-surface-border bg-surface-panel p-6 text-sm text-ink-faint">
           {activeTab.placeholder}

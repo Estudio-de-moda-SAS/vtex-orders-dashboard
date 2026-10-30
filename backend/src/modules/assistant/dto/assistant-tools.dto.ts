@@ -68,6 +68,15 @@ export class GetBudgetVsActualDto {
   endDay!: string;
 }
 
+/** Input de `get_smartsale_budget_vs_actual` — sin `storeId`: es el presupuesto del canal completo, no por tienda. */
+export class GetSmartSaleBudgetVsActualDto {
+  @Matches(DAY_REGEX, { message: 'startDay debe tener formato YYYY-MM-DD' })
+  startDay!: string;
+
+  @Matches(DAY_REGEX, { message: 'endDay debe tener formato YYYY-MM-DD' })
+  endDay!: string;
+}
+
 /** Input de `get_credit_notes` — `storeId` opcional (sin él, todas las marcas). */
 export class GetCreditNotesDto {
   @Matches(DAY_REGEX, { message: 'startDay debe tener formato YYYY-MM-DD' })

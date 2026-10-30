@@ -125,7 +125,7 @@ export class OrdersService {
 
       const totals = mergeTotals(
         totalsRows.find((r) => r.storeId === store.id) ??
-          { orders: 0, units: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 },
+          { orders: 0, units: 0, revenueUnits: 0, sales: 0, discounts: 0, realOrders: 0, realRevenueOrders: 0 },
         onDemand,
       );
       const byStatus = mergeByStatus(
@@ -357,6 +357,7 @@ function mergeTotals(base: StoreTotalsRow, onDemand: DailyAggregationResult | un
   for (const row of onDemand.salesDaily) {
     merged.orders += row.orders;
     merged.units += row.units;
+    merged.revenueUnits += row.revenueUnits;
     merged.sales += row.sales;
     merged.discounts += row.discounts;
     merged.realOrders += row.realOrders;

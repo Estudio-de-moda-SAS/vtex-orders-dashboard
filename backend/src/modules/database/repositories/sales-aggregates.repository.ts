@@ -53,8 +53,8 @@ export class SalesAggregatesRepository {
       await this.insertRows(
         client,
         'sales_daily',
-        ['date', 'store_id', 'orders', 'units', 'sales', 'discounts', 'real_orders', 'real_revenue_orders'],
-        result.salesDaily.map((r) => [r.date, r.storeId, r.orders, r.units, r.sales, r.discounts, r.realOrders, r.realRevenueOrders]),
+        ['date', 'store_id', 'orders', 'units', 'revenue_units', 'sales', 'discounts', 'real_orders', 'real_revenue_orders'],
+        result.salesDaily.map((r) => [r.date, r.storeId, r.orders, r.units, r.revenueUnits, r.sales, r.discounts, r.realOrders, r.realRevenueOrders]),
       );
 
       await this.insertRows(client, 'sales_daily_by_status', ['date', 'store_id', 'status', 'orders', 'sales'], result.byStatus.map((r) => [r.date, r.storeId, r.status, r.orders, r.sales]));
@@ -172,8 +172,8 @@ export class SalesAggregatesRepository {
       await this.insertRows(
         client,
         'smartsale_daily_by_person',
-        ['date', 'store_id', 'utmi_campaign', 'orders', 'sales', 'revenue_orders', 'revenue_sales'],
-        result.smartSaleByPerson.map((r) => [r.date, r.storeId, r.utmiCampaign, r.orders, r.sales, r.revenueOrders, r.revenueSales]),
+        ['date', 'store_id', 'utmi_campaign', 'orders', 'sales', 'revenue_orders', 'revenue_sales', 'units', 'revenue_units'],
+        result.smartSaleByPerson.map((r) => [r.date, r.storeId, r.utmiCampaign, r.orders, r.sales, r.revenueOrders, r.revenueSales, r.units, r.revenueUnits]),
       );
       await this.insertRows(
         client,

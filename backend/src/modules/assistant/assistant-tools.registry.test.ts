@@ -12,6 +12,7 @@ function buildRegistry(overrides: { getSalesBreakdown?: (...args: unknown[]) => 
   } as any;
   const compareService = { comparePeriods: async () => ({ ok: true }) } as any;
   const budgetService = { getBudgetVsActual: async () => ({ ok: true }) } as any;
+  const smartSaleBudgetService = { getSmartSaleBudgetVsActual: async () => ({ ok: true }) } as any;
   const creditNotesService = { getCreditNotes: async () => ({ ok: true }) } as any;
   const syncStatusService = { getSyncStatus: async () => ({ ok: true }) } as any;
   const smartSaleService = { getSmartSaleSales: async () => ({ ok: true }) } as any;
@@ -22,6 +23,7 @@ function buildRegistry(overrides: { getSalesBreakdown?: (...args: unknown[]) => 
     salesService,
     compareService,
     budgetService,
+    smartSaleBudgetService,
     creditNotesService,
     syncStatusService,
     smartSaleService,
@@ -88,6 +90,7 @@ test('get_smartsale_sales: storeId y periodB son opcionales', async () => {
     { getSalesBreakdown: async () => ({}) } as any,
     { comparePeriods: async () => ({}) } as any,
     { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async (...args: unknown[]) => { received = args; return { periodA: { totalSales: 500 } }; } } as any,
@@ -109,6 +112,7 @@ test('get_smartsale_sales: con periodB, delega al servicio con los dos períodos
     { getSalesBreakdown: async () => ({}) } as any,
     { comparePeriods: async () => ({}) } as any,
     { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async (...args: unknown[]) => { received = args; return {}; } } as any,
@@ -142,6 +146,7 @@ test('get_diagnosis: input válido delega al servicio con storeId/periodA/period
     { getSalesBreakdown: async () => ({}) } as any,
     { comparePeriods: async () => ({}) } as any,
     { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async () => ({}) } as any,
@@ -183,6 +188,7 @@ test('get_analytics: input válido delega al servicio con los 4 argumentos', asy
     { getSalesBreakdown: async () => ({}) } as any,
     { comparePeriods: async () => ({}) } as any,
     { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async () => ({}) } as any,
@@ -203,12 +209,40 @@ test('get_analytics: breakdown inválido lanza AssistantToolError', async () => 
   );
 });
 
+test('get_smartsale_budget_vs_actual: input válido delega al servicio con startDay/endDay, sin storeId', async () => {
+  let received: unknown[] = [];
+  const registry = new AssistantToolsRegistry(
+    { getSalesBreakdown: async () => ({}) } as any,
+    { comparePeriods: async () => ({}) } as any,
+    { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async (...args: unknown[]) => { received = args; return { rangeBudget: 1000 }; } } as any,
+    { getCreditNotes: async () => ({}) } as any,
+    { getSyncStatus: async () => ({}) } as any,
+    { getSmartSaleSales: async () => ({}) } as any,
+    { getDiagnosis: async () => ({}) } as any,
+    { getAnalyticsBreakdown: async () => ({}) } as any,
+    { searchCampaigns: async () => ({}) } as any,
+  );
+  const result = await registry.execute('get_smartsale_budget_vs_actual', { startDay: '2026-10-01', endDay: '2026-10-10' });
+  assert.deepEqual(received, ['2026-10-01', '2026-10-10']);
+  assert.deepEqual(result, { rangeBudget: 1000 });
+});
+
+test('get_smartsale_budget_vs_actual: startDay con formato inválido lanza AssistantToolError', async () => {
+  const registry = buildRegistry();
+  await assert.rejects(
+    () => registry.execute('get_smartsale_budget_vs_actual', { startDay: '01-10-2026', endDay: '2026-10-10' }),
+    AssistantToolError,
+  );
+});
+
 test('search_campaign: input válido delega al servicio con los 4 argumentos', async () => {
   let received: unknown[] = [];
   const registry = new AssistantToolsRegistry(
     { getSalesBreakdown: async () => ({}) } as any,
     { comparePeriods: async () => ({}) } as any,
     { getBudgetVsActual: async () => ({}) } as any,
+    { getSmartSaleBudgetVsActual: async () => ({}) } as any,
     { getCreditNotes: async () => ({}) } as any,
     { getSyncStatus: async () => ({}) } as any,
     { getSmartSaleSales: async () => ({}) } as any,

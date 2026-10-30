@@ -12,12 +12,13 @@ function averageTicket(sales: number, orders: number): number {
   return orders > 0 ? sales / orders : 0;
 }
 
-function toSellerSummary(row: { nitVendedor: string; nombreVendedor: string; orders: number; sales: number }): PosSalesSellerSummary {
+function toSellerSummary(row: { nitVendedor: string; nombreVendedor: string; orders: number; sales: number; units: number }): PosSalesSellerSummary {
   return {
     nitVendedor: row.nitVendedor,
     name: friendlyPosSellerName(row.nombreVendedor),
     orders: row.orders,
     sales: row.sales,
+    units: row.units,
   };
 }
 
@@ -58,12 +59,14 @@ export class PosSalesQueryService {
       totalFreight: totals.totalFreight,
       totalCreditNotes: totals.totalCreditNotes,
       totalOrders: totals.totalOrders,
+      totalUnits: totals.totalUnits,
       averageTicket: averageTicket(totals.totalSales, totals.totalOrders),
       bySeller: bySellerRaw.map(toSellerSummary),
       byStore: byStoreRaw.map((store) => ({
         storeId: store.storeId,
         orders: store.orders,
         sales: store.sales,
+        units: store.units,
         bySeller: (sellersByStoreId.get(store.storeId) ?? []).map(toSellerSummary),
       })),
       pilatosByBrand: pilatosByBrandRaw,

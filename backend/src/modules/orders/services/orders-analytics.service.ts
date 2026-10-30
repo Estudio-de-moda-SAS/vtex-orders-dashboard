@@ -16,6 +16,8 @@ const DEFAULT_CURRENCY_CODE = 'COP';
 export interface StoreTotalsRow {
   orders: number;
   units: number;
+  /** Igual que `units`, pero solo estados contabilizados — ver migración 0024. Base del UPT de la card. */
+  revenueUnits: number;
   sales: number;
   discounts: number;
   /** "Compras reales" (deduplicadas por número base de orden) — ver `daily-aggregator.ts`. Solo para la card. */
@@ -131,6 +133,7 @@ export class OrdersAnalyticsService {
       cityRevenueBreakdown,
       realOrders: totals.realOrders,
       realRevenueOrders: totals.realRevenueOrders,
+      totalUnits: totals.revenueUnits,
       responseTimeMs: meta.responseTimeMs,
       isConsistent,
       isComplete: meta.lastSyncStatus === 'success',

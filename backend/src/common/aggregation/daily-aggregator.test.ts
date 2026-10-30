@@ -67,6 +67,19 @@ test('una orden cancelada suma a orders/sales pero NO a revenue_orders/revenue_s
   assert.equal(city?.revenueSales, 0, 'canceled NO debe contar en revenue_sales');
 });
 
+test('sales_daily.revenue_units solo cuenta unidades de órdenes en estado contabilizado', () => {
+  const items = [
+    { skuId: 'sku-a', ean: '', category: 'Camisetas', brand: 'Marca A', collectionName: 'Línea', quantity: 2, listPrice: 50000, sellingPrice: 50000, discountPercentage: 0 },
+  ];
+  const invoiced = baseOrder({ orderId: 'ORD-1', status: 'invoiced', items });
+  const canceled = baseOrder({ orderId: 'ORD-2', status: 'canceled', items });
+  const result = aggregateDailyRows([invoiced, canceled], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.units, 4, 'units SIN filtrar debe sumar ambas órdenes');
+  assert.equal(daily?.revenueUnits, 2, 'revenue_units solo debe sumar la orden contabilizada (invoiced)');
+});
+
 test('"compras reales": dos fragmentos con el mismo número base (-01/-02) cuentan como UNA sola compra', () => {
   const fragment1 = baseOrder({ orderId: '1663751104761-01', status: 'invoiced' });
   const fragment2 = baseOrder({ orderId: '1663751104761-02', status: 'invoiced' });
@@ -123,6 +136,8 @@ test('SmartSale: una orden con utmiCampaign de un vendedor configurado aporta a 
   const person = result.smartSaleByPerson.find((r) => r.utmiCampaign === '1011397082');
   assert.equal(person?.orders, 1);
   assert.equal(person?.revenueOrders, 1);
+  assert.equal(person?.units, 2, 'debe sumar las unidades de la orden (2), no contar la orden como 1 unidad');
+  assert.equal(person?.revenueUnits, 2, 'invoiced es contabilizado, así que revenue_units == units para esta orden');
 
   const city = result.smartSaleByCity.find((r) => r.city === 'Bogotá');
   assert.equal(city?.orders, 1);

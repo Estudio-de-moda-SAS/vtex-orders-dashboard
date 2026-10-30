@@ -38,6 +38,8 @@ export interface PosSalesTotals {
   totalFreight: number;
   totalCreditNotes: number;
   totalOrders: number;
+  /** `SUM(cantidad_inv)`, excluyendo fletes (no son unidades de producto real) — para UPT. */
+  totalUnits: number;
 }
 
 export interface PosSalesSellerRow {
@@ -46,12 +48,15 @@ export interface PosSalesSellerRow {
   nombreVendedor: string;
   orders: number;
   sales: number;
+  /** `SUM(cantidad_inv)`, excluyendo fletes (no son unidades de producto real) — para UPT. */
+  units: number;
 }
 
 export interface PosSalesStoreRow {
   storeId: string;
   orders: number;
   sales: number;
+  units: number;
 }
 
 /** Igual que `PosSalesSellerRow`, pero sin combinar tiendas — una fila por (tienda, vendedor). */
@@ -61,6 +66,7 @@ export interface PosSalesStoreSellerRow {
   nombreVendedor: string;
   orders: number;
   sales: number;
+  units: number;
 }
 
 /**
@@ -83,6 +89,7 @@ export interface PosSalesBrandRow {
   marca: string;
   orders: number;
   sales: number;
+  units: number;
 }
 
 @Injectable()
@@ -159,12 +166,14 @@ export class PosSalesRepository {
       total_freight: string;
       total_credit_notes: string;
       total_orders: string;
+      total_units: string;
     }>(
       `SELECT
          COALESCE(SUM(valor_neto), 0) AS total_sales,
          COALESCE(SUM(valor_neto) FILTER (WHERE NOT is_credit_note AND is_freight), 0) AS total_freight,
          COALESCE(SUM(valor_neto) FILTER (WHERE is_credit_note), 0) AS total_credit_notes,
-         COUNT(DISTINCT (store_id || ':' || nro_documento)) FILTER (WHERE NOT is_credit_note) AS total_orders
+         COUNT(DISTINCT (store_id || ':' || nro_documento)) FILTER (WHERE NOT is_credit_note) AS total_orders,
+         COALESCE(SUM(cantidad_inv) FILTER (WHERE NOT is_freight), 0) AS total_units
        FROM pos_sales WHERE ${where}`,
       params,
     );
@@ -174,16 +183,18 @@ export class PosSalesRepository {
       totalFreight: Number(r?.total_freight ?? 0),
       totalCreditNotes: Number(r?.total_credit_notes ?? 0),
       totalOrders: Number(r?.total_orders ?? 0),
+      totalUnits: Number(r?.total_units ?? 0),
     };
   }
 
   /** Venta por vendedor, YA NETA de sus notas crédito (ver comentario de `getTotals`) — `storeId` opcional. */
   async getBySeller(startDay: string, endDay: string, storeId?: string): Promise<PosSalesSellerRow[]> {
     const { where, params } = this.buildWhere(startDay, endDay, storeId);
-    const result = await this.pool.query<{ nit_vendedor: string; nombre_vendedor: string | null; orders: string; sales: string }>(
+    const result = await this.pool.query<{ nit_vendedor: string; nombre_vendedor: string | null; orders: string; sales: string; units: string }>(
       `SELECT nit_vendedor, MAX(nombre_vendedor) AS nombre_vendedor,
               COUNT(DISTINCT (store_id || ':' || nro_documento)) FILTER (WHERE NOT is_credit_note) AS orders,
-              COALESCE(SUM(valor_neto), 0) AS sales
+              COALESCE(SUM(valor_neto), 0) AS sales,
+              COALESCE(SUM(cantidad_inv) FILTER (WHERE NOT is_freight), 0) AS units
        FROM pos_sales
        WHERE ${where} AND nit_vendedor IS NOT NULL
        GROUP BY nit_vendedor ORDER BY sales DESC`,
@@ -194,29 +205,39 @@ export class PosSalesRepository {
       nombreVendedor: r.nombre_vendedor ?? r.nit_vendedor,
       orders: Number(r.orders),
       sales: Number(r.sales),
+      units: Number(r.units),
     }));
   }
 
   /** Venta por tienda, YA NETA de sus notas crédito (ver comentario de `getTotals`), siempre las 6 combinadas — para el desglose "por tienda" del resumen. */
   async getByStore(startDay: string, endDay: string): Promise<PosSalesStoreRow[]> {
-    const result = await this.pool.query<{ store_id: string; orders: string; sales: string }>(
+    const result = await this.pool.query<{ store_id: string; orders: string; sales: string; units: string }>(
       `SELECT store_id,
               COUNT(DISTINCT nro_documento) FILTER (WHERE NOT is_credit_note) AS orders,
-              COALESCE(SUM(valor_neto), 0) AS sales
+              COALESCE(SUM(valor_neto), 0) AS sales,
+              COALESCE(SUM(cantidad_inv) FILTER (WHERE NOT is_freight), 0) AS units
        FROM pos_sales
        WHERE fecha BETWEEN $1 AND $2
        GROUP BY store_id ORDER BY sales DESC`,
       [startDay, endDay],
     );
-    return result.rows.map((r) => ({ storeId: r.store_id, orders: Number(r.orders), sales: Number(r.sales) }));
+    return result.rows.map((r) => ({ storeId: r.store_id, orders: Number(r.orders), sales: Number(r.sales), units: Number(r.units) }));
   }
 
   /** Venta por (tienda, vendedor), ya neta de notas crédito — igual que `getBySeller` pero SIN combinar tiendas, para desglosar cada card del resumen. */
   async getBySellerByStore(startDay: string, endDay: string): Promise<PosSalesStoreSellerRow[]> {
-    const result = await this.pool.query<{ store_id: string; nit_vendedor: string; nombre_vendedor: string | null; orders: string; sales: string }>(
+    const result = await this.pool.query<{
+      store_id: string;
+      nit_vendedor: string;
+      nombre_vendedor: string | null;
+      orders: string;
+      sales: string;
+      units: string;
+    }>(
       `SELECT store_id, nit_vendedor, MAX(nombre_vendedor) AS nombre_vendedor,
               COUNT(DISTINCT nro_documento) FILTER (WHERE NOT is_credit_note) AS orders,
-              COALESCE(SUM(valor_neto), 0) AS sales
+              COALESCE(SUM(valor_neto), 0) AS sales,
+              COALESCE(SUM(cantidad_inv) FILTER (WHERE NOT is_freight), 0) AS units
        FROM pos_sales
        WHERE fecha BETWEEN $1 AND $2 AND nit_vendedor IS NOT NULL
        GROUP BY store_id, nit_vendedor ORDER BY store_id, sales DESC`,
@@ -228,6 +249,7 @@ export class PosSalesRepository {
       nombreVendedor: r.nombre_vendedor ?? r.nit_vendedor,
       orders: Number(r.orders),
       sales: Number(r.sales),
+      units: Number(r.units),
     }));
   }
 
@@ -242,16 +264,17 @@ export class PosSalesRepository {
    * la suma de `valor_neto`, solo no las cuenta como "documento" (orden).
    */
   async getByMarca(startDay: string, endDay: string, storeId: string): Promise<PosSalesBrandRow[]> {
-    const result = await this.pool.query<{ marca: string; orders: string; sales: string }>(
+    const result = await this.pool.query<{ marca: string; orders: string; sales: string; units: string }>(
       `SELECT marca,
               COUNT(DISTINCT nro_documento) FILTER (WHERE NOT is_credit_note) AS orders,
-              COALESCE(SUM(valor_neto), 0) AS sales
+              COALESCE(SUM(valor_neto), 0) AS sales,
+              COALESCE(SUM(cantidad_inv), 0) AS units
        FROM pos_sales
        WHERE fecha BETWEEN $1 AND $2 AND NOT is_freight AND store_id = $3
        GROUP BY marca ORDER BY sales DESC`,
       [startDay, endDay, storeId],
     );
-    return result.rows.map((r) => ({ marca: r.marca, orders: Number(r.orders), sales: Number(r.sales) }));
+    return result.rows.map((r) => ({ marca: r.marca, orders: Number(r.orders), sales: Number(r.sales), units: Number(r.units) }));
   }
 
   /**

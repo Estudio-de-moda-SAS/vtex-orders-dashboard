@@ -24,3 +24,18 @@ export function getSmartSalePeople(): SmartSalePerson[] {
 export function getSmartSaleCampaignIds(): string[] {
   return getSmartSalePeople().map((p) => p.utmiCampaign);
 }
+
+/**
+ * Vendedores entre los que se reparte el PRESUPUESTO del canal SmartSale
+ * en partes iguales (confirmado con el usuario: no hay presupuesto
+ * propio por vendedor, es el total del canal ÷ esta lista). A PROPÓSITO
+ * es una lista independiente de `getSmartSalePeople()` (3 personas,
+ * incluye a Andrea Idárraga, que no tiene venta POS registrada) — crece
+ * acá cuando haya un vendedor nuevo en el reparto. Usada tanto por
+ * `SmartSaleBudgetTab.tsx` (frontend) como por la herramienta
+ * `get_smartsale_budget_vs_actual` del asistente — si se edita, hacerlo
+ * en los dos lados.
+ */
+export function getSmartSaleBudgetSellers(): string[] {
+  return ['Juana Pinilla', 'Felipe Rengifo'];
+}

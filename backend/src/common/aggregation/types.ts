@@ -66,12 +66,14 @@ export interface EnrichedOrder {
   utmiCampaign: string | null;
 }
 
-/** Fila de `sales_daily` — sin columnas revenue_*, ver nota en la migración. */
+/** Fila de `sales_daily` — sin columnas revenue_* salvo `revenueUnits` (ver migración 0024). */
 export interface SalesDailyRow {
   date: string;
   storeId: string;
   orders: number;
   units: number;
+  /** Igual que `units`, pero solo estados contabilizados — ver migración 0024 (mismo problema que 0010 para otras tablas `by_*`). */
+  revenueUnits: number;
   sales: number;
   discounts: number;
   /**
@@ -251,6 +253,9 @@ export interface SmartSaleByPersonRow {
   sales: number;
   revenueOrders: number;
   revenueSales: number;
+  /** Ver migración 0024 — unidades totales/contabilizadas de este vendedor en esta tienda/día. */
+  units: number;
+  revenueUnits: number;
 }
 export interface SmartSaleByDiscountBucketRow {
   date: string;

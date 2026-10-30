@@ -14,14 +14,18 @@ export interface SmartSaleCombinedPersonBreakdown {
   vtexSales: number;
   posOrders: number;
   posSales: number;
+  vtexUnits: number;
+  posUnits: number;
   /**
-   * `vtexSales + posSales`/`vtexOrders + posOrders`, YA SUMADOS acá —
-   * confirmado en producción que dejarle esta suma al modelo de Vico daba
-   * un total distinto cada vez (ver `AssistantSmartSaleService`). Nunca
-   * los sumes de nuevo en otro lado, usa estos dos campos directo.
+   * `vtexSales + posSales`/`vtexOrders + posOrders`/`vtexUnits + posUnits`,
+   * YA SUMADOS acá — confirmado en producción que dejarle esta suma al
+   * modelo de Vico daba un total distinto cada vez (ver
+   * `AssistantSmartSaleService`). Nunca los sumes de nuevo en otro lado,
+   * usa estos campos directo.
    */
   totalSales: number;
   totalOrders: number;
+  totalUnits: number;
 }
 
 export interface SmartSaleCombinedStoreSummary {
@@ -30,9 +34,12 @@ export interface SmartSaleCombinedStoreSummary {
   vtexSales: number;
   posOrders: number;
   posSales: number;
-  /** `vtexSales + posSales`/`vtexOrders + posOrders`, YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
+  vtexUnits: number;
+  posUnits: number;
+  /** `vtexSales + posSales`/`vtexOrders + posOrders`/`vtexUnits + posUnits`, YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
   totalSales: number;
   totalOrders: number;
+  totalUnits: number;
   byPerson: SmartSaleCombinedPersonBreakdown[];
 }
 
@@ -60,6 +67,8 @@ export interface SmartSaleCombinedSummaryResponse {
   totalVtexSales: number;
   totalPosOrders: number;
   totalPosSales: number;
+  totalVtexUnits: number;
+  totalPosUnits: number;
   byStore: SmartSaleCombinedStoreSummary[];
   /** Combinando las 6 tiendas. */
   bySeller: SmartSaleCombinedPersonBreakdown[];

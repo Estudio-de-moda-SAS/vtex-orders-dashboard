@@ -1,6 +1,6 @@
 import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
-const STORE_IDS = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
+const STORE_IDS = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay', 'smartsale'];
 
 /** DTO de entrada para POST /api/budgets/bulk. */
 export class BulkBudgetsDto {
@@ -29,4 +29,9 @@ export class BulkBudgetsDto {
   @IsOptional()
   @IsBoolean()
   confirmOverwrite?: boolean;
+
+  /** `'vtex'` por defecto si no viene — ver migración 0025. */
+  @IsOptional()
+  @IsIn(['vtex', 'smartsale'], { message: 'channel debe ser "vtex" o "smartsale"' })
+  channel?: string;
 }

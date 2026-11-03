@@ -60,7 +60,7 @@ export class CreditNotesQueryService {
     const rows = await this.dashboardQueryRepository.queryGroupedMulti('sales_daily_by_status', ['status'], ['sales'], startDay, endDay, storeId);
     let total = 0;
     for (const row of rows) {
-      if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+      if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
       total += Number(row.sales);
     }
     return total;

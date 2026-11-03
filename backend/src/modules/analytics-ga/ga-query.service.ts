@@ -633,7 +633,7 @@ export class GaQueryService {
 
     const revenueOrdersByStore = new Map<string, number>();
     for (const row of statusRows) {
-      if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+      if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
       const id = String(row.store_id);
       revenueOrdersByStore.set(id, (revenueOrdersByStore.get(id) ?? 0) + Number(row.orders));
     }

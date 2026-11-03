@@ -60,7 +60,7 @@ export class SmartSaleService {
     for (const store of this.storesById.values()) {
       const storeTotalSales = statusRows
         .filter((r) => r.store_id === store.id)
-        .filter((r) => matchRevenueStatusDefinition({ status: String(r.status) }, this.revenueStatusDefinitions))
+        .filter((r) => matchRevenueStatusDefinition({ status: String(r.status), storeId: String(r.store_id) }, this.revenueStatusDefinitions))
         .reduce((acc, r) => acc + Number(r.sales), 0);
 
       const storePersonRows = personRows.filter((r) => r.store_id === store.id);

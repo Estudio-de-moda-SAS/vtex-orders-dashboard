@@ -60,7 +60,8 @@ export interface StoreDataMeta {
  * alimentado por SQL en vez de `VtexOrder[]`.
  *
  * "Ventas" = SOLO los estados que definen `revenue-status.config.ts`
- * (invoiced/payment-approved/handling(+ready-for-handling)/checking-invoice)
+ * (invoiced/payment-approved/handling(+ready-for-handling)/checking-invoice/
+ * waiting-ffmt-authorization — este último excepto en Pilatos)
  * — a pedido explícito del usuario, órdenes en cualquier otro estado
  * (canceladas, etc.) NO cuentan como venta en NINGÚN widget: `totalOrders`
  * es literalmente `revenueOrders`, `statusCounts` (widget "Estados") solo
@@ -85,21 +86,22 @@ export class OrdersAnalyticsService {
   private readonly revenueStatusDefinitions = getRevenueStatusDefinitions();
 
   buildStoreData(
-    contextId: string,
+    /** `StoreConfig.id` de la tienda — algunos estados solo cuentan en ciertas tiendas (ver `excludedStoreIds`). */
+    storeId: string,
     totals: StoreTotalsRow,
     byStatus: ByStatusRow[],
     byPayment: ByPaymentRow[],
     byCity: ByCityRow[],
     meta: StoreDataMeta,
   ): StoreDashboardData {
-    const { revenueOrders, revenueTotalValue, revenueBreakdown } = this.computeRevenueTotals(byStatus);
+    const { revenueOrders, revenueTotalValue, revenueBreakdown } = this.computeRevenueTotals(storeId, byStatus);
 
     // "Estados" (statusCounts) solo lista los estados que SÍ cuentan como
     // venta — mismo filtro que revenueOrders/revenueBreakdown, no un
     // desglose aparte de "todos los estados".
     const statusCounts: Record<string, number> = {};
     for (const row of byStatus) {
-      if (matchRevenueStatusDefinition({ status: row.status }, this.revenueStatusDefinitions)) {
+      if (matchRevenueStatusDefinition({ status: row.status, storeId }, this.revenueStatusDefinitions)) {
         statusCounts[row.status] = row.orders;
       }
     }
@@ -117,7 +119,7 @@ export class OrdersAnalyticsService {
     const isConsistent = revenueOrders <= totals.orders;
     if (!isConsistent) {
       this.logger.warn(
-        `[${contextId}] Inconsistencia de datos: revenueOrders (${revenueOrders}) > totalOrders sin filtrar (${totals.orders})`,
+        `[${storeId}] Inconsistencia de datos: revenueOrders (${revenueOrders}) > totalOrders sin filtrar (${totals.orders})`,
       );
     }
 
@@ -143,7 +145,7 @@ export class OrdersAnalyticsService {
     };
   }
 
-  private computeRevenueTotals(byStatus: ByStatusRow[]): {
+  private computeRevenueTotals(storeId: string, byStatus: ByStatusRow[]): {
     revenueOrders: number;
     revenueTotalValue: number;
     revenueBreakdown: Record<string, RevenueStatusBreakdown>;
@@ -157,7 +159,7 @@ export class OrdersAnalyticsService {
     let revenueTotalValue = 0;
 
     for (const row of byStatus) {
-      const definition = matchRevenueStatusDefinition({ status: row.status }, this.revenueStatusDefinitions);
+      const definition = matchRevenueStatusDefinition({ status: row.status, storeId }, this.revenueStatusDefinitions);
       if (!definition) continue;
       revenueOrders += row.orders;
       revenueTotalValue += row.sales;

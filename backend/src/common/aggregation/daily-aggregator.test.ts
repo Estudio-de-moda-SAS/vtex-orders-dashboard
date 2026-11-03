@@ -186,3 +186,33 @@ test('SmartSale: una orden fuera del canal (utmiCampaign no configurado) NO apor
   assert.equal(result.smartSaleByCampaignCombo.length, 0);
   assert.equal(result.byCampaignCombo.length, 1);
 });
+
+test('waiting-ffmt-authorization cuenta como contabilizado en Diesel/Superdry/Kipling/Girbaud/Replay pero NO en Pilatos', () => {
+  const items = [
+    { skuId: 'sku-a', ean: '', category: 'Camisetas', brand: 'Marca A', collectionName: 'Línea', quantity: 3, listPrice: 50000, sellingPrice: 50000, discountPercentage: 0 },
+  ];
+  const stores = ['diesel', 'superdry', 'kipling', 'girbaud', 'replay'];
+  const orders = [
+    ...stores.map((storeId, i) =>
+      baseOrder({ orderId: `ORD-${storeId}`, storeId, status: 'waiting-ffmt-authorization', city: `Ciudad-${i}`, items }),
+    ),
+    baseOrder({ orderId: 'ORD-pilatos', storeId: 'pilatos', status: 'waiting-ffmt-authorization', city: 'Ciudad-P', items }),
+  ];
+  const result = aggregateDailyRows(orders, false);
+
+  for (const storeId of stores) {
+    const daily = result.salesDaily.find((r) => r.storeId === storeId);
+    assert.equal(daily?.revenueUnits, 3, `${storeId}: waiting-ffmt-authorization debe sumar a revenue_units (UPT)`);
+    const city = result.byCity.find((r) => r.storeId === storeId);
+    assert.equal(city?.revenueOrders, 1, `${storeId}: debe contar en revenue_orders de los desgloses`);
+  }
+
+  const pilatos = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(pilatos?.units, 3, 'Pilatos: las unidades sin filtrar sí se registran');
+  assert.equal(pilatos?.revenueUnits, 0, 'Pilatos: waiting-ffmt-authorization NO es contabilizado');
+  const pilatosCity = result.byCity.find((r) => r.storeId === 'pilatos');
+  assert.equal(pilatosCity?.revenueOrders, 0, 'Pilatos: NO debe contar en revenue_orders');
+
+  const pilatosStatus = result.byStatus.find((r) => r.storeId === 'pilatos');
+  assert.equal(pilatosStatus?.status, 'waiting-ffmt-authorization', 'sales_daily_by_status guarda el estado crudo igual en todas las tiendas');
+});

@@ -131,4 +131,6 @@ VTEX + ventas por POS físico).
 
 *Este archivo se actualiza cuando cambia qué revisa cada equipo o se
 agrega una página/capacidad nueva a VICA — avisarle a Desarrollo si algo
-acá queda desactualizado.*
+acá queda desactualizado. Vico conoce este mismo contenido: al cambiar
+este archivo, actualizar también la sección "Qué hace cada equipo" de
+`backend/src/modules/assistant/prompts/system-manual.ts`.*

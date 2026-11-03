@@ -66,6 +66,7 @@ const STATUS_LABELS: Record<string, string> = {
   invoice: 'Facturando',
   'order-created': 'Orden creada',
   'checking-invoice': 'Revisando factura',
+  'waiting-ffmt-authorization': 'Esperando autorización de despacho',
   unknown: 'Desconocido',
 };
 
@@ -82,6 +83,7 @@ const STATUS_COLORS: Record<string, string> = {
   handling: '#7A8699',
   'ready-for-handling': '#98A2B3',
   'checking-invoice': '#9E77ED',
+  'waiting-ffmt-authorization': '#2E90FA',
 };
 
 const FALLBACK_STATUS_COLORS = ['#3D6FE0', '#12B76A', '#F79009', '#F04438', '#7A8699', '#9E77ED'];
@@ -92,17 +94,20 @@ export function statusColor(status: string, index: number): string {
 
 /**
  * Orden y etiquetas usadas para el desglose por estado "contabilizado"
- * (facturado, pago aprobado, en manejo, facturando) en los recuadros de
+ * (facturado, pago aprobado, en manejo, facturando, esperando autorización) en los recuadros de
  * conteos y en el comparativo de tiendas. Las keys deben coincidir con las
  * definidas en `backend/src/config/revenue-status.config.ts`.
  */
-export const REVENUE_BREAKDOWN_ORDER = ['invoiced', 'payment-approved', 'handling', 'checking-invoice'];
+export const REVENUE_BREAKDOWN_ORDER = ['invoiced', 'payment-approved', 'handling', 'checking-invoice', 'waiting-ffmt-authorization'];
 
 const REVENUE_BREAKDOWN_LABELS: Record<string, string> = {
   invoiced: 'Facturado',
   'payment-approved': 'Pago aprobado',
   handling: 'En manejo',
   'checking-invoice': 'Facturando',
+  // Solo cuenta en Diesel, Superdry, Kipling, Girbaud y Replay — en Pilatos
+  // el backend lo excluye (ver `excludedStoreIds` en revenue-status.config.ts).
+  'waiting-ffmt-authorization': 'Esperando autorización',
 };
 
 export function revenueBreakdownLabel(key: string): string {

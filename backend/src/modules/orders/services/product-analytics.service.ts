@@ -140,7 +140,7 @@ export class ProductAnalyticsService {
       let revenueSales = 0;
       for (const row of statusRows) {
         if (row.store_id !== store.id) continue;
-        if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+        if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
         revenueOrders += Number(row.orders);
         revenueSales += Number(row.sales);
       }

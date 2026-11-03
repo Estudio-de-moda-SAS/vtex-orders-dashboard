@@ -369,7 +369,7 @@ export class ResumenService {
     const rows = await this.dashboardQueryRepository.queryGroupedMulti('sales_daily_by_status', ['date', 'status'], ['sales', 'orders'], startDay, endDay);
     const byStore = new Map<string, Map<string, { sales: number; orders: number }>>();
     for (const row of rows) {
-      if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+      if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
       const storeId = String(row.store_id);
       const date = toDateOnlyString(row.date);
       const dayMap = byStore.get(storeId) ?? new Map<string, { sales: number; orders: number }>();

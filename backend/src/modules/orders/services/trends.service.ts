@@ -53,7 +53,7 @@ export class TrendsService {
 
     const byStoreYearMonth = new Map<string, { orders: number; sales: number }>();
     for (const row of rows) {
-      if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+      if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
       const key = `${row.store_id}::${row.year}::${row.month}`;
       const acc = byStoreYearMonth.get(key) ?? { orders: 0, sales: 0 };
       acc.orders += Number(row.orders);

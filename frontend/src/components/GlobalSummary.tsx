@@ -83,7 +83,7 @@ export function GlobalSummary({ summary }: GlobalSummaryProps) {
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
           Desglose por estado
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {breakdownKpis.map((kpi) => (
             <div
               key={kpi.label}

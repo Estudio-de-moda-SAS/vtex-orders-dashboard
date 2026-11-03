@@ -41,7 +41,7 @@ export interface CityBreakdown {
  */
 export type CityRevenueBreakdown = CityBreakdown;
 
-/** Órdenes y valor acumulado para un estado "contabilizado" (invoiced, payment-approved, handling, checking-invoice). */
+/** Órdenes y valor acumulado para un estado "contabilizado" (invoiced, payment-approved, handling, checking-invoice, waiting-ffmt-authorization (excepto Pilatos)). */
 export interface RevenueStatusBreakdown {
   orders: number;
   value: number;
@@ -49,7 +49,7 @@ export interface RevenueStatusBreakdown {
 
 export interface StoreDashboardData {
   totalOrders: number;
-  /** Órdenes cuyo status está entre los "contabilizados": invoiced, payment-approved, handling, checking-invoice. */
+  /** Órdenes cuyo status está entre los "contabilizados": invoiced, payment-approved, handling, checking-invoice, waiting-ffmt-authorization (excepto Pilatos). */
   revenueOrders: number;
   /** Suma de `totalValue` de esas mismas órdenes contabilizadas. */
   revenueTotalValue: number;

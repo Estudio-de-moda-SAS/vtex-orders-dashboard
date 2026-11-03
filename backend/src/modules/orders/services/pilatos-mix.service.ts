@@ -63,7 +63,7 @@ export class PilatosMixService {
 
     const totalByMonth = new Map<string, number>();
     for (const row of statusRows) {
-      if (!matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions)) continue;
+      if (!matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions)) continue;
       const month = monthKey(row.year, row.month);
       totalByMonth.set(month, (totalByMonth.get(month) ?? 0) + Number(row.sales));
     }

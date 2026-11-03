@@ -12,6 +12,14 @@ import { normalizeText } from './text-normalize.util';
 export interface StatusLike {
   status: string | null | undefined;
   statusDescription?: string | null;
+  /**
+   * Tienda de la orden/fila (`StoreConfig.id`). Obligatorio a propósito:
+   * algunos estados solo cuentan en ciertas tiendas (ver
+   * `RevenueStatusDefinition.excludedStoreIds`), así que todo llamador
+   * tiene que decir de qué tienda es la fila. Si se pasa `null`/`undefined`,
+   * los estados con exclusiones por tienda NO cuentan (falla cerrada).
+   */
+  storeId: string | null | undefined;
 }
 
 /**
@@ -37,6 +45,9 @@ export function matchRevenueStatusDefinition(
   const normalizedDescription = normalizeText(order.statusDescription);
 
   return definitions.find((definition) => {
+    if (definition.excludedStoreIds && definition.excludedStoreIds.length > 0) {
+      if (!order.storeId || definition.excludedStoreIds.includes(order.storeId)) return false;
+    }
     const matchesStatus = definition.statusMatchers.some(
       (matcher) => normalizeText(matcher) === normalizedStatus,
     );

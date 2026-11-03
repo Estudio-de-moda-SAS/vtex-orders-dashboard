@@ -15,12 +15,20 @@ export interface RevenueStatusDefinition {
    * entre cuentas VTEX.
    */
   descriptionMatchers: string[];
+  /**
+   * Tiendas (`StoreConfig.id`) en las que este estado NO cuenta como
+   * contabilizado aunque la orden lo tenga. Opcional — si se omite, el
+   * estado cuenta en todas las tiendas. Ver `waiting-ffmt-authorization`.
+   */
+  excludedStoreIds?: string[];
 }
 
 /**
  * Estados que se consideran para el indicador "totalizado" del dashboard
  * (antes llamado "invoiced"): ahora no solo se cuenta `invoiced`, sino
- * también `payment-approved`, `handling` y `checking-invoice`.
+ * también `payment-approved`, `handling`, `checking-invoice` y
+ * `waiting-ffmt-authorization` (este último excepto en Pilatos, ver
+ * `excludedStoreIds`).
  *
  * Si en tu cuenta VTEX el código exacto de alguno de estos estados es
  * distinto, agrega el valor real a `statusMatchers` o `descriptionMatchers`
@@ -73,6 +81,20 @@ export function getRevenueStatusDefinitions(): RevenueStatusDefinition[] {
         'facturando',
         'faturando',
       ],
+    },
+    {
+      key: 'waiting-ffmt-authorization',
+      label: 'Esperando autorización de despacho',
+      // Estado de transición (como `handling` o `invoice`) que VTEX asigna
+      // cuando una orden tuvo un cambio y queda esperando autorización
+      // antes de seguir a facturada. Existe en las 6 tiendas, pero por
+      // decisión de negocio en Pilatos NO cuenta como contabilizado; en
+      // Diesel, Superdry, Kipling, Girbaud y Replay sí. Empezó a aparecer
+      // en órdenes activas desde octubre 2026 (las más viejas ya pasaron a
+      // `invoiced`).
+      statusMatchers: ['waiting-ffmt-authorization'],
+      descriptionMatchers: [],
+      excludedStoreIds: ['pilatos'],
     },
   ];
 }

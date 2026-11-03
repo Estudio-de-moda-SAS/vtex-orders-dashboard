@@ -88,7 +88,7 @@ export function buildEnrichedOrder(
 ): EnrichedOrder {
   const first = rows[0];
 
-  const status = resolveStatus(first);
+  const status = resolveStatus(first, store.id);
   const totalValue = Number(first['Total Value'] ?? 0);
   const paymentNames = first['Payment System Name'] ? String(first['Payment System Name']) : null;
   const city = normalizeCityName(first.City ? String(first.City) : null) ?? UNKNOWN_CITY;
@@ -154,7 +154,7 @@ export function buildEnrichedOrder(
  * en el desglose de estados — no afecta la clasificación de revenue de
  * todas formas.
  */
-function resolveStatus(row: SafeRow): string {
+function resolveStatus(row: SafeRow, storeId: string): string {
   const rawStatus = String(row['Status raw value (temporary)'] ?? '').trim();
   const spanishStatus = String(row.Status ?? '').trim();
   const primary = rawStatus || spanishStatus;
@@ -166,8 +166,8 @@ function resolveStatus(row: SafeRow): string {
   // (ej. `rawStatus` = "Checking invoice" en inglés mientras `Status`
   // trae otra cosa sin relación).
   const definition =
-    matchRevenueStatusDefinition({ status: rawStatus, statusDescription: rawStatus }, REVENUE_STATUS_DEFINITIONS) ??
-    matchRevenueStatusDefinition({ status: spanishStatus, statusDescription: spanishStatus }, REVENUE_STATUS_DEFINITIONS);
+    matchRevenueStatusDefinition({ status: rawStatus, statusDescription: rawStatus, storeId }, REVENUE_STATUS_DEFINITIONS) ??
+    matchRevenueStatusDefinition({ status: spanishStatus, statusDescription: spanishStatus, storeId }, REVENUE_STATUS_DEFINITIONS);
 
   return definition?.statusMatchers[0] ?? primary;
 }

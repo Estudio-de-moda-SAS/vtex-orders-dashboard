@@ -176,7 +176,7 @@ export class AssistantSalesService {
     );
     const byLabel = new Map<string, { orders: number; sales: number }>();
     for (const row of rows) {
-      const definition = matchRevenueStatusDefinition({ status: String(row.status) }, this.revenueStatusDefinitions);
+      const definition = matchRevenueStatusDefinition({ status: String(row.status), storeId: String(row.store_id) }, this.revenueStatusDefinitions);
       if (!definition) continue;
       const entry = byLabel.get(definition.label) ?? { orders: 0, sales: 0 };
       entry.orders += Number(row.orders);

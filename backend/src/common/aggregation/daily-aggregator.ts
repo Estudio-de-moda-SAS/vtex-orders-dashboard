@@ -492,13 +492,19 @@ export function aggregateDailyRows(orders: EnrichedOrder[], isMultiBrand: boolea
  * El pago se hace una sola vez por la compra COMPLETA al inicio; el
  * desglose en fragmentos ocurre después, por logística — así que si
  * CUALQUIER fragmento cae en un estado "contabilizado", la compra
- * completa se cuenta como una venta real. Quita solo el ÚLTIMO sufijo
- * numérico (con o sin guion de por medio en el resto del id, ej.
- * "DDD-1661985538153-01" → "DDD-1661985538153") — un id sin ese sufijo
- * queda como su propia clave (no se agrupa con nada).
+ * completa se cuenta como una venta real. Quita solo un sufijo final de
+ * EXACTAMENTE 2 dígitos (con o sin guion de por medio en el resto del id,
+ * ej. "DDD-1661985538153-01" → "DDD-1661985538153") — un id sin ese
+ * sufijo queda como su propia clave (no se agrupa con nada).
+ *
+ * Exactamente 2 dígitos, no `\d+`: hay órdenes cuyo id completo es
+ * prefijo + número (ej. "RVS-2803776", "RVS-2808049" en Kipling) — con
+ * `\d+` todas quedaban como "RVS" y se contaban como UNA sola compra
+ * (validado contra el export de VTEX de Kipling oct-2026: 788 compras
+ * reales en el Excel vs 776 en VICA).
  */
-function extractOrderBaseId(orderId: string): string {
-  const match = orderId.match(/^(.+)-\d+$/);
+export function extractOrderBaseId(orderId: string): string {
+  const match = orderId.match(/^(.+)-\d{2}$/);
   return match ? match[1] : orderId;
 }
 

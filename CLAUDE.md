@@ -154,3 +154,26 @@ CASCADE`. Por eso una migración nueva se aplica con un script de una sola
 vez (`Client` de `pg` directo contra `DATABASE_URL`), **nunca con
 `npm run db:migrate`**, que re-corre todo el historial desde `0001_init.sql`
 y destruiría datos reales.
+
+## "Compras reales" (`real_orders` / `real_revenue_orders`)
+
+VTEX parte una compra en fragmentos `-01`, `-02`... (`extractOrderBaseId`
+en `backend/src/common/aggregation/daily-aggregator.ts`). La regla quita
+SOLO un sufijo final de **exactamente 2 dígitos** (`/-\d{2}$/`). Antes era
+`/-\d+$/`, y eso juntaba como UNA sola compra todas las órdenes de tipo
+prefijo+número (ej. `RVS-2803776`, `RVS-2808049` → "RVS"). Se detectó
+validando contra el export de VTEX de Kipling oct-2026: 788 en el Excel
+vs 776 en VICA.
+
+- La forma de validar es con el export de órdenes de VTEX (una fila por
+  SKU): agrupar por `Order`, quitar el `-NN` y contar los números base
+  donde al menos un fragmento tenga un estado contabilizado.
+- `sales_daily` solo guarda totales por día, sin números de orden.
+  Corregir este cálculo para días ya guardados exige resincronizar
+  (`npm run backfill` o "Resincronizar" en el dashboard). No se puede
+  corregir con SQL sobre Supabase.
+- El import desde Excel (`import:historico`) NO reconoce los textos
+  "Preparando" ni "Esperando autorización para fulfillment" de la columna
+  `Status raw value (temporary)`, así que esas órdenes quedan como no
+  contabilizadas. Para recalcular, preferir el backfill desde la API de
+  VTEX.

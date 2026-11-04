@@ -18,7 +18,8 @@ export interface RevenueStatusDefinition {
   /**
    * Tiendas (`StoreConfig.id`) en las que este estado NO cuenta como
    * contabilizado aunque la orden lo tenga. Opcional — si se omite, el
-   * estado cuenta en todas las tiendas. Ver `waiting-ffmt-authorization`.
+   * estado cuenta en todas las tiendas. Ver `waiting-ffmt-authorization` y
+   * `waiting-for-seller-decision`.
    */
   excludedStoreIds?: string[];
 }
@@ -27,8 +28,8 @@ export interface RevenueStatusDefinition {
  * Estados que se consideran para el indicador "totalizado" del dashboard
  * (antes llamado "invoiced"): ahora no solo se cuenta `invoiced`, sino
  * también `payment-approved`, `handling`, `checking-invoice` y
- * `waiting-ffmt-authorization` (este último excepto en Pilatos, ver
- * `excludedStoreIds`).
+ * `waiting-ffmt-authorization` y `waiting-for-seller-decision` (estos dos
+ * últimos excepto en Pilatos, ver `excludedStoreIds`).
  *
  * Si en tu cuenta VTEX el código exacto de alguno de estos estados es
  * distinto, agrega el valor real a `statusMatchers` o `descriptionMatchers`
@@ -94,6 +95,21 @@ export function getRevenueStatusDefinitions(): RevenueStatusDefinition[] {
       // `invoiced`).
       statusMatchers: ['waiting-ffmt-authorization'],
       descriptionMatchers: [],
+      excludedStoreIds: ['pilatos'],
+    },
+    {
+      key: 'waiting-for-seller-decision',
+      label: 'Esperando decisión del seller',
+      // Mismo criterio que `waiting-ffmt-authorization`: estado de
+      // transición, la orden ya está pagada y queda esperando que el
+      // seller confirme antes de seguir a facturada. Cuenta en Diesel,
+      // Superdry, Kipling, Girbaud y Replay; en Pilatos NO, por decisión de
+      // negocio. Visto en órdenes de septiembre y octubre de 2026.
+      statusMatchers: ['waiting-for-seller-decision'],
+      // Textos del export de Excel de VTEX (columnas `Status raw value
+      // (temporary)` y `Status`), para que `import:historico` también lo
+      // reconozca. Se comparan sin tildes y sin distinguir mayúsculas.
+      descriptionMatchers: ['esperando decision del seller', 'aguardando decisao do seller'],
       excludedStoreIds: ['pilatos'],
     },
   ];

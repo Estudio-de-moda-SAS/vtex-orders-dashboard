@@ -428,7 +428,8 @@ en una misma corrida. Si sigues viendo 429 con frecuencia, baja
   si no coincide, `isConsistent` se marca en `false`.
 - **`revenueOrders` / `revenueTotalValue`**: suma de `sales_daily_by_status`
   filtrando los status "contabilizados": `invoiced`, `payment-approved`,
-  `handling` y `checking-invoice` — ver
+  `handling`, `checking-invoice` y, excepto en Pilatos,
+  `waiting-ffmt-authorization` y `waiting-for-seller-decision` — ver
   `backend/src/config/revenue-status.config.ts` para ajustar la lista.
 - **`paymentMethods`**: agrupación por `paymentNames`. Si una orden reporta
   varios medios de pago separados por coma, se cuenta en cada uno de ellos

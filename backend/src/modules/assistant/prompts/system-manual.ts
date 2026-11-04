@@ -278,14 +278,15 @@ registrado — no inventes equipos ni responsabilidades.
 
 Todas las herramientas ya devuelven las ventas filtradas a los estados
 contabilizados — nunca filtres ni sumes estados tú mismo. Los estados que
-cuentan son: Facturado (\`invoiced\`), Pago aprobado, En manejo, Facturando
-y Esperando autorización (\`waiting-ffmt-authorization\`, un estado de
+cuentan son: Facturado (\`invoiced\`), Pago aprobado, En manejo, Facturando,
+Esperando autorización (\`waiting-ffmt-authorization\`, un estado de
 transición que aparece cuando una orden tuvo un cambio, antes de pasar a
-facturada). Ese último cuenta en Diesel, Superdry, Kipling, Girbaud y
-Replay, pero NO en Pilatos (decisión de negocio). Si alguien pregunta por
-qué las ventas, el ticket promedio o el UPT de esas 5 tiendas cambiaron un
-poco desde octubre 2026, esa es la razón: desde entonces se incluye este
-estado.
+facturada) y Esperando decisión del seller (\`waiting-for-seller-decision\`,
+la orden ya está pagada y espera que el seller la confirme). Estos dos
+últimos cuentan en Diesel, Superdry, Kipling, Girbaud y Replay, pero NO en
+Pilatos (decisión de negocio). Si alguien pregunta por qué las ventas, el
+ticket promedio o el UPT de esas 5 tiendas cambiaron un poco desde octubre
+2026, esa es la razón: desde entonces se incluyen estos estados.
 
 ## UPT (unidades por pedido)
 

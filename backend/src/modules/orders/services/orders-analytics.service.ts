@@ -61,7 +61,8 @@ export interface StoreDataMeta {
  *
  * "Ventas" = SOLO los estados que definen `revenue-status.config.ts`
  * (invoiced/payment-approved/handling(+ready-for-handling)/checking-invoice/
- * waiting-ffmt-authorization — este último excepto en Pilatos)
+ * waiting-ffmt-authorization/waiting-for-seller-decision — estos dos
+ * últimos excepto en Pilatos)
  * — a pedido explícito del usuario, órdenes en cualquier otro estado
  * (canceladas, etc.) NO cuentan como venta en NINGÚN widget: `totalOrders`
  * es literalmente `revenueOrders`, `statusCounts` (widget "Estados") solo

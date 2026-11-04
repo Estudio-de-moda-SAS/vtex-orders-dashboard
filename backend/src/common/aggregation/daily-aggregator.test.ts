@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { aggregateDailyRows } from './daily-aggregator';
+import { aggregateDailyRows, extractOrderBaseId } from './daily-aggregator';
 import { EnrichedOrder } from './types';
 
 function baseOrder(overrides: Partial<EnrichedOrder>): EnrichedOrder {
@@ -122,6 +122,28 @@ test('"compras reales": órdenes sin ningún fragmento hermano no se agrupan con
   assert.equal(daily?.realOrders, 2, 'sin número base compartido, cada orden sigue siendo su propia compra');
 });
 
+test('"compras reales": órdenes prefijo+número (ej. "RVS-2803776") NO se agrupan entre sí — cada una es una compra distinta', () => {
+  const rvs1 = baseOrder({ orderId: 'RVS-2803776', status: 'invoiced' });
+  const rvs2 = baseOrder({ orderId: 'RVS-2808049', status: 'invoiced' });
+  const rvs3 = baseOrder({ orderId: 'RVS-2806464', status: 'invoiced' });
+  const fragment1 = baseOrder({ orderId: '1665910641984-01', status: 'invoiced' });
+  const fragment2 = baseOrder({ orderId: '1665910641984-02', status: 'invoiced' });
+  const result = aggregateDailyRows([rvs1, rvs2, rvs3, fragment1, fragment2], false);
+
+  const daily = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(daily?.orders, 5);
+  assert.equal(daily?.realOrders, 4, '3 órdenes RVS distintas + 1 compra partida en -01/-02');
+  assert.equal(daily?.realRevenueOrders, 4);
+});
+
+test('extractOrderBaseId: solo quita un sufijo final de exactamente 2 dígitos', () => {
+  assert.equal(extractOrderBaseId('1665910641984-01'), '1665910641984');
+  assert.equal(extractOrderBaseId('DDD-1661985538153-02'), 'DDD-1661985538153');
+  assert.equal(extractOrderBaseId('RVS-2803776'), 'RVS-2803776');
+  assert.equal(extractOrderBaseId('ORD-1'), 'ORD-1');
+  assert.equal(extractOrderBaseId('SINSUFIJO'), 'SINSUFIJO');
+});
+
 test('SmartSale: una orden con utmiCampaign de un vendedor configurado aporta a smartSaleByPerson/Category/City', () => {
   const order = baseOrder({
     utmiCampaign: '1011397082', // Juana Pinilla
@@ -215,4 +237,33 @@ test('waiting-ffmt-authorization cuenta como contabilizado en Diesel/Superdry/Ki
 
   const pilatosStatus = result.byStatus.find((r) => r.storeId === 'pilatos');
   assert.equal(pilatosStatus?.status, 'waiting-ffmt-authorization', 'sales_daily_by_status guarda el estado crudo igual en todas las tiendas');
+});
+
+test('waiting-for-seller-decision cuenta como contabilizado (y en compras reales) en las 5 marcas pero NO en Pilatos', () => {
+  const items = [
+    { skuId: 'sku-a', ean: '', category: 'Camisetas', brand: 'Marca A', collectionName: 'Línea', quantity: 2, listPrice: 50000, sellingPrice: 50000, discountPercentage: 0 },
+  ];
+  const stores = ['diesel', 'superdry', 'kipling', 'girbaud', 'replay'];
+  const orders = [
+    ...stores.map((storeId, i) =>
+      baseOrder({ orderId: `ORD-${storeId}-01`, storeId, status: 'waiting-for-seller-decision', city: `Ciudad-${i}`, items }),
+    ),
+    baseOrder({ orderId: 'ORD-pilatos-01', storeId: 'pilatos', status: 'waiting-for-seller-decision', city: 'Ciudad-P', items }),
+  ];
+  const result = aggregateDailyRows(orders, false);
+
+  for (const storeId of stores) {
+    const daily = result.salesDaily.find((r) => r.storeId === storeId);
+    assert.equal(daily?.revenueUnits, 2, `${storeId}: debe sumar a revenue_units (UPT)`);
+    assert.equal(daily?.realRevenueOrders, 1, `${storeId}: debe contar en compras reales`);
+    const city = result.byCity.find((r) => r.storeId === storeId);
+    assert.equal(city?.revenueOrders, 1, `${storeId}: debe contar en revenue_orders de los desgloses`);
+  }
+
+  const pilatos = result.salesDaily.find((r) => r.storeId === 'pilatos');
+  assert.equal(pilatos?.units, 2, 'Pilatos: las unidades sin filtrar sí se registran');
+  assert.equal(pilatos?.revenueUnits, 0, 'Pilatos: waiting-for-seller-decision NO es contabilizado');
+  assert.equal(pilatos?.realRevenueOrders, 0, 'Pilatos: NO cuenta en compras reales');
+  const pilatosStatus = result.byStatus.find((r) => r.storeId === 'pilatos');
+  assert.equal(pilatosStatus?.status, 'waiting-for-seller-decision', 'sales_daily_by_status guarda el estado crudo igual en todas las tiendas');
 });

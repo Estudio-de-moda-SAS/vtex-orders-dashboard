@@ -1,7 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { classifyErpLine, erpExclusionReason, resolveErpStoreIdFromCo, splitIntoDayChunks } from '../../common/utils/erp-sales.util';
+import {
+  classifyErpLine,
+  erpExclusionReason,
+  isErpCreditNoteDoc,
+  normalizeErpSellerCode,
+  resolveErpChannel,
+  resolveErpStoreIdFromCo,
+  splitIntoDayChunks,
+} from '../../common/utils/erp-sales.util';
 import { AppConfig } from '../../config/configuration';
 import { ErpSaleDbRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
 import { ErpSalesClientService, ErpSalesTimeoutError } from './erp-sales-client.service';
@@ -19,7 +27,7 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
     nroDocumento: row.nro_documento,
     doctoReferencia: row.docto_referencia ?? null,
     doctoRemision: row.docto_remision ?? null,
-    codigoVendedor: row.codigo_vendedor ?? null,
+    codigoVendedor: normalizeErpSellerCode(row.codigo_vendedor),
     estadoDocto: row.estado_docto ?? null,
     clienteFactura: row.cliente_factura ?? null,
     bodega: row.bodega ?? null,
@@ -39,6 +47,8 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
     utilidadPromedio: row.utilidad_promedio ?? null,
     pedidoVtex: row.pedido_vtex ?? null,
     lineKind: classifyErpLine(row.desc_item, row.tipo),
+    channel: resolveErpChannel(row.codigo_vendedor),
+    isCreditNote: isErpCreditNoteDoc(row.nro_documento),
   };
 }
 
@@ -46,9 +56,10 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
  * Sincroniza facturas e-commerce del ERP (requiere VPN) → `erp_sales`.
  * Cualquier rango se pide en tramos de `chunkDays` días (3 por defecto) y
  * cada tramo se guarda apenas llega, así un fallo a mitad de camino no
- * pierde lo ya sincronizado. Solo se guardan las líneas que cuentan como
- * venta de la tienda virtual (`erpExclusionReason`); lo descartado se
- * reporta contado por motivo.
+ * pierde lo ya sincronizado. Cada línea guardada lleva su canal
+ * ('ecommerce' o 'smartsale', `resolveErpChannel`); las notas crédito
+ * ("NVF-…") se guardan marcadas (`isCreditNote`), nunca se restan. Lo
+ * descartado (`erpExclusionReason`) se reporta contado por motivo.
  */
 @Injectable()
 export class ErpSalesSyncService {
@@ -62,7 +73,12 @@ export class ErpSalesSyncService {
 
   async syncRange(fromDay: string, toDay: string, onChunk?: (msg: string) => void): Promise<ErpSalesSyncResult> {
     const { chunkDays } = this.configService.get<AppConfig['erpSales']>('app.erpSales')!;
-    const result: ErpSalesSyncResult = { saved: 0, excluded: {} };
+    const result: ErpSalesSyncResult = {
+      saved: 0,
+      byChannel: { ecommerce: 0, smartsale: 0 },
+      creditNoteLines: { ecommerce: 0, smartsale: 0 },
+      excluded: {},
+    };
 
     for (const chunk of splitIntoDayChunks(fromDay, toDay, chunkDays)) {
       const apiRows = await this.fetchWithRetry(chunk.start, chunk.end);
@@ -73,7 +89,10 @@ export class ErpSalesSyncService {
           result.excluded[reason] = (result.excluded[reason] ?? 0) + 1;
           continue;
         }
-        dbRows.push(toDbRow(row, resolveErpStoreIdFromCo(row.co)!));
+        const dbRow = toDbRow(row, resolveErpStoreIdFromCo(row.co)!);
+        if (dbRow.isCreditNote) result.creditNoteLines[dbRow.channel] += 1;
+        else result.byChannel[dbRow.channel] += 1;
+        dbRows.push(dbRow);
       }
       await this.repository.replaceRange(chunk.start, chunk.end, dbRows);
       result.saved += dbRows.length;

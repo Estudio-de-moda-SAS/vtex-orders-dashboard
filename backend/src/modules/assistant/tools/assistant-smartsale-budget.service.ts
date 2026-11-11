@@ -37,7 +37,7 @@ export interface SmartSaleBudgetVsActualResult {
  * calculado), pero para el presupuesto del CANAL SmartSale completo
  * (`channel: 'smartsale'`, ver migración 0025 y `SmartSaleBudgetTab.tsx`)
  * en vez de una tienda VTEX — un único presupuesto para las 6 tiendas
- * combinadas, no por marca. La venta real es VTEX + POS
+ * combinadas, no por marca. La venta real es POS + ERP
  * (`SmartSaleCombinedService`), igual criterio que `get_smartsale_sales`.
  */
 @Injectable()
@@ -54,7 +54,7 @@ export class AssistantSmartSaleBudgetService {
     ]);
 
     const rangeBudget = rangeSummary.channelTotal;
-    const rangeActual = salesSummary.totalVtexSales + salesSummary.totalPosSales;
+    const rangeActual = salesSummary.totalSales;
     const achievedPercent = rangeBudget > 0 ? Number(((rangeActual / rangeBudget) * 100).toFixed(2)) : null;
 
     const fullMonth = rangeSummary.fullMonth

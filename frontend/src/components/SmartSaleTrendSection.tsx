@@ -8,8 +8,9 @@ import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 import { GROWTH_STATUS_META } from './GrowthBadge';
 import { ChartPanel } from './OrdersByStoreChart';
 
+/** `erpAvailable === false` = mes sin facturas ERP sincronizadas (solo POS) — se marca "Solo POS" y no lleva % de crecimiento. */
 interface SmartSaleTrendSectionProps {
-  monthly: SmartSaleMonthlyTrendPoint[];
+  monthly: (SmartSaleMonthlyTrendPoint & { erpAvailable?: boolean })[];
 }
 
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -26,7 +27,7 @@ function getAllMonthsThisYear(): string[] {
 }
 
 /**
- * Tendencia de ventas del canal SmartSale (VTEX + POS, las 6 tiendas
+ * Tendencia de ventas del canal SmartSale (POS + ERP, las 6 tiendas
  * combinadas — pestaña "Resumen" de `/smartsale`) — siempre el año
  * completo en curso (Enero a Diciembre), sin filtro: los meses sin datos
  * todavía (antes del lanzamiento en Septiembre, o meses futuros) quedan
@@ -60,8 +61,10 @@ export function SmartSaleTrendSection({ monthly }: SmartSaleTrendSectionProps) {
     <div className="flex flex-col gap-4">
       <ChartPanel title="Tendencia de ventas SmartSale">
         <p className="-mt-1 mb-3 text-xs text-ink-faint">
-          Venta del canal SmartSale (VTEX + POS, todas las tiendas combinadas) — año completo en curso, Enero a
+          Venta del canal SmartSale (POS + ERP, todas las tiendas combinadas) — año completo en curso, Enero a
           Diciembre. Los meses sin datos todavía quedan como huecos en la línea y se van completando solos mes a mes.
+          {monthly.some((p) => p.erpAvailable === false) &&
+            ' Los meses marcados "Solo POS" aún no tienen facturas ERP sincronizadas (el histórico se cargará más adelante).'}
         </p>
 
         <ResponsiveContainer width="100%" height={280}>
@@ -87,7 +90,7 @@ export function SmartSaleTrendSection({ monthly }: SmartSaleTrendSectionProps) {
       <ChartPanel title="Crecimiento mes a mes">
         <p className="-mt-1 mb-3 text-xs text-ink-faint">
           Cambio % de la venta de SmartSale respecto al mes anterior. El primer mes de la serie no tiene mes anterior
-          con el cual comparar.
+          con el cual comparar, y un mes sin ERP no se compara contra uno con ERP.
         </p>
         <div className="flex gap-3 overflow-x-auto pb-1">
           {monthly.map((point) => {
@@ -107,7 +110,8 @@ export function SmartSaleTrendSection({ monthly }: SmartSaleTrendSectionProps) {
                     <span>{meta.label}</span>
                   )}
                 </div>
-                <span className="text-[11px] text-ink-faint">{formatNumber(point.orders)} ord.</span>
+                <span className="text-[11px] text-ink-faint">{formatNumber(point.orders)} fact./doc.</span>
+                {point.erpAvailable === false && <span className="text-[11px] font-medium text-warning">Solo POS</span>}
               </div>
             );
           })}

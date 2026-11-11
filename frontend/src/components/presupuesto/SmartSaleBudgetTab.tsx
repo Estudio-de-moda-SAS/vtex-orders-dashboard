@@ -123,9 +123,8 @@ function formatRawPreview(raw: string): string {
  * diario × multiplicador del mes, guardado en `budgets_daily`/
  * `budget_multipliers` pero con `channel: 'smartsale'` y un `store_id`
  * sintético (`'smartsale'`, ver migración 0025) en vez de una de las 6
- * marcas reales. La venta real para comparar es VTEX + POS
- * (`SmartSaleCombinedService`) — VTEX es un acercamiento hasta que haya
- * ERP. Arriba del presupuesto del canal se muestra un reparto en partes
+ * marcas reales. La venta real para comparar es POS + ERP
+ * (`SmartSaleCombinedService`, mismo total que el "Resumen"). Arriba del presupuesto del canal se muestra un reparto en partes
  * iguales entre los vendedores de `SMARTSALE_BUDGET_SELLERS`.
  */
 export function SmartSaleBudgetTab() {
@@ -141,7 +140,8 @@ export function SmartSaleBudgetTab() {
     budget: BudgetRangeSummaryResponse;
     sales: SmartSaleCombinedSummaryResponse;
   }>(
-    `smartsale-budget-comparison:${cmpStartDate}:${cmpEndDate}`,
+    // "v2": la venta real pasó de VTEX + POS a POS + ERP (campos `vtex*` → `erp*`).
+    `smartsale-budget-comparison:v2:${cmpStartDate}:${cmpEndDate}`,
     async () => {
       const [budget, sales] = await Promise.all([
         ordersService.getBudgetRangeSummary(cmpStartDate, cmpEndDate, SMARTSALE_CHANNEL),
@@ -156,7 +156,7 @@ export function SmartSaleBudgetTab() {
   const cmpLoading = cmpState.status === 'loading';
   const cmpError = cmpState.status === 'error' ? cmpState.message : null;
 
-  const totalSmartSaleSales = cmpSales ? cmpSales.totalVtexSales + cmpSales.totalPosSales : 0;
+  const totalSmartSaleSales = cmpSales ? cmpSales.totalSales : 0;
   const channelBudget = cmpBudget?.channelTotal ?? 0;
 
   // --- Mes de trabajo para "Crear presupuesto" (multiplicador + grilla) — se deriva de la fecha "Hasta" del rango. ---
@@ -428,21 +428,19 @@ export function SmartSaleBudgetTab() {
               {renderComparisonMetrics(totalSmartSaleSales, cmpBudget.channelTotal, cmpBudget.fullMonth?.channelTotal)}
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border border-surface-border bg-surface p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas VTEX</p>
-                <p className="mt-0.5 font-display text-lg font-semibold text-ink">{formatCOP(cmpSales.totalVtexSales)}</p>
-                <p className="mt-1 text-[11px] text-ink-faint">
-                  Acercamiento — la versión válida será la del ERP, próximamente.
-                </p>
-              </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-surface-border bg-surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas POS</p>
                 <p className="mt-0.5 font-display text-lg font-semibold text-ink">{formatCOP(cmpSales.totalPosSales)}</p>
               </div>
-              <div className="rounded-xl border border-dashed border-surface-border bg-surface/60 p-4 opacity-70">
+              <div className="rounded-xl border border-surface-border bg-surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas ERP</p>
-                <p className="mt-0.5 font-display text-lg font-semibold text-ink-faint">Próximamente</p>
+                <p className="mt-0.5 font-display text-lg font-semibold text-ink">{formatCOP(cmpSales.totalErpSales)}</p>
+                {cmpSales.erpCoverageStartDay !== null && cmpSales.filters.startDate < cmpSales.erpCoverageStartDay && (
+                  <p className="mt-1 text-[11px] text-warning">
+                    Facturas ERP sincronizadas desde el {cmpSales.erpCoverageStartDay} — los días anteriores solo traen POS.
+                  </p>
+                )}
               </div>
             </div>
 

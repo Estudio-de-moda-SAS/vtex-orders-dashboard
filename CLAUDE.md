@@ -38,15 +38,17 @@ arreglarlo solo con una instrucción de prompt más fuerte.
 
 ## Ventas POS + "Resumen" combinado (`/smartsale`)
 
-`/smartsale` tiene 5 pestañas: Ventas VTEX, Ventas POS, Resumen (VTEX+POS
-combinado), Presupuesto e Indicadores (estas 2 últimas pendientes).
+`/smartsale` tiene 6 pestañas: Ventas VTEX, Ventas POS, Ventas ERP,
+Resumen (POS + ERP combinado), Presupuesto e Indicadores (pendiente).
 
 - **Ventas POS** — API "Conní" del ERP (mismo host/credenciales que
   notas crédito), tabla `pos_sales`. Sync manual:
   `npm run pos-sales:sync -- --from=YYYY-MM-DD --to=YYYY-MM-DD` (requiere
   VPN, igual que notas crédito — nunca corre en el backend desplegado).
   `npm run daily-sync -- --from=... --to=...` corre notas crédito +
-  ventas POS en un solo comando (sin rango por defecto, a propósito).
+  ventas POS + ventas ERP en un solo comando (sin rango por defecto, a
+  propósito; el usuario siempre corre los últimos 3 días, así lo que el
+  ERP factura tarde se completa en la siguiente corrida).
   Como esta API no trae un id de fila estable, cada sync BORRA e INSERTA
   de nuevo el rango pedido (`PosSalesRepository.replaceRange`), nunca
   hace upsert por llave. Reglas de negocio: venta = `valor_neto`
@@ -56,51 +58,79 @@ combinado), Presupuesto e Indicadores (estas 2 últimas pendientes).
   `pos-sales.util.ts` (todo lo no listado cae en Pilatos); nombre de
   vendedor con mapeo manual (`friendlyPosSellerName`) aplicado al
   CONSULTAR, no al guardar (actualizar el mapeo se refleja en todo el
-  histórico sin re-sincronizar).
-- **Resumen** combina VTEX (`SmartSaleService`, vendedor identificado
-  por `utmiCampaign`) + POS (`PosSalesQueryService`, por `nit_vendedor`)
+  histórico sin re-sincronizar). Validado contra la consulta de facturas
+  del ERP (CO 810, sin NPE): documento por documento coinciden; la
+  consulta de facturas puede traer tarde los documentos del día.
+- **Ventas ERP** — facturas del ERP de los vendedores SmartSale (canal
+  `'smartsale'` de `erp_sales`, ver sección siguiente), mismo layout que
+  Ventas POS: total, por vendedor, por tienda con desglose por vendedor,
+  marcas dentro de Pilatos y categorías; cada nivel con total, fletes,
+  empaque, productos, facturas, unidades, AVT (total ÷ facturas) y UPT
+  (unidades de producto ÷ facturas). Notas crédito (NVF) del canal: se
+  MUESTRAN aparte (cantidad y valor por vendedor y por marca) y NUNCA se
+  restan — a diferencia de POS, que sí las resta.
+- **Resumen** combina POS (`PosSalesQueryService`, por `nit_vendedor`) +
+  ERP (`ErpSalesQueryService.getSmartSaleSummary`, por `codigo_vendedor`)
   — `SmartSaleCombinedService`
   (`backend/src/modules/orders/services/smartsale-combined.service.ts`).
-  El emparejamiento es por NOMBRE AMIGABLE, no por id (son ids de
-  sistemas distintos) — funciona porque hoy coincide exactamente
-  ("Felipe Rengifo", "Juana Pinilla") entre `smartsale.config.ts` (VTEX)
-  y `pos-sales.util.ts` (POS). Si un vendedor nuevo vende por ambos
-  canales, su nombre debe agregarse IDÉNTICO en los dos mapeos o el
-  emparejamiento no lo va a unir (aparecerá dos veces, una por canal).
+  Antes era VTEX + POS (VTEX era un acercamiento hasta tener ERP); la
+  pestaña Ventas VTEX sigue existiendo pero ya no entra en el total. Lo
+  usan también la pestaña Presupuesto de `/smartsale` y Vico
+  (`get_smartsale_sales`, `get_smartsale_budget_vs_actual`). Venta ERP =
+  total facturado, sin desglose de fletes/empaque ni notas crédito
+  (decisión del usuario: el Resumen queda así; ojo que POS llega neto de
+  sus NC y ERP bruto). Emparejamiento por NOMBRE AMIGABLE ("Felipe
+  Rengifo", "Juana Pinilla"), idéntico en `pos-sales.util.ts` (POS),
+  `erp-sales.util.ts` (`ERP_SMARTSALE_SELLERS`) y `smartsale.config.ts`
+  (VTEX) — un vendedor nuevo debe agregarse IDÉNTICO en los mapeos o
+  aparecerá dos veces. Categorías: las del ERP traen código ("101B -
+  CAMISETA M/C"); se quita (`stripErpCategoryCode`) y coinciden exacto con
+  POS. Tendencia mensual: meses anteriores al primer día ERP sincronizado
+  salen solo POS, marcados "Solo POS" y SIN % de crecimiento (se
+  completan cuando llegue el histórico ERP por Excel) —
+  `buildCombinedMonthlyTrend` en `smartsale-combined.util.ts`.
 
-## Ventas ERP (`/presupuesto` → "Presupuesto y ventas ERP")
+## Ventas ERP (`/presupuesto` y `/smartsale`)
 
-Facturas e-commerce del ERP — API "Conní", consulta
+Facturas del ERP — API "Conní", consulta
 `estudiodemoda_Facuras_Ecommerce`, mismas credenciales que notas crédito,
-tabla `erp_sales` (migración 0026). Sync:
+tabla `erp_sales` (migraciones 0026-0029). Sync:
 `npm run erp-sales:sync -- --from=YYYY-MM-DD --to=YYYY-MM-DD` (requiere
 VPN), también incluido en `npm run daily-sync`. La consulta es pesada:
 el sync la pide en tramos de 3 días (`ERP_SALES_CHUNK_DAYS`) y guarda
-cada tramo apenas llega (BORRA e INSERTA el rango, igual que `pos_sales`).
-Histórico antes de nov-2026 llegará por Excel (pendiente).
+cada tramo apenas llega (BORRA e INSERTA el rango, igual que `pos_sales`)
+y lo registra en `erp_sales_synced_ranges` (0028) — la cobertura ERP se
+calcula desde ahí, no con `MIN(fecha)`: un día sin facturas (domingo,
+festivo) no deja filas. Histórico antes de nov-2026 llegará por Excel.
 
 - Reglas de negocio en `backend/src/common/utils/erp-sales.util.ts`
   (con pruebas): CO→marca (199 Pilatos, 202 Replay, 203 Kipling, 204
-  Girbaud, 208 Diesel, 209 Superdry). SE EXCLUYEN: notas crédito
-  (`nro_documento` "NVF-…", ya están en su propia pestaña), CO 810
-  (SmartSale), vendedores 082P/168A (SmartSale, sin distinguir
-  mayúsculas), CO 956 "REPLAY EDEN BOGOTA" (pendiente de validar por el
-  usuario — `PENDING_VALIDATION_COS`) y cualquier otro CO no listado.
+  Girbaud, 208 Diesel, 209 Superdry). SE EXCLUYEN en ambos canales: CO
+  810 (SmartSale, otra fuente), CO 956 "REPLAY EDEN BOGOTA" (pendiente de
+  validar por el usuario — `PENDING_VALIDATION_COS`) y cualquier otro CO.
+- Canal (`channel`, 0027): vendedores 082P (Juana Pinilla) / 168A
+  (Felipe Rengifo), sin distinguir mayúsculas → `'smartsale'`
+  (`/smartsale` → Ventas ERP); el resto → `'ecommerce'` (`/presupuesto`).
+- Notas crédito "NVF-…" (0029): se GUARDAN con `is_credit_note = true`
+  (valor y cantidad negativos) y TODAS las consultas de venta las
+  excluyen — nunca se restan. Solo se muestran en Ventas ERP de
+  `/smartsale`; las de e-commerce ya tienen su pestaña de notas crédito.
 - Venta = `valor_neto` (con IVA). Flete: `desc_item` contiene "FLETE" o
   `tipo` "NA - NO APLICA"; empaque: `desc_item` empieza por "CONSUMO" o
   `tipo` "741 - MATERIAL DE EMPAQUE" (la descripción gana sobre `tipo`
   NA). El presupuesto se mide contra el TOTAL (incluye fletes y empaque);
   "Ventas productos" = total − fletes − empaque es solo informativo. El
   empaque hoy viene facturado en $0 (esperado, confirmado por el usuario).
-- Presupuesto: canal `'erp'` en `budgets_daily`, por las 6 marcas, mismo
-  panel "Crear presupuesto" que VTEX. La pestaña VTEX y la ERP son el
-  mismo componente (`ChannelBudgetTab` en `VtexBudgetTab.tsx`) con un
-  `ChannelBudgetConfig` distinto — un cambio de layout aplica a ambas.
+- Presupuesto e-commerce: canal `'erp'` en `budgets_daily`, por las 6
+  marcas, mismo panel "Crear presupuesto" que VTEX. La pestaña VTEX y la
+  ERP de `/presupuesto` son el mismo componente (`ChannelBudgetTab` en
+  `VtexBudgetTab.tsx`) con un `ChannelBudgetConfig` distinto — un cambio
+  de layout aplica a ambas.
 - Sin VPN, Windows corta la conexión con `ETIMEDOUT` a los ~21s; el
   cliente ERP lo distingue de un timeout real por el tiempo transcurrido
   y lo reporta como "conéctate a la VPN".
-- Pendiente: ERP de SmartSale (ahí SÍ se usa `codigo_vendedor`) y el
-  "Resumen" de `/presupuesto` (margen, utilidad, ventas por categoría).
+- Pendiente: "Resumen" de `/presupuesto` (margen, utilidad, ventas por
+  categoría y filtros).
 
 ## Verificar un cambio al asistente ("Vico")
 
@@ -151,8 +181,8 @@ properties of undefined". La corrección SIEMPRE es la misma: subir el
 sufijo de versión en la cache key (`"pagina:v3:..."` → `"pagina:v4:..."`)
 para esa página. Páginas con este patrón hoy: Dashboard (`page.tsx`),
 `/tendencias`, `/descuentos`, `/pilatos`, `/metodos-pago`, `/analytics`,
-`/resumen`, `/smartsale`. `/presupuesto` no usa este caché (consulta en
-vivo siempre).
+`/resumen`, `/smartsale` y `/presupuesto` (sus pestañas también cachean
+por rango — ej. `presupuesto-comparison:v2`, `smartsale-budget-comparison:v2`).
 
 ## Procesos en segundo plano — compromiso con el usuario
 

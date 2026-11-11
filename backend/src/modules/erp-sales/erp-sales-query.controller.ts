@@ -14,4 +14,11 @@ export class ErpSalesQueryController {
     OrdersQueryDto.assertRange(query.startDate, query.endDate);
     return this.erpSalesQueryService.getSummary(query.startDate, query.endDate);
   }
+
+  /** GET /api/erp-sales/smartsale-summary?startDate&endDate — pestaña "Ventas ERP" de `/smartsale` (vendedores 082P/168A). */
+  @Get('smartsale-summary')
+  getSmartSaleSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    return this.erpSalesQueryService.getSmartSaleSummary(query.startDate, query.endDate);
+  }
 }

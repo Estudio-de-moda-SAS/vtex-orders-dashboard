@@ -16,8 +16,13 @@ import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } 
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
 
-/** Entre VTEX y POS combinadas son 40+ categorías — se muestran solo las de más venta para que la lista no quede interminable. */
+/** Entre POS y ERP combinadas pueden ser muchas categorías — se muestran solo las de más venta para que la lista no quede interminable. */
 const MAX_CATEGORIES_SHOWN = 20;
+
+function dayLabel(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
+}
 
 interface ResumenData {
   summary: SmartSaleCombinedSummaryResponse;
@@ -25,10 +30,12 @@ interface ResumenData {
 }
 
 /**
- * Ventas totales del canal SmartSale: VTEX (`smartsale.interface.ts`) + POS
- * (`pos-sales.interface.ts`) combinadas, emparejadas por tienda y por
- * vendedor — ver `SmartSaleCombinedService` en el backend. Mismo diseño de
- * cards que "Ventas VTEX"/"Ventas POS", pero con los dos canales sumados.
+ * Ventas totales del canal SmartSale: POS + ERP (facturas de los
+ * vendedores SmartSale) combinadas, emparejadas por tienda y por vendedor
+ * — ver `SmartSaleCombinedService` en el backend. Antes era VTEX + POS
+ * (VTEX era un acercamiento hasta tener ERP). Venta ERP = total facturado,
+ * sin desglose de fletes/empaque aquí (decisión del usuario). Mismo diseño
+ * de cards que "Ventas POS"/"Ventas ERP", pero con los dos canales sumados.
  * La tendencia mensual (antes en "Ventas VTEX") vive acá, con la venta
  * total combinada de cada mes.
  */
@@ -45,7 +52,8 @@ export function ResumenTab() {
     // "v2": agrega desglose combinado de categorías (VTEX + POS).
     // "v3": agrega totalSales/totalOrders/totalUnits ya sumados por el backend (antes se sumaban en el cliente).
     // "v4": se agregó `vtexUnits`/`posUnits`/`totalUnits` (UPT) a `byStore`/`byPerson` y `totalVtexUnits`/`totalPosUnits` al total general.
-    `smartsale-resumen:v4:${startDate}:${endDate}`,
+    // "v5": VTEX + POS → POS + ERP (campos `vtex*` renombrados a `erp*`, `erpAvailable` en la tendencia).
+    `smartsale-resumen:v5:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -60,7 +68,7 @@ export function ResumenTab() {
 
   return (
     <>
-      <p className="max-w-2xl text-sm text-ink-muted">Ventas totales del canal SmartSale — VTEX + POS combinadas.</p>
+      <p className="max-w-2xl text-sm text-ink-muted">Ventas totales del canal SmartSale — POS + ERP combinadas.</p>
 
       <DateRangeFilter
         startDate={startDate}
@@ -89,9 +97,13 @@ export function ResumenTab() {
 
 function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map<string, StoreInfo> }) {
   const { summary, monthlyTrend } = data;
-  const totalSales = summary.totalVtexSales + summary.totalPosSales;
-  const totalOrders = summary.totalVtexOrders + summary.totalPosOrders;
-  const totalUnits = summary.totalVtexUnits + summary.totalPosUnits;
+  const { totalSales, totalOrders, totalUnits } = summary;
+  const coverageNotice =
+    summary.erpCoverageStartDay === null
+      ? 'Todavía no hay facturas ERP sincronizadas — estas cifras son solo de POS.'
+      : summary.filters.startDate < summary.erpCoverageStartDay
+        ? `Las facturas ERP están sincronizadas desde el ${dayLabel(summary.erpCoverageStartDay)} — los días anteriores del rango solo incluyen POS.`
+        : null;
 
   const orderedByStore = [...summary.byStore].sort(
     (a, b) => STORE_DISPLAY_ORDER.indexOf(a.storeId) - STORE_DISPLAY_ORDER.indexOf(b.storeId),
@@ -99,25 +111,18 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
 
   return (
     <div className="flex flex-col gap-4">
+      {coverageNotice && <p className="text-xs text-warning">{coverageNotice}</p>}
+
       <div className="rounded-2xl border border-surface-border bg-accent/5 p-6 shadow-panel">
-        <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales SmartSale (VTEX + POS)</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales SmartSale (POS + ERP)</p>
         <p className="mt-0.5 font-display text-3xl font-semibold text-ink">{formatCOP(totalSales)}</p>
         <p className="text-xs text-ink-faint">
-          {formatNumber(totalOrders)} orden(es)/documento(s) · {formatNumber(totalUnits)} und. · AVT{' '}
+          {formatNumber(totalOrders)} factura(s)/documento(s) · {formatNumber(totalUnits)} und. · AVT{' '}
           {formatAverageTicket(totalSales, totalOrders)} · UPT {formatUpt(totalUnits, totalOrders)}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas VTEX</p>
-          <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.totalVtexSales)}</p>
-          <p className="text-xs text-ink-faint">
-            {formatNumber(summary.totalVtexOrders)} orden(es) · {formatNumber(summary.totalVtexUnits)} und. · AVT{' '}
-            {formatAverageTicket(summary.totalVtexSales, summary.totalVtexOrders)} · UPT{' '}
-            {formatUpt(summary.totalVtexUnits, summary.totalVtexOrders)}
-          </p>
-        </div>
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas POS</p>
           <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.totalPosSales)}</p>
@@ -127,10 +132,19 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
             {formatUpt(summary.totalPosUnits, summary.totalPosOrders)}
           </p>
         </div>
+        <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas ERP</p>
+          <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.totalErpSales)}</p>
+          <p className="text-xs text-ink-faint">
+            {formatNumber(summary.totalErpOrders)} factura(s) · {formatNumber(summary.totalErpUnits)} und. · AVT{' '}
+            {formatAverageTicket(summary.totalErpSales, summary.totalErpOrders)} · UPT{' '}
+            {formatUpt(summary.totalErpUnits, summary.totalErpOrders)}
+          </p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
-        <h3 className="mb-1 font-display text-base font-semibold text-ink">Total por vendedor (VTEX + POS, todas las tiendas)</h3>
+        <h3 className="mb-1 font-display text-base font-semibold text-ink">Total por vendedor (POS + ERP, todas las tiendas)</h3>
         <p className="mb-3 text-xs text-ink-faint">Cada vendedor de SmartSale, sumando ambos canales y las 6 tiendas.</p>
         {summary.bySeller.length === 0 ? (
           <p className="text-sm text-ink-faint">Sin ventas de SmartSale en este rango.</p>
@@ -144,7 +158,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                 <li key={seller.name} className="flex items-center justify-between text-sm">
                   <span className="font-medium text-ink">{seller.name}</span>
                   <span className="font-medium tabular-nums text-ink">
-                    {formatNumber(sellerOrders)} ord. · {formatNumber(sellerUnits)} und. · {formatCOP(sellerSales)} · AVT{' '}
+                    {formatNumber(sellerOrders)} fact./doc. · {formatNumber(sellerUnits)} und. · {formatCOP(sellerSales)} · AVT{' '}
                     {formatAverageTicket(sellerSales, sellerOrders)} · UPT {formatUpt(sellerUnits, sellerOrders)}{' '}
                     <span className="text-ink-faint">({formatPercentage(totalSales > 0 ? (sellerSales / totalSales) * 100 : 0)})</span>
                   </span>
@@ -177,7 +191,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas totales SmartSale</p>
                 <p className="font-display text-xl font-semibold text-ink">{formatCOP(storeSales)}</p>
                 <p className="text-xs text-ink-faint">
-                  {formatNumber(storeOrders)} ord./doc. · {formatNumber(storeUnits)} und. · AVT{' '}
+                  {formatNumber(storeOrders)} fact./doc. · {formatNumber(storeUnits)} und. · AVT{' '}
                   {formatAverageTicket(storeSales, storeOrders)} · UPT {formatUpt(storeUnits, storeOrders)} ·{' '}
                   {formatPercentage(percentage)} del total
                 </p>
@@ -195,7 +209,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                       <li key={person.name} className="flex items-center justify-between text-xs">
                         <span className="text-ink-muted">{person.name}</span>
                         <span className="font-medium tabular-nums text-ink">
-                          {formatNumber(personOrders)} ord. · {formatNumber(personUnits)} und. · {formatCOP(personSales)} · AVT{' '}
+                          {formatNumber(personOrders)} fact./doc. · {formatNumber(personUnits)} und. · {formatCOP(personSales)} · AVT{' '}
                           {formatAverageTicket(personSales, personOrders)} · UPT {formatUpt(personUnits, personOrders)}{' '}
                           <span className="text-ink-faint">
                             ({formatPercentage(storeSales > 0 ? (personSales / storeSales) * 100 : 0)})
@@ -213,11 +227,10 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
 
       {summary.byCategory.length > 0 && (
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
-          <h3 className="mb-1 font-display text-base font-semibold text-ink">Categorías más vendidas (VTEX + POS)</h3>
+          <h3 className="mb-1 font-display text-base font-semibold text-ink">Categorías más vendidas (POS + ERP)</h3>
           <p className="mb-3 text-xs text-ink-faint">
-            En unidades vendidas. Las categorías de POS son más granulares que las de VTEX (ej. &quot;CAMISETA
-            M/C&quot; dentro de &quot;Camisetas&quot;) — cuando una categoría de POS no tiene una equivalencia clara
-            en VTEX, aparece sola con su nombre tal cual del ERP.
+            En unidades vendidas, solo productos. Categoría tal cual la registra el ERP (sin el código), igual en POS y
+            en facturas.
             {summary.byCategory.length > MAX_CATEGORIES_SHOWN && ` Mostrando las ${MAX_CATEGORIES_SHOWN} con más venta.`}
           </p>
           <ul className="flex flex-col gap-2">

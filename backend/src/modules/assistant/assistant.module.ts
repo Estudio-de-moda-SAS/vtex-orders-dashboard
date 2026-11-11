@@ -4,6 +4,7 @@ import { AnalyticsGaModule } from '../analytics-ga/analytics-ga.module';
 import { BudgetsModule } from '../budgets/budgets.module';
 import { CreditNotesModule } from '../credit-notes/credit-notes.module';
 import { DatabaseModule } from '../database/database.module';
+import { ErpSalesModule } from '../erp-sales/erp-sales.module';
 import { OrdersModule } from '../orders/orders.module';
 import { ResumenModule } from '../resumen/resumen.module';
 import { AssistantChatService } from './assistant-chat.service';
@@ -36,7 +37,7 @@ import { AssistantSyncStatusService } from './tools/assistant-sync-status.servic
  * para cómo se elige cuál).
  */
 @Module({
-  imports: [DatabaseModule, BudgetsModule, CreditNotesModule, OrdersModule, ResumenModule, AnalyticsGaModule],
+  imports: [DatabaseModule, BudgetsModule, CreditNotesModule, OrdersModule, ResumenModule, AnalyticsGaModule, ErpSalesModule],
   controllers: [AssistantController],
   providers: [
     AssistantSalesService,

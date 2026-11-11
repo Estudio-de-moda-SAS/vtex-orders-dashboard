@@ -3,12 +3,14 @@ import { Injectable } from '@nestjs/common';
 import { normalizeEndDate, normalizeStartDate, toDayBucketColombia, todayColombia } from '../../common/utils/date-range.util';
 import { buildMarginSummary, MarginSummary } from '../../common/utils/erp-margin.util';
 import { buildMarketplaceSummary, MarketplaceSummary } from '../../common/utils/erp-marketplace.util';
+import { ErpResumenFilters, vtexSalesForErpMarcas } from '../../common/utils/erp-resumen-filter.util';
 import { erpSmartSaleSellerName, mergeSalesWithCreditNotes } from '../../common/utils/erp-sales.util';
 import { getStoresConfig } from '../../config/stores.config';
 import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
 import {
   ErpCreditNotesSummary,
   ErpEcommerceBreakdownResponse,
+  ErpResumenFilteredResponse,
   ErpSalesBreakdown,
   ErpSalesSummaryResponse,
   ErpSmartSaleSellerSummary,
@@ -81,6 +83,56 @@ export class ErpSalesQueryService {
     }, emptyBreakdown());
 
     return { filters: { startDate: startDay, endDate: endDay }, channel, byStore, ...syncInfo };
+  }
+
+  /**
+   * Resumen de `/presupuesto` con filtros (tienda, marca de Pilatos, tipo —
+   * ver `ErpResumenFilteredResponse` y `getFilteredLines`). Margen y
+   * marketplaces con las mismas fórmulas de siempre, sobre las líneas
+   * filtradas. Con filtro de marca o tipo, la venta VTEX por marketplace
+   * no es comparable → se deja en 0 y el frontend la muestra como "N/A".
+   */
+  async getFilteredResumen(rawStartDate: string, rawEndDate: string, filters: ErpResumenFilters): Promise<ErpResumenFilteredResponse> {
+    const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
+    const allStoreIds = getStoresConfig().map((s) => s.id);
+    const storeIds = filters.storeIds.length > 0 ? allStoreIds.filter((id) => filters.storeIds.includes(id)) : allStoreIds;
+    const brandOrTipo = filters.marcas.length > 0 || filters.tipos.length > 0;
+    const wantsPilatosBrands = filters.marcas.length > 0 && storeIds.includes(PILATOS_STORE_ID);
+
+    const [lines, vtexByMarketplace, vtexPilatosBrands] = await Promise.all([
+      this.repository.getFilteredLines(startDay, endDay, 'ecommerce', filters),
+      brandOrTipo ? Promise.resolve({} as Record<string, number>) : this.repository.getVtexSalesByMarketplace(startDay, endDay),
+      wantsPilatosBrands ? this.repository.getVtexSalesByBrand(startDay, endDay, PILATOS_STORE_ID) : Promise.resolve(null),
+    ]);
+
+    const margin = buildMarginSummary(lines, storeIds);
+    const erpSalesByStore = new Map<string, number>();
+    for (const l of lines) erpSalesByStore.set(l.storeId, (erpSalesByStore.get(l.storeId) ?? 0) + l.total);
+
+    const prefixRows = new Map<string | null, { prefix: string | null; total: number; subtotal: number; invoices: number }>();
+    for (const l of lines) {
+      const r = prefixRows.get(l.prefix) ?? { prefix: l.prefix, total: 0, subtotal: 0, invoices: 0 };
+      r.total += l.total;
+      r.subtotal += l.subtotal;
+      r.invoices += l.invoices;
+      prefixRows.set(l.prefix, r);
+    }
+
+    return {
+      filters: { startDate: startDay, endDate: endDay, storeIds: filters.storeIds, marcas: filters.marcas, tipos: filters.tipos },
+      byStore: margin.byStore.map((s) => ({ ...s, erpSales: erpSalesByStore.get(s.storeId) ?? 0 })),
+      channel: {
+        ...margin.channel,
+        erpSales: storeIds.reduce((a, id) => a + (erpSalesByStore.get(id) ?? 0), 0),
+      },
+      freight: margin.freight,
+      packaging: margin.packaging,
+      marketplaces: buildMarketplaceSummary(Array.from(prefixRows.values()), vtexByMarketplace),
+      vtex: {
+        tipoFilterActive: filters.tipos.length > 0,
+        pilatosBrands: vtexPilatosBrands ? vtexSalesForErpMarcas(filters.marcas, vtexPilatosBrands) : null,
+      },
+    };
   }
 
   /**

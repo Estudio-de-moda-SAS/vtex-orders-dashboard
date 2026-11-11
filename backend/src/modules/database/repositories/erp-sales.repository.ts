@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 
+import { ErpResumenFilters } from '../../../common/utils/erp-resumen-filter.util';
 import { ErpChannel, ErpLineKind } from '../../../common/utils/erp-sales.util';
 import { PG_POOL } from '../pg-pool.provider';
 
@@ -285,6 +286,79 @@ export class ErpSalesRepository {
       [startDay, endDay],
     );
     return Object.fromEntries(result.rows.map((r) => [r.marketplace_name, Number(r.sales)]));
+  }
+
+  /**
+   * Líneas e-commerce FILTRADAS (Resumen de `/presupuesto`) agrupadas por
+   * tienda, tipo de línea y prefijo de `docto_referencia` — de aquí salen
+   * ventas ERP, margen/utilidad (`buildMarginSummary`) y marketplaces
+   * (`buildMarketplaceSummary`) con los mismos filtros. Marca solo filtra
+   * Pilatos (las otras tiendas no tienen marcas internas — "N/A"). Un
+   * filtro de marca o tipo deja fuera flete y empaque por sí solo (su marca
+   * es "NA - NO APLICA"/"PILA - PILATOS" y su tipo no es de producto).
+   * Sin notas crédito.
+   */
+  async getFilteredLines(
+    startDay: string,
+    endDay: string,
+    channel: ErpChannel,
+    filters: ErpResumenFilters,
+  ): Promise<{ storeId: string; lineKind: ErpLineKind; prefix: string | null; total: number; subtotal: number; cost: number; invoices: number }[]> {
+    const params: unknown[] = [startDay, endDay, channel];
+    let where = 'fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note';
+    if (filters.storeIds.length > 0) {
+      params.push(filters.storeIds);
+      where += ` AND store_id = ANY($${params.length})`;
+    }
+    if (filters.marcas.length > 0) {
+      params.push(filters.marcas);
+      where += ` AND (store_id <> 'pilatos' OR marca = ANY($${params.length}))`;
+    }
+    if (filters.tipos.length > 0) {
+      params.push(filters.tipos);
+      where += ` AND tipo = ANY($${params.length})`;
+    }
+    const result = await this.pool.query<{
+      store_id: string;
+      line_kind: ErpLineKind;
+      prefix: string | null;
+      total: string;
+      subtotal: string;
+      cost: string;
+      invoices: string;
+    }>(
+      `SELECT store_id, line_kind,
+              substring(upper(trim(docto_referencia)) from '^[A-Z]+') AS prefix,
+              COALESCE(SUM(valor_neto), 0) AS total,
+              COALESCE(SUM(valor_subtotal), 0) AS subtotal,
+              COALESCE(SUM(COALESCE(costo_promedio_uni_inst * cantidad, costo_promedio_total, 0)), 0) AS cost,
+              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS invoices
+       FROM erp_sales
+       WHERE ${where}
+       GROUP BY 1, 2, 3`,
+      params,
+    );
+    return result.rows.map((r) => ({
+      storeId: r.store_id,
+      lineKind: r.line_kind,
+      prefix: r.prefix,
+      total: Number(r.total),
+      subtotal: Number(r.subtotal),
+      cost: Number(r.cost),
+      invoices: Number(r.invoices),
+    }));
+  }
+
+  /** Venta VTEX contabilizada por marca de una tienda (`sales_daily_by_brand`) — para el filtro de marca de Pilatos. */
+  async getVtexSalesByBrand(startDay: string, endDay: string, storeId: string): Promise<Record<string, number>> {
+    const result = await this.pool.query<{ brand_name: string; sales: string }>(
+      `SELECT brand_name, COALESCE(SUM(revenue_sales), 0) AS sales
+       FROM sales_daily_by_brand
+       WHERE date BETWEEN $1 AND $2 AND store_id = $3
+       GROUP BY 1`,
+      [startDay, endDay, storeId],
+    );
+    return Object.fromEntries(result.rows.map((r) => [r.brand_name, Number(r.sales)]));
   }
 
   /** Venta total y facturas por mes de un canal — para la tendencia mensual del "Resumen" de SmartSale. */

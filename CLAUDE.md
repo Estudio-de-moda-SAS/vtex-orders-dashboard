@@ -96,7 +96,9 @@ Resumen (POS + ERP combinado), Presupuesto e Indicadores (pendiente).
   completan cuando llegue el histórico ERP por Excel) —
   `buildCombinedMonthlyTrend` en `smartsale-combined.util.ts`.
 - **Margen y utilidad del Resumen (POS + ERP), solo por marca** (no por
-  vendedor). La consulta POS NO trae subtotal sin IVA ni costo: se toman
+  vendedor) y SOLO PRODUCTOS (sin fletes, bolsas ni material publicitario —
+  mismo `buildMarginSummary` que `/presupuesto`). La consulta POS NO trae
+  subtotal sin IVA ni costo: se toman
   de los MISMOS documentos POS en la consulta de facturas (CO 810, canal
   `'pos'` de `erp_sales`, ver sección siguiente). Panel "Margen y
   utilidad", margen/utilidad en cada tarjeta y cuadro "Resumen por marca
@@ -111,7 +113,7 @@ Resumen (POS + ERP combinado), Presupuesto e Indicadores (pendiente).
 
 Facturas del ERP — API "Conní", consulta
 `estudiodemoda_Facuras_Ecommerce`, mismas credenciales que notas crédito,
-tabla `erp_sales` (migraciones 0026-0030). Sync:
+tabla `erp_sales` (migraciones 0026-0031). Sync:
 `npm run erp-sales:sync -- --from=YYYY-MM-DD --to=YYYY-MM-DD` (requiere
 VPN), también incluido en `npm run daily-sync`. La consulta es pesada:
 el sync la pide en tramos de 3 días (`ERP_SALES_CHUNK_DAYS`) y guarda
@@ -150,9 +152,13 @@ festivo) no deja filas. Histórico antes de nov-2026 llegará por Excel.
 - Venta = `valor_neto` (con IVA). Flete: `desc_item` contiene "FLETE" o
   `tipo` "NA - NO APLICA"; empaque: `desc_item` empieza por "CONSUMO" o
   `tipo` "741 - MATERIAL DE EMPAQUE" (la descripción gana sobre `tipo`
-  NA). El presupuesto se mide contra el TOTAL (incluye fletes y empaque);
-  "Ventas productos" = total − fletes − empaque es solo informativo. El
-  empaque hoy viene facturado en $0 (esperado, confirmado por el usuario).
+  NA); material publicitario: `tipo` "801 - MATERIAL PUBLICITARIO"
+  (portadocumentos, pines, muestras — `line_kind = 'advertising'`,
+  migración 0031). El presupuesto se mide contra el TOTAL (incluye fletes
+  y empaque); "Ventas productos" = total − fletes − empaque es solo
+  informativo. Empaque y material publicitario vienen facturados en $0
+  pero con costo (esperado, confirmado por el usuario). Ninguno de los
+  tres es "producto": no entran a margen, utilidad, tipos ni unidades.
 - Presupuesto e-commerce: canal `'erp'` en `budgets_daily`, por las 6
   marcas, mismo panel "Crear presupuesto" que VTEX. La pestaña VTEX y la
   ERP de `/presupuesto` son el mismo componente (`ChannelBudgetTab` en
@@ -175,8 +181,14 @@ festivo) no deja filas. Histórico antes de nov-2026 llegará por Excel.
   subtotal. Total del canal: PONDERADO (utilidad total ÷ subtotal total,
   cifra principal) y PROMEDIO SIMPLE de las marcas con venta al lado —
   el usuario pidió los dos; la nota de la tabla muestra ambas fórmulas con
-  los números del rango. Incluye fletes (costo $0 → todo utilidad) y
-  empaque ($0 facturado con costo → resta). Sin notas crédito.
+  los números del rango. SOLO PRODUCTOS (decisión del usuario): fletes,
+  bolsas/empaque y material publicitario cuentan en las VENTAS pero NO en
+  el margen, la utilidad ni la "venta sin IVA (productos)" que es su base
+  — antes se incluían y el flete (sin costo en el ERP) inflaba el margen.
+  Aplica a los dos Resúmenes (`/presupuesto` y `/smartsale`). Sin notas
+  crédito. El cuadro de marketplaces queda como está (su venta sin IVA y
+  comisión aún incluyen el flete de esas facturas — decisión del usuario,
+  por ahora).
   `buildMarginSummary` (`erp-margin.util.ts`, con pruebas). En 74 de 2.672
   líneas el ERP trae costo unitario × cantidad ≠ costo total (efecto en
   margen: 0,002 puntos) — viene así del ERP, no es un error nuestro.

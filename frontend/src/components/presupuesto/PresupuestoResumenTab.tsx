@@ -124,6 +124,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
     erpSales: erpByStore.get(storeId) ?? 0,
     marginPercent: marginByStore.get(storeId)?.marginPercent ?? null,
     utility: marginByStore.get(storeId)?.utility ?? 0,
+    erpSubtotal: marginByStore.get(storeId)?.subtotal ?? 0,
   }));
   /** Las mismas marcas que entran al promedio simple del backend (`buildMarginSummary`): solo las que tuvieron venta. */
   const rowsWithMargin = rows.filter((r) => r.marginPercent !== null);
@@ -173,12 +174,13 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
 
       <ChartPanel title="Resumen por marca">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-sm">
+          <table className="w-full min-w-[680px] border-collapse text-sm">
             <thead>
               <tr>
                 <th className={`${th} text-left`}>Marca</th>
                 <th className={`${th} text-right`}>Ventas VTEX</th>
                 <th className={`${th} text-right`}>Ventas ERP</th>
+                <th className={`${th} text-right`}>Ventas ERP sin IVA</th>
                 <th className={`${th} text-right`}>Margen</th>
                 <th className={`${th} text-right`}>Utilidad</th>
               </tr>
@@ -194,6 +196,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.vtexSales)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSales)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSubtotal)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{marginLabel(row.marginPercent)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.utility)}</td>
                 </tr>
@@ -202,6 +205,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
                 <td className="px-3 py-2">Total</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatCOP(vtex.summary.totalRevenueValue)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatCOP(erp.channel.total)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(margin.channel.subtotal)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {marginLabel(margin.channel.marginPercent)}
                   <span className="block text-[11px] font-normal text-ink-faint">

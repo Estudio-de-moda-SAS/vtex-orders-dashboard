@@ -15,6 +15,13 @@ export class ErpSalesQueryController {
     return this.erpSalesQueryService.getSummary(query.startDate, query.endDate);
   }
 
+  /** GET /api/erp-sales/ecommerce-breakdown?startDate&endDate — marcas dentro de Pilatos y ventas por tipo (e-commerce). */
+  @Get('ecommerce-breakdown')
+  getEcommerceBreakdown(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    return this.erpSalesQueryService.getEcommerceBreakdown(query.startDate, query.endDate);
+  }
+
   /** GET /api/erp-sales/margin-summary?startDate&endDate — margen y utilidad e-commerce por marca ("Resumen" de `/presupuesto`). */
   @Get('margin-summary')
   getMarginSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {

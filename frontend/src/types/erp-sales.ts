@@ -92,3 +92,11 @@ export interface ErpMarketplaceSummaryResponse {
   /** Prefijos de `docto_referencia` con venta que no están en el cuadro de comisiones (ej. "SLR"). */
   otherPrefixes: { prefix: string; erpSales: number; erpSubtotal: number; invoices: number }[];
 }
+
+/** Marcas dentro de Pilatos y ventas por tipo (e-commerce, solo producto) — listas completas ordenadas por venta. */
+export interface ErpEcommerceBreakdownResponse {
+  filters: { startDate: string; endDate: string };
+  pilatosByBrand: (ErpSalesBreakdown & { marca: string })[];
+  byTipo: (ErpSalesBreakdown & { tipo: string })[];
+  byStore: { storeId: string; byTipo: (ErpSalesBreakdown & { tipo: string })[] }[];
+}

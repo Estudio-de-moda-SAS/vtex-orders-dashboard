@@ -8,6 +8,7 @@ import { getStoresConfig } from '../../config/stores.config';
 import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
 import {
   ErpCreditNotesSummary,
+  ErpEcommerceBreakdownResponse,
   ErpSalesBreakdown,
   ErpSalesSummaryResponse,
   ErpSmartSaleSellerSummary,
@@ -80,6 +81,32 @@ export class ErpSalesQueryService {
     }, emptyBreakdown());
 
     return { filters: { startDate: startDay, endDate: endDay }, channel, byStore, ...syncInfo };
+  }
+
+  /**
+   * Marcas dentro de Pilatos y ventas por tipo de producto (general y por
+   * marca) del canal e-commerce — solo producto, listas completas
+   * ordenadas por venta (ver `ErpEcommerceBreakdownResponse`).
+   */
+  async getEcommerceBreakdown(rawStartDate: string, rawEndDate: string): Promise<ErpEcommerceBreakdownResponse> {
+    const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
+    const [storeMarcaRows, tipoRows, storeTipoRows] = await Promise.all([
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeMarca'),
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'tipo'),
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeTipo'),
+    ]);
+    const toTipo = (r: ErpSalesGroupedRow) => ({ tipo: r.keys.tipo ?? 'SIN TIPO', ...pickBreakdown(r) });
+    return {
+      filters: { startDate: startDay, endDate: endDay },
+      pilatosByBrand: storeMarcaRows
+        .filter((r) => r.keys.store_id === PILATOS_STORE_ID)
+        .map((r) => ({ marca: r.keys.marca ?? 'SIN MARCA', ...pickBreakdown(r) })),
+      byTipo: tipoRows.map(toTipo),
+      byStore: getStoresConfig().map((store) => ({
+        storeId: store.id,
+        byTipo: storeTipoRows.filter((r) => r.keys.store_id === store.id).map(toTipo),
+      })),
+    };
   }
 
   /**

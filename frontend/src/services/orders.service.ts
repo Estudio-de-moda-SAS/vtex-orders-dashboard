@@ -18,6 +18,7 @@ import {
 import { PilatosMixResponse } from '@/types/pilatos-mix';
 import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
 import {
+  ErpEcommerceBreakdownResponse,
   ErpMarginSummaryResponse,
   ErpMarketplaceSummaryResponse,
   ErpSalesSummaryResponse,
@@ -318,6 +319,12 @@ export const ordersService = {
   getErpSalesSummary(startDate: string, endDate: string): Promise<ErpSalesSummaryResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<ErpSalesSummaryResponse>(`/api/erp-sales/summary?${params.toString()}`);
+  },
+
+  /** Marcas dentro de Pilatos y ventas por tipo (e-commerce, solo producto) — pestaña "Presupuesto y ventas ERP". */
+  getErpEcommerceBreakdown(startDate: string, endDate: string): Promise<ErpEcommerceBreakdownResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<ErpEcommerceBreakdownResponse>(`/api/erp-sales/ecommerce-breakdown?${params.toString()}`);
   },
 
   /** Margen y utilidad ERP e-commerce por marca (ponderado + promedio simple) — pestaña "Resumen" de `/presupuesto`. */

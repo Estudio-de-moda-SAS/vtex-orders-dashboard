@@ -40,6 +40,8 @@ export interface ChannelBudgetConfig {
   intro: string;
   comparisonDescription: string;
   dateStorageKey: string;
+  /** Parámetros propios en la URL — distintos por pestaña para que una no pise el rango de la otra. */
+  dateParamNames: { start: string; end: string };
   /** Prefijo de la cache key de `useCachedQuery` — incluir versión (ver CLAUDE.md, "Caché de sessionStorage"). */
   cacheKeyPrefix: string;
   fetchSales: (startDate: string, endDate: string) => Promise<ChannelSales>;
@@ -54,6 +56,7 @@ const VTEX_CONFIG: ChannelBudgetConfig = {
   comparisonDescription:
     'Venta real (mismo dato del Dashboard general, ventas contabilizadas) contra el presupuesto del rango elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo.',
   dateStorageKey: 'vica-presupuesto-comparison-range',
+  dateParamNames: { start: 'vtexStartDate', end: 'vtexEndDate' },
   cacheKeyPrefix: 'presupuesto-comparison:v2',
   fetchSales: async (startDate, endDate) => {
     const sales = await ordersService.getDashboardData(startDate, endDate);
@@ -283,7 +286,7 @@ export function ChannelBudgetTab({ config }: { config: ChannelBudgetConfig }) {
     setStartDate: setCmpStartDate,
     endDate: cmpEndDate,
     setEndDate: setCmpEndDate,
-  } = useDateRangeFilter(config.dateStorageKey);
+  } = useDateRangeFilter(config.dateStorageKey, undefined, config.dateParamNames);
 
   const { state: cmpState, refetch: runComparison } = useCachedQuery<{ budget: BudgetRangeSummaryResponse; sales: ChannelSales }>(
     `${config.cacheKeyPrefix}:${cmpStartDate}:${cmpEndDate}`,

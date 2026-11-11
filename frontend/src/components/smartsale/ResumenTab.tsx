@@ -40,7 +40,10 @@ interface ResumenData {
  * total combinada de cada mes.
  */
 export function ResumenTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-resumen-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-resumen-range', getTodayRange, {
+    start: 'resStartDate',
+    end: 'resEndDate',
+  });
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {

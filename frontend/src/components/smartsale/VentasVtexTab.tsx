@@ -61,7 +61,10 @@ function toSegments(entries: SmartSaleSegmentsResponse['sellers'], type: 'seller
 }
 
 export function VentasVtexTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-smartsale-range', getTodayRange, {
+    start: 'vtexStartDate',
+    end: 'vtexEndDate',
+  });
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<SmartSaleData>(
     // "v3": se agregó `units`/`smartSaleUnits` (UPT) por vendedor y por tienda.

@@ -78,7 +78,10 @@ function SellerList({ sellers, whole, size }: { sellers: ErpSmartSaleSellerSumma
  * productos (como `/presupuesto` → ERP).
  */
 export function VentasErpTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-erp-smartsale-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-erp-smartsale-range', getTodayRange, {
+    start: 'erpStartDate',
+    end: 'erpEndDate',
+  });
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {

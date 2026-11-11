@@ -145,6 +145,7 @@ const ERP_CONFIG: ChannelBudgetConfig = {
   comparisonDescription:
     'Venta facturada en el ERP (valor neto con IVA, sin notas crédito ni SmartSale) contra el presupuesto del rango elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo. El cumplimiento se mide contra la venta total, que incluye fletes y material de empaque.',
   dateStorageKey: 'vica-presupuesto-erp-comparison-range',
+  dateParamNames: { start: 'erpStartDate', end: 'erpEndDate' },
   // "v2": se agregó `extra` (marcas dentro de Pilatos y tipos).
   cacheKeyPrefix: 'presupuesto-erp-comparison:v2',
   fetchSales: async (startDate, endDate) => {

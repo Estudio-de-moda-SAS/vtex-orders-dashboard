@@ -33,7 +33,10 @@ const MAX_CATEGORIES_SHOWN = 20;
  * la participación de cada tienda/vendedor DENTRO de este mismo canal POS.
  */
 export function VentasPosTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-pos-sales-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-pos-sales-range', getTodayRange, {
+    start: 'posStartDate',
+    end: 'posEndDate',
+  });
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {

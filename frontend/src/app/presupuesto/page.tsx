@@ -3,6 +3,7 @@
 import { Suspense, useState } from 'react';
 
 import { CreditNotesTab } from '@/components/presupuesto/CreditNotesTab';
+import { ErpBudgetTab } from '@/components/presupuesto/ErpBudgetTab';
 import { VtexBudgetTab } from '@/components/presupuesto/VtexBudgetTab';
 
 type TabId = 'vtex' | 'notas-credito' | 'erp' | 'resumen';
@@ -10,7 +11,7 @@ type TabId = 'vtex' | 'notas-credito' | 'erp' | 'resumen';
 const TABS: { id: TabId; label: string; disabled?: boolean }[] = [
   { id: 'vtex', label: 'Ventas y presupuesto VTEX' },
   { id: 'notas-credito', label: 'Notas crédito' },
-  { id: 'erp', label: 'Presupuesto y ventas ERP', disabled: true },
+  { id: 'erp', label: 'Presupuesto y ventas ERP' },
   { id: 'resumen', label: 'Resumen (VTEX + ERP + NC)', disabled: true },
 ];
 
@@ -35,7 +36,7 @@ function PresupuestoContent() {
         </div>
         <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Presupuesto y ventas reales</h1>
         <p className="max-w-2xl text-sm text-ink-muted">
-          Ventas y presupuesto del canal VTEX, notas crédito del ERP, y (más adelante) presupuesto/ventas ERP y un
+          Ventas y presupuesto del canal VTEX, notas crédito del ERP, presupuesto/ventas ERP y (más adelante) un
           resumen combinado para medir ventas reales y utilidad.
         </p>
       </header>
@@ -64,12 +65,7 @@ function PresupuestoContent() {
 
       {tab === 'vtex' && <VtexBudgetTab />}
       {tab === 'notas-credito' && <CreditNotesTab />}
-      {tab === 'erp' && (
-        <p className="rounded-2xl border border-surface-border bg-surface-panel p-6 text-sm text-ink-faint">
-          Todavía no tenemos facturas/ventas del ERP como fuente de datos — esta pestaña queda lista para cuando esa
-          información esté disponible.
-        </p>
-      )}
+      {tab === 'erp' && <ErpBudgetTab />}
       {tab === 'resumen' && (
         <p className="rounded-2xl border border-surface-border bg-surface-panel p-6 text-sm text-ink-faint">
           Este resumen va a combinar VTEX + ERP + notas crédito para medir ventas reales y utilidad — depende de que

@@ -22,6 +22,6 @@ export class BudgetsQueryDto {
 
   /** `'vtex'` por defecto si no viene — ver migración 0025. */
   @IsOptional()
-  @IsIn(['vtex', 'smartsale'], { message: 'channel debe ser "vtex" o "smartsale"' })
+  @IsIn(['vtex', 'smartsale', 'erp'], { message: 'channel debe ser "vtex", "smartsale" o "erp"' })
   channel?: string;
 }

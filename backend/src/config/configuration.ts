@@ -196,6 +196,20 @@ export interface AppConfig {
     connectionToken: string | null;
     requestTimeoutMs: number;
   };
+  erpSales: {
+    /**
+     * Facturas e-commerce del ERP — mismo API "Conní" (SOLO por VPN) y
+     * mismas credenciales que `creditNotes` por defecto. Consulta pesada:
+     * el sync la pide en tramos de `chunkDays` días.
+     */
+    apiUrl: string;
+    companyId: string;
+    queryName: string;
+    connectionKey: string | null;
+    connectionToken: string | null;
+    requestTimeoutMs: number;
+    chunkDays: number;
+  };
   assistant: {
     /**
      * Qué proveedor de LLM narra la conversación — 'openai' | 'anthropic'.
@@ -309,6 +323,15 @@ export default (): { app: AppConfig } => ({
       connectionKey: process.env.POS_SALES_CONNI_KEY ?? process.env.CREDIT_NOTES_CONNI_KEY ?? null,
       connectionToken: process.env.POS_SALES_CONNI_TOKEN ?? process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
       requestTimeoutMs: parseInt(process.env.POS_SALES_REQUEST_TIMEOUT_MS ?? '90000', 10),
+    },
+    erpSales: {
+      apiUrl: process.env.ERP_SALES_API_URL ?? process.env.CREDIT_NOTES_API_URL ?? 'http://10.10.21.7:82/v4.1/ejecutarconsulta',
+      companyId: process.env.ERP_SALES_COMPANY_ID ?? process.env.CREDIT_NOTES_COMPANY_ID ?? '2198',
+      queryName: process.env.ERP_SALES_QUERY_NAME ?? 'estudiodemoda_Facuras_Ecommerce',
+      connectionKey: process.env.ERP_SALES_CONNI_KEY ?? process.env.CREDIT_NOTES_CONNI_KEY ?? null,
+      connectionToken: process.env.ERP_SALES_CONNI_TOKEN ?? process.env.CREDIT_NOTES_CONNI_TOKEN ?? null,
+      requestTimeoutMs: parseInt(process.env.ERP_SALES_REQUEST_TIMEOUT_MS ?? '180000', 10),
+      chunkDays: parseInt(process.env.ERP_SALES_CHUNK_DAYS ?? '3', 10),
     },
     assistant: {
       provider: process.env.ASSISTANT_PROVIDER ?? 'openai',

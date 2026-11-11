@@ -7,11 +7,58 @@ import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
 import { parsePastedBudgetValues, parseRawBudgetValue } from '@/lib/parseRawBudgetValues';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
-import { ordersService } from '@/services/orders.service';
+import { BudgetChannel, ordersService } from '@/services/orders.service';
 import { BudgetRangeSummaryResponse } from '@/types/budgets';
-import { DashboardResponse, StoreInfo } from '@/types/dashboard';
+import { StoreInfo } from '@/types/dashboard';
 
 const CODE_STORAGE_KEY = 'vica-budget-code';
+
+/** Desglose opcional de la venta real — hoy solo lo usa ERP (fletes y material de empaque aparte). */
+export interface ChannelSalesBreakdown {
+  total: number;
+  freight: number;
+  packaging: number;
+  product: number;
+}
+
+/** Venta real de un canal en el rango, ya reducida a lo que necesita la pestaña. */
+export interface ChannelSales {
+  channelTotal: number;
+  storeTotals: Record<string, number>;
+  breakdown?: { channel: ChannelSalesBreakdown; stores: Record<string, ChannelSalesBreakdown> };
+  /** Aviso opcional bajo el filtro (ej. "datos ERP sincronizados hasta el 10 de noviembre"). */
+  notice?: string | null;
+}
+
+/** Lo único que cambia entre "Ventas y presupuesto VTEX" y "Presupuesto y ventas ERP" — el resto de la pestaña es idéntico. */
+export interface ChannelBudgetConfig {
+  channel: BudgetChannel;
+  /** "VTEX" / "ERP" — se usa en "Venta VTEX", "Canal VTEX — todas las marcas juntas", etc. */
+  label: string;
+  intro: string;
+  comparisonDescription: string;
+  dateStorageKey: string;
+  /** Prefijo de la cache key de `useCachedQuery` — incluir versión (ver CLAUDE.md, "Caché de sessionStorage"). */
+  cacheKeyPrefix: string;
+  fetchSales: (startDate: string, endDate: string) => Promise<ChannelSales>;
+}
+
+const VTEX_CONFIG: ChannelBudgetConfig = {
+  channel: 'vtex',
+  label: 'VTEX',
+  intro: 'Presupuesto mensual por marca, VTEX',
+  comparisonDescription:
+    'Venta real (mismo dato del Dashboard general, ventas contabilizadas) contra el presupuesto del rango elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo.',
+  dateStorageKey: 'vica-presupuesto-comparison-range',
+  cacheKeyPrefix: 'presupuesto-comparison:v2',
+  fetchSales: async (startDate, endDate) => {
+    const sales = await ordersService.getDashboardData(startDate, endDate);
+    return {
+      channelTotal: sales.summary.totalRevenueValue,
+      storeTotals: Object.fromEntries(sales.stores.map((s) => [s.id, s.data?.revenueTotalValue ?? 0])),
+    };
+  },
+};
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -70,6 +117,7 @@ function renderComparisonMetrics(
   actual: number,
   rangeBudget: number,
   fullMonthBudget: number | undefined,
+  salesLabel: string,
   horizontal = false,
 ) {
   const rangePct = pct(actual, rangeBudget);
@@ -80,7 +128,7 @@ function renderComparisonMetrics(
 
   const salesBlock = (
     <div>
-      <p className={`font-bold uppercase tracking-wide text-accent ${titleSize}`}>Venta VTEX</p>
+      <p className={`font-bold uppercase tracking-wide text-accent ${titleSize}`}>Venta {salesLabel}</p>
       <p className="text-[11px] text-ink-faint">Contabilizada en el rango seleccionado</p>
       <p className={`mt-1 font-display font-semibold text-ink ${valueSize}`}>{formatCOP(actual)}</p>
     </div>
@@ -136,6 +184,45 @@ function renderComparisonMetrics(
   );
 }
 
+/**
+ * Desglose de la venta (solo canales que lo traen, hoy ERP): total,
+ * fletes, material de empaque y producto (total − fletes − empaque). El %
+ * de cumplimiento de arriba se mide contra el TOTAL (los fletes también
+ * cuentan como venta) — esto es solo informativo.
+ */
+function renderSalesBreakdown(b: ChannelSalesBreakdown, horizontal = false) {
+  const items = [
+    { label: 'Ventas totales', value: b.total, strong: true },
+    { label: 'Fletes', value: b.freight },
+    { label: 'Material de empaque', value: b.packaging },
+    { label: 'Ventas productos', value: b.product, strong: true },
+  ];
+
+  if (horizontal) {
+    return (
+      <div className="mt-5 grid grid-cols-2 gap-4 border-t border-accent/20 pt-4 sm:grid-cols-4">
+        {items.map((it) => (
+          <div key={it.label}>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{it.label}</p>
+            <p className={`mt-0.5 font-display text-ink ${it.strong ? 'text-lg font-semibold' : 'text-base'}`}>{formatCOP(it.value)}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <dl className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-2 text-xs">
+      {items.map((it) => (
+        <div key={it.label} className="flex items-center justify-between gap-2">
+          <dt className="text-ink-faint">{it.label}</dt>
+          <dd className={`tabular-nums text-ink ${it.strong ? 'font-semibold' : ''}`}>{formatCOP(it.value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** "24,5" (o vacío) formateado como número es-CO, para la vista previa junto a cada input. */
 function formatRawPreview(raw: string): string {
   const parsed = parseRawBudgetValue(raw);
@@ -168,8 +255,16 @@ function formatRawPreview(raw: string): string {
  * pestañas (ventas/presupuesto VTEX, notas crédito, ERP, resumen) — el
  * `<main>`/Suspense de la página ahora los envuelve a todos; esta pestaña
  * ya no trae los suyos propios.
+ *
+ * Generalizado por canal (`ChannelBudgetConfig`) cuando se activó
+ * "Presupuesto y ventas ERP": misma pestaña, mismo panel de captura, solo
+ * cambia de dónde sale la venta real y el `channel` de `budgets_daily`.
  */
 export function VtexBudgetTab() {
+  return <ChannelBudgetTab config={VTEX_CONFIG} />;
+}
+
+export function ChannelBudgetTab({ config }: { config: ChannelBudgetConfig }) {
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {
     ordersService.getStores().then(setStores).catch(() => setStores([]));
@@ -184,14 +279,14 @@ export function VtexBudgetTab() {
     setStartDate: setCmpStartDate,
     endDate: cmpEndDate,
     setEndDate: setCmpEndDate,
-  } = useDateRangeFilter('vica-presupuesto-comparison-range');
+  } = useDateRangeFilter(config.dateStorageKey);
 
-  const { state: cmpState, refetch: runComparison } = useCachedQuery<{ budget: BudgetRangeSummaryResponse; sales: DashboardResponse }>(
-    `presupuesto-comparison:${cmpStartDate}:${cmpEndDate}`,
+  const { state: cmpState, refetch: runComparison } = useCachedQuery<{ budget: BudgetRangeSummaryResponse; sales: ChannelSales }>(
+    `${config.cacheKeyPrefix}:${cmpStartDate}:${cmpEndDate}`,
     async () => {
       const [budget, sales] = await Promise.all([
-        ordersService.getBudgetRangeSummary(cmpStartDate, cmpEndDate),
-        ordersService.getDashboardData(cmpStartDate, cmpEndDate),
+        ordersService.getBudgetRangeSummary(cmpStartDate, cmpEndDate, config.channel),
+        config.fetchSales(cmpStartDate, cmpEndDate),
       ]);
       return { budget, sales };
     },
@@ -276,7 +371,7 @@ export function VtexBudgetTab() {
     let cancelled = false;
     setMultiplierLoading(true);
     ordersService
-      .getBudgetMultiplier(year, month)
+      .getBudgetMultiplier(year, month, config.channel)
       .then((res) => {
         if (cancelled) return;
         setMultiplier(res.multiplier);
@@ -291,7 +386,7 @@ export function VtexBudgetTab() {
     return () => {
       cancelled = true;
     };
-  }, [code, showCreatePanel, year, month]);
+  }, [code, showCreatePanel, year, month, config.channel]);
 
   function resolveMultiplierDraft(): number | null {
     if (multiplierPreset === 'custom') {
@@ -311,7 +406,7 @@ export function VtexBudgetTab() {
     setMultiplierSaving(true);
     setMultiplierError(null);
     try {
-      const res = await ordersService.setBudgetMultiplier(year, month, code, value, confirmOverwrite);
+      const res = await ordersService.setBudgetMultiplier(year, month, code, value, confirmOverwrite, config.channel);
       if ('needsConfirmation' in res) {
         setMultiplierConfirm({ pendingValue: value, currentValue: res.currentValue });
       } else {
@@ -349,7 +444,7 @@ export function VtexBudgetTab() {
     setGridLoading(true);
     setGridError(null);
     ordersService
-      .getBudgets(storeId, year, month)
+      .getBudgets(storeId, year, month, config.channel)
       .then((res) => {
         if (cancelled) return;
         if (res.needsMultiplier) {
@@ -369,7 +464,7 @@ export function VtexBudgetTab() {
     return () => {
       cancelled = true;
     };
-  }, [code, storeId, year, month, multiplier, showMultiplierForm]);
+  }, [code, storeId, year, month, multiplier, showMultiplierForm, config.channel]);
 
   // --- Pegado masivo ---
   const [pasteText, setPasteText] = useState('');
@@ -415,7 +510,7 @@ export function VtexBudgetTab() {
     setSaveSuccess(false);
     try {
       const values = parsedValues.map((v) => v ?? 0);
-      const res = await ordersService.saveBudgetsBulk(storeId, year, month, code, values, confirmOverwrite);
+      const res = await ordersService.saveBudgetsBulk(storeId, year, month, code, values, confirmOverwrite, config.channel);
       if ('needsConfirmation' in res) {
         setSaveNeedsConfirmation(true);
       } else {
@@ -434,17 +529,14 @@ export function VtexBudgetTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="max-w-2xl text-sm text-ink-muted">Presupuesto mensual por marca, VTEX</p>
+      <p className="max-w-2xl text-sm text-ink-muted">{config.intro}</p>
 
       {/* --- Único filtro de la pestaña: rango de fechas. El mes de "Crear presupuesto" se deriva de la fecha "Hasta". --- */}
       <div className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg font-semibold text-ink">Ventas vs. presupuesto</h2>
-            <p className="text-xs text-ink-faint">
-              Venta real (mismo dato del Dashboard general, ventas contabilizadas) contra el presupuesto del rango
-              elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo.
-            </p>
+            <p className="text-xs text-ink-faint">{config.comparisonDescription}</p>
           </div>
           <button
             type="button"
@@ -465,23 +557,27 @@ export function VtexBudgetTab() {
         />
 
         {cmpError && <p className="text-sm text-danger">{cmpError}</p>}
+        {!cmpLoading && cmpSales?.notice && <p className="text-xs text-warning">{cmpSales.notice}</p>}
 
         {!cmpLoading && cmpBudget && cmpSales && (
           <>
-            {/* --- Canal VTEX (todas las marcas): cuadro protagónico, separado de las cards por marca --- */}
+            {/* --- Canal (todas las marcas): cuadro protagónico, separado de las cards por marca --- */}
             <div className="rounded-2xl border border-accent/30 bg-accent/10 p-6 shadow-panel">
-              <h3 className="mb-3 font-display text-base font-semibold text-ink">Canal VTEX — todas las marcas juntas</h3>
+              <h3 className="mb-3 font-display text-base font-semibold text-ink">Canal {config.label} — todas las marcas juntas</h3>
               {renderComparisonMetrics(
-                cmpSales.summary.totalRevenueValue,
+                cmpSales.channelTotal,
                 cmpBudget.channelTotal,
                 cmpBudget.fullMonth?.channelTotal,
+                config.label,
                 true,
               )}
+              {cmpSales.breakdown && renderSalesBreakdown(cmpSales.breakdown.channel, true)}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {stores.map((store) => {
-                const actual = cmpSales.stores.find((s) => s.id === store.id)?.data?.revenueTotalValue ?? 0;
+                const actual = cmpSales.storeTotals[store.id] ?? 0;
+                const breakdown = cmpSales.breakdown?.stores[store.id];
                 const rangeBudget = cmpBudget.stores.find((s) => s.storeId === store.id)?.total ?? 0;
                 const fullMonthBudget = cmpBudget.fullMonth?.stores.find((s) => s.storeId === store.id)?.total;
 
@@ -495,7 +591,8 @@ export function VtexBudgetTab() {
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: store.color }} />
                       <h3 className="font-display text-sm font-semibold text-ink">{store.name}</h3>
                     </div>
-                    {renderComparisonMetrics(actual, rangeBudget, fullMonthBudget)}
+                    {renderComparisonMetrics(actual, rangeBudget, fullMonthBudget, config.label)}
+                    {breakdown && renderSalesBreakdown(breakdown)}
                   </div>
                 );
               })}

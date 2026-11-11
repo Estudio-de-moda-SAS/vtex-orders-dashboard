@@ -16,12 +16,20 @@ import {
   PosSalesTimeoutError,
   PosSalesUnreachableError,
 } from '../modules/pos-sales/pos-sales-client.service';
+import {
+  ErpSalesCredentialsMissingError,
+  ErpSalesTimeoutError,
+  ErpSalesUnreachableError,
+} from '../modules/erp-sales/erp-sales-client.service';
+import { ErpSalesModule } from '../modules/erp-sales/erp-sales.module';
+import { ErpSalesSyncService } from '../modules/erp-sales/erp-sales-sync.service';
 import { PosSalesModule } from '../modules/pos-sales/pos-sales.module';
 import { PosSalesSyncService } from '../modules/pos-sales/pos-sales-sync.service';
 
 /**
  * Sincroniza TODAS las fuentes del ERP ("Conní") que requieren VPN en un
- * solo comando — notas crédito y ventas POS, en ese orden. Un wrapper
+ * solo comando — notas crédito, ventas POS y ventas ERP (facturas
+ * e-commerce, pedidas en tramos de 3 días), en ese orden. Un wrapper
  * fino sobre `cli/credit-notes-sync.ts`/`cli/pos-sales-sync.ts`, que
  * siguen existiendo por separado para correr solo una de las dos si hace
  * falta. Sin rango por defecto a propósito (decisión explícita del
@@ -32,7 +40,7 @@ import { PosSalesSyncService } from '../modules/pos-sales/pos-sales-sync.service
  *   npm run daily-sync -- --from=2026-10-27 --to=2026-10-27
  */
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, load: [configuration] }), CreditNotesModule, PosSalesModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, load: [configuration] }), CreditNotesModule, PosSalesModule, ErpSalesModule],
 })
 class DailySyncModule {}
 
@@ -67,6 +75,21 @@ async function syncPosSales(app: Awaited<ReturnType<typeof NestFactory.createApp
   }
 }
 
+async function syncErpSales(app: Awaited<ReturnType<typeof NestFactory.createApplicationContext>>, from: string, to: string): Promise<boolean> {
+  console.log('\n— Ventas ERP —');
+  try {
+    const result = await app.get(ErpSalesSyncService).syncRange(from, to, (msg) => console.log(`  ${msg}`));
+    console.log(`Listo: ${result.saved} línea(s) de venta ERP guardada(s). Descartadas:`, result.excluded);
+    return true;
+  } catch (error) {
+    if (error instanceof ErpSalesUnreachableError || error instanceof ErpSalesCredentialsMissingError || error instanceof ErpSalesTimeoutError) {
+      console.error(`⚠ ${error.message}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { from: { type: 'string' }, to: { type: 'string' } } });
 
@@ -76,18 +99,19 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`Sincronizando notas crédito + ventas POS de ${values.from} a ${values.to}...`);
+  console.log(`Sincronizando notas crédito + ventas POS + ventas ERP de ${values.from} a ${values.to}...`);
 
   const app = await NestFactory.createApplicationContext(DailySyncModule);
   try {
     const creditNotesOk = await syncCreditNotes(app, values.from, values.to);
     const posSalesOk = await syncPosSales(app, values.from, values.to);
+    const erpSalesOk = await syncErpSales(app, values.from, values.to);
 
-    if (!creditNotesOk || !posSalesOk) {
+    if (!creditNotesOk || !posSalesOk || !erpSalesOk) {
       console.error('\nTerminó con al menos una fuente fallida — revisa los avisos de arriba.');
       process.exitCode = 1;
     } else {
-      console.log('\nListo: ambas fuentes sincronizadas correctamente.');
+      console.log('\nListo: las tres fuentes sincronizadas correctamente.');
     }
   } finally {
     await app.close();

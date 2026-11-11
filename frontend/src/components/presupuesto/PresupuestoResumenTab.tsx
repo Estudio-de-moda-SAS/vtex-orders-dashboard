@@ -125,6 +125,8 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
     marginPercent: marginByStore.get(storeId)?.marginPercent ?? null,
     utility: marginByStore.get(storeId)?.utility ?? 0,
   }));
+  /** Las mismas marcas que entran al promedio simple del backend (`buildMarginSummary`): solo las que tuvieron venta. */
+  const rowsWithMargin = rows.filter((r) => r.marginPercent !== null);
 
   const erpNotice =
     erp.lastDataDay === null
@@ -214,9 +216,33 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
         <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
           <p>
             <span className="font-semibold text-ink-muted">Margen y utilidad:</span> sobre la venta sin IVA de lo facturado en el
-            ERP (sin notas crédito). Utilidad = venta sin IVA − costo (costo unitario × cantidad). El margen total
-            ponderado pesa cada marca según lo que vende; el promedio simple pesa todas igual.
+            ERP (sin notas crédito).
           </p>
+          <ul className="ml-4 list-disc space-y-0.5">
+            <li>
+              <span className="text-ink-muted">Utilidad por marca</span> = venta sin IVA − costo (costo unitario × cantidad) = venta
+              sin IVA × margen.
+            </li>
+            <li>
+              <span className="text-ink-muted">Margen por marca</span> = utilidad ÷ venta sin IVA.
+            </li>
+            <li>
+              <span className="text-ink-muted">Margen total ponderado</span> = utilidad total ÷ venta total sin IVA ={' '}
+              <span className="tabular-nums">
+                {formatCOP(margin.channel.utility)} ÷ {formatCOP(margin.channel.subtotal)} ={' '}
+                {marginLabel(margin.channel.marginPercent)}
+              </span>
+              . Cada marca pesa según lo que vende; cuadra con la utilidad total.
+            </li>
+            <li>
+              <span className="text-ink-muted">Margen total simple</span> = suma de los márgenes de las marcas ÷ número de marcas ={' '}
+              <span className="tabular-nums">
+                ({rowsWithMargin.map((r) => marginLabel(r.marginPercent)).join(' + ')}) ÷ {rowsWithMargin.length} ={' '}
+                {marginLabel(margin.channel.simpleAverageMarginPercent)}
+              </span>
+              . Todas las marcas pesan igual, sin importar cuánto venden (solo entran las que vendieron en el rango).
+            </li>
+          </ul>
           <p>
             <span className="font-semibold text-ink-muted">Fletes:</span> en el ERP no tienen costo, así que toda su venta cuenta
             como utilidad (+{formatCOP(margin.freight.utility)} en este rango). Lo que se paga a la transportadora no

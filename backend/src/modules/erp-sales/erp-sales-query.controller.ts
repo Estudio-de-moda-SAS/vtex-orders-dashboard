@@ -1,6 +1,9 @@
-import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, ValidationPipe } from '@nestjs/common';
+
+import { parseFilterList } from '../../common/utils/erp-resumen-filter.util';
 
 import { OrdersQueryDto } from '../orders/dto/orders-query.dto';
+import { ErpResumenQueryDto } from './erp-resumen-query.dto';
 import { ErpSalesQueryService } from './erp-sales-query.service';
 
 /** Lectura de ventas ERP (pestaña "Presupuesto y ventas ERP" de `/presupuesto`) — SQL puro, nunca llama al ERP en vivo. */
@@ -13,6 +16,25 @@ export class ErpSalesQueryController {
   getSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {
     OrdersQueryDto.assertRange(query.startDate, query.endDate);
     return this.erpSalesQueryService.getSummary(query.startDate, query.endDate);
+  }
+
+  /**
+   * GET /api/erp-sales/resumen?startDate&endDate&stores&marcas&tipos — Resumen
+   * filtrado de `/presupuesto`. Cada filtro es un arreglo JSON de strings
+   * (mismo formato que `campaigns`, ver `CampaignComboQueryDto`), opcional.
+   */
+  @Get('resumen')
+  getFilteredResumen(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: ErpResumenQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    try {
+      return this.erpSalesQueryService.getFilteredResumen(query.startDate, query.endDate, {
+        storeIds: parseFilterList(query.stores, 'stores'),
+        marcas: parseFilterList(query.marcas, 'marcas'),
+        tipos: parseFilterList(query.tipos, 'tipos'),
+      });
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Filtros inválidos');
+    }
   }
 
   /** GET /api/erp-sales/ecommerce-breakdown?startDate&endDate — marcas dentro de Pilatos y ventas por tipo (e-commerce). */

@@ -103,3 +103,35 @@ export interface ErpEcommerceBreakdownResponse {
   byTipo: (ErpSalesBreakdown & { tipo: string })[];
   byStore: { storeId: string; byTipo: (ErpSalesBreakdown & { tipo: string })[] }[];
 }
+
+/** Resumen filtrado de `/presupuesto` (tienda / marca de Pilatos / tipo, selección múltiple). */
+export interface ErpResumenFilteredResponse {
+  filters: { startDate: string; endDate: string; storeIds: string[]; marcas: string[]; tipos: string[] };
+  byStore: { storeId: string; erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null }[];
+  channel: {
+    erpSales: number;
+    subtotal: number;
+    cost: number;
+    utility: number;
+    marginPercent: number | null;
+    simpleAverageMarginPercent: number | null;
+    storesInSimpleAverage: number;
+  };
+  freight: { subtotal: number; cost: number; utility: number };
+  packaging: { subtotal: number; cost: number; utility: number };
+  marketplaces: Omit<ErpMarketplaceSummaryResponse, 'filters'>;
+  vtex: {
+    /** Con filtro de tipo, la venta VTEX es N/A (VTEX no usa los tipos del ERP). */
+    tipoFilterActive: boolean;
+    /** Solo con filtro de marca y Pilatos incluida. */
+    pilatosBrands: { sales: number; matched: { erpMarca: string; vtexBrand: string }[]; unmatched: string[] } | null;
+  };
+  /** Opciones COMBINADAS de los filtros (cada lista con los otros dos aplicados). */
+  options: {
+    storeIds: string[];
+    marcas: string[];
+    tipos: string[];
+    /** Marcas ERP que vende cada tienda en el rango — para saber si su venta VTEX completa aplica. */
+    storeMarcas: Record<string, string[]>;
+  };
+}

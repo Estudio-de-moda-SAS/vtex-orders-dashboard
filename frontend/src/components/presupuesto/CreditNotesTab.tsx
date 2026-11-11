@@ -63,12 +63,13 @@ export function CreditNotesTab() {
   // ver `useCachedQuery`). La marca es una sola elección atómica, sin ese problema, así
   // que cambiarla SÍ dispara la consulta de inmediato — confirmado que, tal como estaba,
   // elegir una marca no cambiaba nada hasta volver a tocar "Consultar".
-  const isFirstStoreRender = useRef(true);
+  // Se compara contra la última marca vista (no un "primer render"): en
+  // desarrollo React monta dos veces y el flag disparaba una consulta al
+  // volver a la pestaña aunque el resultado ya estuviera en caché.
+  const lastStoreId = useRef(storeId);
   useEffect(() => {
-    if (isFirstStoreRender.current) {
-      isFirstStoreRender.current = false;
-      return;
-    }
+    if (lastStoreId.current === storeId) return;
+    lastStoreId.current = storeId;
     runQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId]);

@@ -1,25 +1,66 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown';
 import { ChartPanel } from '@/components/OrdersByStoreChart';
 import { formatCOP, formatPercentage } from '@/lib/format';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { DashboardResponse, StoreInfo } from '@/types/dashboard';
-import { ErpMarginSummaryResponse, ErpMarketplaceSummaryResponse, ErpSalesSummaryResponse } from '@/types/erp-sales';
+import { ErpResumenFilteredResponse, ErpSalesSummaryResponse } from '@/types/erp-sales';
 
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
+const PILATOS_STORE_ID = 'pilatos';
+/** Valor que se muestra cuando un dato no aplica con los filtros elegidos. */
+const NA = 'N/A';
+
+interface ResumenFilters {
+  storeIds: string[];
+  marcas: string[];
+  tipos: string[];
+}
 
 interface ResumenData {
   vtex: DashboardResponse;
+  /** Solo para el aviso de "sincronizado hasta". */
   erp: ErpSalesSummaryResponse;
-  margin: ErpMarginSummaryResponse;
-  marketplaces: ErpMarketplaceSummaryResponse;
+  /** Incluye las opciones COMBINADAS de los filtros (`resumen.options`). */
+  resumen: ErpResumenFilteredResponse;
+}
+
+/**
+ * Venta VTEX de una tienda (no Pilatos) con filtro de marca:
+ * - no vende ninguna de las marcas elegidas → 0;
+ * - todas sus marcas están elegidas → su venta VTEX completa;
+ * - solo algunas (ej. Girbaud también vende Converse) → `null` ("N/A"):
+ *   VTEX no separa la venta por marca en esa tienda.
+ */
+function singleBrandStoreVtex(storeMarcas: string[] | undefined, selected: string[], storeTotal: number): number | null {
+  const marcas = storeMarcas ?? [];
+  const chosen = marcas.filter((m) => selected.includes(m));
+  if (chosen.length === 0) return 0;
+  return chosen.length === marcas.length ? storeTotal : null;
+}
+
+const FILTERS_STORAGE_KEY = 'vica-presupuesto-resumen-filters';
+const EMPTY_FILTERS: ResumenFilters = { storeIds: [], marcas: [], tipos: [] };
+
+/** Filtros recordados en sessionStorage (igual que el rango) — al volver a la pestaña, la key coincide con lo ya consultado. */
+function readStoredFilters(): ResumenFilters {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return EMPTY_FILTERS;
+    const parsed = JSON.parse(raw) as Partial<ResumenFilters>;
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    return { storeIds: list(parsed.storeIds), marcas: list(parsed.marcas), tipos: list(parsed.tipos) };
+  } catch {
+    return EMPTY_FILTERS;
+  }
 }
 
 function marginLabel(value: number | null): string {
@@ -31,26 +72,26 @@ function dayLabel(day: string): string {
   return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-
 /**
- * Resumen de `/presupuesto`: una sola tabla por marca con ventas VTEX,
- * ventas ERP (e-commerce), margen y utilidad, dentro del rango elegido.
+ * Resumen de `/presupuesto`: tabla por marca con ventas VTEX, ventas ERP
+ * (e-commerce), venta sin IVA, margen y utilidad, más el cuadro de
+ * marketplaces — dentro del rango y con FILTROS de selección múltiple:
  *
- * - Ventas VTEX = venta contabilizada, mismo dato que el Dashboard general
- *   y la pestaña "Ventas y presupuesto VTEX" (`/api/orders/dashboard`).
- * - Ventas ERP = facturas e-commerce del ERP (valor neto con IVA, sin
- *   notas crédito ni SmartSale) — mismo dato que "Presupuesto y ventas ERP".
- * - Utilidad = subtotal SIN IVA − costo (costo unitario × cantidad);
- *   margen = utilidad ÷ subtotal (`buildMarginSummary` en el backend).
- *   Margen total del canal: PONDERADO (utilidad total ÷ subtotal total)
- *   como cifra principal y el PROMEDIO SIMPLE de las marcas al lado — el
- *   usuario pidió ver los dos. Incluye fletes (costo $0 → todo utilidad) y
- *   empaque (facturado en $0, con costo → resta), con su efecto aparte.
- * - Cuadro de marketplaces (debajo): factura de marketplace = prefijo de
- *   `docto_referencia` del cuadro de comisiones; comisión = venta sin IVA ×
- *   %, utilidad = venta sin IVA − comisión (SIN costo, así lo calculan) —
- *   `buildMarketplaceSummary`. El cuadro de marcas NO resta comisiones.
- *   Pendiente: marcas dentro de Pilatos.
+ * Los filtros se COMBINAN (tienda Y marca Y tipo). Siempre se muestran
+ * todas las tiendas (o las elegidas): las que no venden la combinación
+ * salen en 0, para no confundir con tiendas "desaparecidas". Las opciones
+ * de cada filtro vienen acotadas por los otros dos (`buildResumenFilterOptions`).
+ * - Marca: la del ERP, en todas las tiendas. VTEX de Pilatos = marcas VTEX
+ *   equivalentes; VTEX de una tienda de una sola marca = su venta completa
+ *   solo si todas sus marcas están elegidas, si no "N/A".
+ * - Tipo: la venta VTEX queda "N/A" (VTEX no usa los tipos del ERP — el
+ *   usuario enviará la equivalencia después).
+ *
+ * Utilidad = venta sin IVA − costo (costo unitario × cantidad); margen =
+ * utilidad ÷ venta sin IVA; total ponderado + promedio simple
+ * (`buildMarginSummary`). Marketplaces: comisión = venta sin IVA × %,
+ * utilidad = venta sin IVA − comisión (`buildMarketplaceSummary`). El
+ * cuadro de marcas NO resta comisiones.
  */
 export function PresupuestoResumenTab() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter(
@@ -58,34 +99,61 @@ export function PresupuestoResumenTab() {
     undefined,
     { start: 'resStartDate', end: 'resEndDate' },
   );
+  const [filters, setFilters] = useState<ResumenFilters>(readStoredFilters);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    } catch {
+      // Storage bloqueado — solo implica que los filtros no se recordarán.
+    }
+  }, [filters]);
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {
     ordersService.getStores().then(setStores).catch(() => setStores([]));
   }, []);
 
+  const filterKey = JSON.stringify(filters);
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
-    // "v2": se agregó `margin` (margen y utilidad ERP). "v3": se agregó `marketplaces`.
-    `presupuesto-resumen:v3:${startDate}:${endDate}`,
+    // "v4": filtros de tienda/marca/tipo. "v5": filtros combinados y opciones en `resumen.options`.
+    // "v6": siempre todas las tiendas (las que no cumplen el filtro en 0).
+    `presupuesto-resumen:v6:${startDate}:${endDate}:${filterKey}`,
     async () => {
-      const [vtex, erp, margin, marketplaces] = await Promise.all([
+      const [vtex, erp, resumen] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
         ordersService.getErpSalesSummary(startDate, endDate),
-        ordersService.getErpMarginSummary(startDate, endDate),
-        ordersService.getErpMarketplaceSummary(startDate, endDate),
+        ordersService.getErpResumen(startDate, endDate, filters),
       ]);
-      return { vtex, erp, margin, marketplaces };
+      return { vtex, erp, resumen };
     },
     { autoFetchOnKeyChange: false },
   );
 
+  // Las fechas necesitan "Consultar" (dos campos); los filtros son una
+  // elección atómica, así que cambiarlos SÍ consulta de inmediato — mismo
+  // criterio que el filtro de marca de "Notas crédito". Se compara contra
+  // la última key vista (no un "primer render"): en desarrollo React monta
+  // dos veces y un flag de primer render disparaba una consulta al volver
+  // a la pestaña aunque ya estuviera en caché.
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
+    runQuery();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
+
   const isLoading = requestState.status === 'loading';
+  const options = requestState.status === 'success' ? requestState.data.resumen.options : null;
+  // Mientras no hay datos, la opción elegida se mantiene visible en el desplegable.
+  const withSelected = (available: string[] | undefined, selected: string[]) =>
+    Array.from(new Set([...selected, ...(available ?? [])]));
 
   return (
     <div className="flex flex-col gap-6">
       <p className="max-w-2xl text-sm text-ink-muted">
         Ventas VTEX y ventas ERP por marca en el mismo rango, con el margen y la utilidad de lo facturado en el ERP
-        (sobre el valor sin IVA).
+        (sobre el valor sin IVA). Filtra por tienda, marca y tipo de producto — los filtros se combinan.
       </p>
 
       <div className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
@@ -97,6 +165,40 @@ export function PresupuestoResumenTab() {
           onSubmit={() => runQuery()}
           isLoading={isLoading}
         />
+        <div className="flex flex-wrap items-start gap-4 border-t border-surface-border pt-4">
+          <MultiSelectDropdown
+            label="Tienda"
+            allLabel="Todas las tiendas"
+            options={STORE_DISPLAY_ORDER.filter((id) => !options || options.storeIds.includes(id) || filters.storeIds.includes(id)).map(
+              (id) => ({ value: id, label: stores.find((s) => s.id === id)?.name ?? id }),
+            )}
+            selected={filters.storeIds}
+            onChange={(storeIds) => setFilters((f) => ({ ...f, storeIds }))}
+          />
+          <MultiSelectDropdown
+            label="Marca"
+            allLabel="Todas las marcas"
+            options={withSelected(options?.marcas, filters.marcas).map((m) => ({ value: m, label: m }))}
+            selected={filters.marcas}
+            onChange={(marcas) => setFilters((f) => ({ ...f, marcas }))}
+          />
+          <MultiSelectDropdown
+            label="Tipo de producto"
+            allLabel="Todos los tipos"
+            options={withSelected(options?.tipos, filters.tipos).map((t) => ({ value: t, label: t }))}
+            selected={filters.tipos}
+            onChange={(tipos) => setFilters((f) => ({ ...f, tipos }))}
+          />
+          {(filters.storeIds.length > 0 || filters.marcas.length > 0 || filters.tipos.length > 0) && (
+            <button
+              type="button"
+              onClick={() => setFilters(EMPTY_FILTERS)}
+              className="mt-5 text-xs text-ink-faint underline transition hover:text-ink-muted"
+            >
+              Quitar filtros
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading && (
@@ -116,23 +218,43 @@ export function PresupuestoResumenTab() {
 }
 
 function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo[] }) {
-  const { vtex, erp, margin } = data;
-  const marginByStore = new Map(margin.byStore.map((s) => [s.storeId, s]));
+  const { vtex, erp, resumen } = data;
   const storeById = new Map(stores.map((s) => [s.id, s]));
   const vtexByStore = new Map(vtex.stores.map((s) => [s.id, s.data?.revenueTotalValue ?? 0]));
-  const erpByStore = new Map(erp.byStore.map((s) => [s.storeId, s.total]));
-  const rows = STORE_DISPLAY_ORDER.map((storeId) => ({
-    storeId,
-    name: storeById.get(storeId)?.name ?? storeId,
-    color: storeById.get(storeId)?.color,
-    vtexSales: vtexByStore.get(storeId) ?? 0,
-    erpSales: erpByStore.get(storeId) ?? 0,
-    marginPercent: marginByStore.get(storeId)?.marginPercent ?? null,
-    utility: marginByStore.get(storeId)?.utility ?? 0,
-    erpSubtotal: marginByStore.get(storeId)?.subtotal ?? 0,
-  }));
+  const resumenByStore = new Map(resumen.byStore.map((s) => [s.storeId, s]));
+  const tipoActive = resumen.vtex.tipoFilterActive;
+  const marcaActive = resumen.filters.marcas.length > 0;
+
+  /**
+   * Venta VTEX de una tienda con los filtros: N/A con tipo; con marca,
+   * Pilatos = marcas VTEX equivalentes y una tienda de una sola marca = su
+   * venta completa solo si todas sus marcas están elegidas (si no, N/A).
+   */
+  function vtexFor(storeId: string): number | null {
+    if (tipoActive) return null;
+    if (!marcaActive) return vtexByStore.get(storeId) ?? 0;
+    if (storeId === PILATOS_STORE_ID) return resumen.vtex.pilatosBrands?.sales ?? null;
+    return singleBrandStoreVtex(resumen.options.storeMarcas[storeId], resumen.filters.marcas, vtexByStore.get(storeId) ?? 0);
+  }
+
+  const rows = STORE_DISPLAY_ORDER.filter((id) => resumenByStore.has(id)).map((storeId) => {
+    const r = resumenByStore.get(storeId)!;
+    return {
+      storeId,
+      name: storeById.get(storeId)?.name ?? storeId,
+      color: storeById.get(storeId)?.color,
+      vtexSales: vtexFor(storeId),
+      erpSales: r.erpSales,
+      erpSubtotal: r.subtotal,
+      marginPercent: r.marginPercent,
+      utility: r.utility,
+    };
+  });
   /** Las mismas marcas que entran al promedio simple del backend (`buildMarginSummary`): solo las que tuvieron venta. */
   const rowsWithMargin = rows.filter((r) => r.marginPercent !== null);
+  // Si alguna tienda queda en N/A, el total VTEX tampoco es comparable.
+  const vtexTotal = rows.some((r) => r.vtexSales === null) ? null : rows.reduce((a, r) => a + (r.vtexSales ?? 0), 0);
+  const channel = resumen.channel;
 
   const erpNotice =
     erp.lastDataDay === null
@@ -142,21 +264,31 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
         : null;
 
   const cards = [
-    { label: 'Ventas totales canal VTEX', value: formatCOP(vtex.summary.totalRevenueValue), hint: 'Venta contabilizada en VTEX', accent: true },
-    { label: 'Ventas totales canal ERP', value: formatCOP(erp.channel.total), hint: 'Facturas e-commerce, con IVA' },
+    {
+      label: 'Ventas totales canal VTEX',
+      value: vtexTotal === null ? NA : formatCOP(vtexTotal),
+      hint: tipoActive
+        ? 'VTEX no usa los mismos tipos que el ERP'
+        : vtexTotal === null
+          ? 'Alguna tienda no se puede separar por marca en VTEX'
+          : 'Venta contabilizada en VTEX',
+      accent: true,
+    },
+    { label: 'Ventas totales canal ERP', value: formatCOP(channel.erpSales), hint: 'Facturas e-commerce, con IVA' },
     {
       label: 'Margen total canal',
-      value: marginLabel(margin.channel.marginPercent),
-      hint: `Ponderado (utilidad total ÷ venta sin IVA). Promedio simple de las ${margin.channel.storesInSimpleAverage} marcas: ${marginLabel(margin.channel.simpleAverageMarginPercent)}`,
+      value: marginLabel(channel.marginPercent),
+      hint: `Ponderado (utilidad total ÷ venta sin IVA). Promedio simple de las ${channel.storesInSimpleAverage} marcas: ${marginLabel(channel.simpleAverageMarginPercent)}`,
     },
     {
       label: 'Utilidad total canal',
-      value: formatCOP(margin.channel.utility),
-      hint: `Venta sin IVA ${formatCOP(margin.channel.subtotal)} − costo ${formatCOP(margin.channel.cost)}`,
+      value: formatCOP(channel.utility),
+      hint: `Venta sin IVA ${formatCOP(channel.subtotal)} − costo ${formatCOP(channel.cost)}`,
     },
   ];
 
   const th = 'px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-faint';
+  const unmatched = resumen.vtex.pilatosBrands?.unmatched ?? [];
 
   return (
     <>
@@ -169,9 +301,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             className={`rounded-2xl border border-surface-border p-5 shadow-panel ${card.accent ? 'bg-accent/5' : 'bg-surface-panel'}`}
           >
             <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">{card.label}</p>
-            <p className="mt-1 font-display text-2xl font-semibold text-ink">
-              {card.value}
-            </p>
+            <p className={`mt-1 font-display text-2xl font-semibold ${card.value === NA ? 'text-ink-faint' : 'text-ink'}`}>{card.value}</p>
             <p className="mt-1 text-xs text-ink-faint">{card.hint}</p>
           </div>
         ))}
@@ -199,7 +329,9 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
                       {row.name}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.vtexSales)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${row.vtexSales === null ? 'text-ink-faint' : 'text-ink'}`}>
+                    {row.vtexSales === null ? NA : formatCOP(row.vtexSales)}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSales)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSubtotal)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{marginLabel(row.marginPercent)}</td>
@@ -208,21 +340,32 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
               ))}
               <tr className="border-t-2 border-surface-border font-semibold text-ink">
                 <td className="px-3 py-2">Total</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(vtex.summary.totalRevenueValue)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(erp.channel.total)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(margin.channel.subtotal)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {marginLabel(margin.channel.marginPercent)}
-                  <span className="block text-[11px] font-normal text-ink-faint">
-                    simple {marginLabel(margin.channel.simpleAverageMarginPercent)}
-                  </span>
+                <td className={`px-3 py-2 text-right tabular-nums ${vtexTotal === null ? 'text-ink-faint' : ''}`}>
+                  {vtexTotal === null ? NA : formatCOP(vtexTotal)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(margin.channel.utility)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(channel.erpSales)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(channel.subtotal)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {marginLabel(channel.marginPercent)}
+                  <span className="block text-[11px] font-normal text-ink-faint">simple {marginLabel(channel.simpleAverageMarginPercent)}</span>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(channel.utility)}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
+          {(tipoActive || marcaActive) && (
+            <p className="text-warning">
+              <span className="font-semibold">Filtros:</span>
+              {tipoActive && ' con un tipo de producto elegido, Ventas VTEX es N/A porque VTEX no usa los mismos tipos que el ERP.'}
+              {' las tiendas que no venden la combinación elegida salen en $0.'}
+              {marcaActive &&
+                !tipoActive &&
+                ' Con marca: VTEX de Pilatos suma las marcas VTEX equivalentes; en las demás tiendas es su venta completa si vende solo esa(s) marca(s), $0 si no la vende, y N/A si también vende otras marcas no elegidas (VTEX no la separa).'}
+              {marcaActive && !tipoActive && unmatched.length > 0 && ` Sin equivalencia en VTEX (no suman en VTEX): ${unmatched.join(', ')}.`}
+            </p>
+          )}
           <p>
             <span className="font-semibold text-ink-muted">Margen y utilidad:</span> sobre la venta sin IVA de lo facturado en el
             ERP (sin notas crédito).
@@ -238,53 +381,57 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             <li>
               <span className="text-ink-muted">Margen total ponderado</span> = utilidad total ÷ venta total sin IVA ={' '}
               <span className="tabular-nums">
-                {formatCOP(margin.channel.utility)} ÷ {formatCOP(margin.channel.subtotal)} ={' '}
-                {marginLabel(margin.channel.marginPercent)}
+                {formatCOP(channel.utility)} ÷ {formatCOP(channel.subtotal)} = {marginLabel(channel.marginPercent)}
               </span>
               . Cada marca pesa según lo que vende; cuadra con la utilidad total.
             </li>
             <li>
-              <span className="text-ink-muted">Margen total simple</span> = suma de los márgenes de las marcas ÷ número de marcas ={' '}
-              <span className="tabular-nums">
-                (
-                {rowsWithMargin.map((r, i) => (
-                  <span key={r.storeId} className="whitespace-nowrap">
-                    {i > 0 && ' + '}
-                    {r.color && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: r.color }} />}
-                    {r.name} {marginLabel(r.marginPercent)}
-                  </span>
-                ))}
-                ) ÷ {rowsWithMargin.length} ={' '}
-                {marginLabel(margin.channel.simpleAverageMarginPercent)}
-              </span>
+              <span className="text-ink-muted">Margen total simple</span> = suma de los márgenes de las marcas ÷ número de marcas
+              {rowsWithMargin.length > 0 ? (
+                <span className="tabular-nums">
+                  {' '}= (
+                  {rowsWithMargin.map((r, i) => (
+                    <span key={r.storeId} className="whitespace-nowrap">
+                      {i > 0 && ' + '}
+                      {r.color && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: r.color }} />}
+                      {r.name} {marginLabel(r.marginPercent)}
+                    </span>
+                  ))}
+                  ) ÷ {rowsWithMargin.length} = {marginLabel(channel.simpleAverageMarginPercent)}
+                </span>
+              ) : (
+                ' — sin ventas en el rango'
+              )}
               . Todas las marcas pesan igual, sin importar cuánto venden (solo entran las que vendieron en el rango).
             </li>
           </ul>
           <p>
             <span className="font-semibold text-ink-muted">Fletes:</span> en el ERP no tienen costo, así que toda su venta cuenta
-            como utilidad (+{formatCOP(margin.freight.utility)} en este rango). Lo que se paga a la transportadora no
-            está en esta fuente.
+            como utilidad (+{formatCOP(resumen.freight.utility)} en este rango). Lo que se paga a la transportadora no está en esta
+            fuente.
           </p>
           <p>
             <span className="font-semibold text-ink-muted">Material de empaque:</span> se factura en $0 pero tiene costo, así que
-            resta utilidad ({formatCOP(margin.packaging.utility)} en este rango).
+            resta utilidad ({formatCOP(resumen.packaging.utility)} en este rango).
           </p>
         </div>
       </ChartPanel>
 
-      <MarketplaceTable data={data.marketplaces} />
+      <MarketplaceTable data={resumen.marketplaces} vtexNotApplicable={tipoActive || marcaActive} />
     </>
   );
 }
 
 /**
  * Cuadro de marketplaces — una fila por marketplace del cuadro de
- * comisiones. Comisión = venta sin IVA × %; utilidad = venta sin IVA −
- * comisión (sin costo); margen = utilidad ÷ venta sin IVA.
+ * comisiones, con los mismos filtros. Comisión = venta sin IVA × %;
+ * utilidad = venta sin IVA − comisión (sin costo); margen = utilidad ÷
+ * venta sin IVA. Con filtro de marca o tipo, VTEX por marketplace es N/A.
  */
-function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
+function MarketplaceTable({ data, vtexNotApplicable }: { data: ErpResumenFilteredResponse['marketplaces']; vtexNotApplicable: boolean }) {
   const th = 'px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-faint';
   const withMargin = data.rows.filter((r) => r.marginPercent !== null);
+  const vtexCell = (value: number) => (vtexNotApplicable ? NA : formatCOP(value));
 
   return (
     <ChartPanel title="Resumen por marketplace">
@@ -311,7 +458,7 @@ function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
                 <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
                   {new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(row.commissionPercent)}%
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.vtexSales)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${vtexNotApplicable ? 'text-ink-faint' : 'text-ink'}`}>{vtexCell(row.vtexSales)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSales)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSubtotal)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.commission)}</td>
@@ -322,16 +469,14 @@ function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
             <tr className="border-t-2 border-surface-border font-semibold text-ink">
               <td className="px-3 py-2">Total</td>
               <td className="px-3 py-2" />
-              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.vtexSales)}</td>
+              <td className={`px-3 py-2 text-right tabular-nums ${vtexNotApplicable ? 'text-ink-faint' : ''}`}>{vtexCell(data.total.vtexSales)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.erpSales)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.erpSubtotal)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.commission)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.utility)}</td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {marginLabel(data.total.marginPercent)}
-                <span className="block text-[11px] font-normal text-ink-faint">
-                  simple {marginLabel(data.total.simpleAverageMarginPercent)}
-                </span>
+                <span className="block text-[11px] font-normal text-ink-faint">simple {marginLabel(data.total.simpleAverageMarginPercent)}</span>
               </td>
             </tr>
           </tbody>
@@ -340,9 +485,10 @@ function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
       <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
         <p>
           <span className="font-semibold text-ink-muted">Cómo se identifica:</span> una factura del ERP es de un marketplace
-          cuando su referencia (docto_referencia) empieza por el ID VTEX del marketplace (ej. GVL1093638 → Agaval). Ventas
-          VTEX es la venta contabilizada de ese marketplace en VTEX; puede no coincidir con ERP porque el ERP no siempre
-          factura al mismo tiempo (agotados, tiempos de facturación, logística).
+          cuando su referencia (docto_referencia) empieza por el ID VTEX del marketplace (ej. GVL1093638 → Agaval). Ventas VTEX es
+          la venta contabilizada de ese marketplace en VTEX; puede no coincidir con ERP porque el ERP no siempre factura al
+          mismo tiempo (agotados, tiempos de facturación, logística).
+          {vtexNotApplicable && ' Con filtro de marca o tipo, Ventas VTEX es N/A.'}
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>

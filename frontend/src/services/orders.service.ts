@@ -21,6 +21,7 @@ import {
   ErpEcommerceBreakdownResponse,
   ErpMarginSummaryResponse,
   ErpMarketplaceSummaryResponse,
+  ErpResumenFilteredResponse,
   ErpSalesSummaryResponse,
   ErpSmartSaleSummaryResponse,
 } from '@/types/erp-sales';
@@ -325,6 +326,22 @@ export const ordersService = {
   getErpEcommerceBreakdown(startDate: string, endDate: string): Promise<ErpEcommerceBreakdownResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<ErpEcommerceBreakdownResponse>(`/api/erp-sales/ecommerce-breakdown?${params.toString()}`);
+  },
+
+  /**
+   * Resumen filtrado de `/presupuesto`: cada filtro es un arreglo (vacío =
+   * todos) y viaja como JSON — mismo formato que `campaigns` (ver backend).
+   */
+  getErpResumen(
+    startDate: string,
+    endDate: string,
+    filters: { storeIds: string[]; marcas: string[]; tipos: string[] },
+  ): Promise<ErpResumenFilteredResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    if (filters.storeIds.length > 0) params.set('stores', JSON.stringify(filters.storeIds));
+    if (filters.marcas.length > 0) params.set('marcas', JSON.stringify(filters.marcas));
+    if (filters.tipos.length > 0) params.set('tipos', JSON.stringify(filters.tipos));
+    return request<ErpResumenFilteredResponse>(`/api/erp-sales/resumen?${params.toString()}`);
   },
 
   /** Margen y utilidad ERP e-commerce por marca (ponderado + promedio simple) — pestaña "Resumen" de `/presupuesto`. */

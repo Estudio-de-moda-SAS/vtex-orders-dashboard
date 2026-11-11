@@ -57,6 +57,37 @@ export interface ErpSalesSummaryResponse {
   lastDataDay: string | null;
 }
 
+/**
+ * Resumen FILTRADO de `/presupuesto` (tienda / marca de Pilatos / tipo,
+ * selección múltiple) — ventas ERP, margen, utilidad y marketplaces sobre
+ * las líneas que cumplen los filtros. La venta VTEX por tienda la pone el
+ * frontend (Dashboard); aquí solo va lo que el filtro cambia del lado VTEX.
+ */
+export interface ErpResumenFilteredResponse {
+  filters: { startDate: string; endDate: string; storeIds: string[]; marcas: string[]; tipos: string[] };
+  /**
+   * Siempre las tiendas seleccionadas (o las 6), aunque no vendan la
+   * combinación de marca/tipo — en ese caso salen en 0.
+   */
+  byStore: { storeId: string; erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null }[];
+  channel: { erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null; simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };
+  freight: { subtotal: number; cost: number; utility: number };
+  packaging: { subtotal: number; cost: number; utility: number };
+  marketplaces: import('../../common/utils/erp-marketplace.util').MarketplaceSummary;
+  /**
+   * Lado VTEX: `tipoFilterActive` → toda la venta VTEX es "N/A" (VTEX no usa
+   * los tipos del ERP). `pilatosBrands` (solo con filtro de marca y Pilatos
+   * incluida): venta VTEX de Pilatos de las marcas equivalentes y las que
+   * no tienen equivalencia en VTEX.
+   */
+  vtex: {
+    tipoFilterActive: boolean;
+    pilatosBrands: { sales: number; matched: { erpMarca: string; vtexBrand: string }[]; unmatched: string[] } | null;
+  };
+  /** Opciones COMBINADAS de los filtros (cada lista con los otros dos aplicados) — ver `buildResumenFilterOptions`. */
+  options: import('../../common/utils/erp-resumen-filter.util').ResumenFilterOptions;
+}
+
 export interface ErpSalesSyncResult {
   saved: number;
   /** Líneas de FACTURA guardadas por canal (sin notas crédito). */

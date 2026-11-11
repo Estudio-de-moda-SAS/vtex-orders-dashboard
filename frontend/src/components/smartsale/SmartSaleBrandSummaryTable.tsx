@@ -56,7 +56,7 @@ export function SmartSaleBrandSummaryTable({
               <th className={`${th} text-right`}>Ventas POS</th>
               <th className={`${th} text-right`}>Ventas ERP</th>
               <th className={`${th} text-right`}>Ventas totales</th>
-              <th className={`${th} text-right`}>Ventas sin IVA</th>
+              <th className={`${th} text-right`}>Ventas sin IVA (productos)</th>
               <th className={`${th} text-right`}>Margen</th>
               <th className={`${th} text-right`}>Utilidad</th>
             </tr>
@@ -96,8 +96,8 @@ export function SmartSaleBrandSummaryTable({
       <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
         <p>
           <span className="font-semibold text-ink-muted">Ventas:</span> POS ya resta sus notas crédito; ERP es lo facturado sin
-          notas crédito. <span className="font-semibold text-ink-muted">Margen y utilidad:</span> sobre la venta sin IVA de POS
-          + ERP, sin notas crédito.
+          notas crédito. <span className="font-semibold text-ink-muted">Margen y utilidad:</span> solo productos, sobre la venta sin
+          IVA de POS + ERP, sin notas crédito.
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>
@@ -135,10 +135,8 @@ export function SmartSaleBrandSummaryTable({
           </li>
         </ul>
         <p>
-          <span className="font-semibold text-ink-muted">Fletes:</span> no tienen costo en el ERP, así que toda su venta cuenta como
-          utilidad (+{formatCOP(summary.margin.freight.utility)}).{' '}
-          <span className="font-semibold text-ink-muted">Material de empaque:</span> se factura en $0 pero tiene costo (
-          {formatCOP(summary.margin.packaging.utility)}).
+          <span className="font-semibold text-ink-muted">Fletes, bolsas y material publicitario:</span> cuentan en las ventas pero no
+          en el margen ni en la utilidad.
         </p>
       </div>
     </ChartPanel>

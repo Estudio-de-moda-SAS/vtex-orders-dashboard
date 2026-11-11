@@ -12,14 +12,17 @@
  *   promedia marcas CON venta en el rango (una marca sin venta no tiene
  *   margen, no es 0%).
  *
- * Incluye fletes (costo $0 en el ERP → todo es utilidad) y empaque
- * (facturado en $0 pero con costo → resta), y los reporta aparte para que
- * se vea su efecto. Pruebas en `erp-margin.util.test.ts`.
+ * SOLO LÍNEAS DE PRODUCTO (decisión del usuario, nov-2026): fletes,
+ * bolsas/empaque y material publicitario cuentan en la VENTA pero NO en el
+ * margen ni en la utilidad — antes se incluían (el flete, sin costo en el ERP, inflaba el
+ * margen). `freight`/`packaging` se siguen devolviendo aparte solo como
+ * información, NO están dentro de `byStore`/`channel`. Pruebas en
+ * `erp-margin.util.test.ts`.
  */
 
 export interface MarginInputRow {
   storeId: string;
-  lineKind: 'product' | 'freight' | 'packaging';
+  lineKind: 'product' | 'freight' | 'packaging' | 'advertising';
   subtotal: number;
   cost: number;
 }
@@ -42,7 +45,7 @@ export interface MarginSummary {
     /** Marcas que entraron al promedio simple (las que tuvieron venta). */
     storesInSimpleAverage: number;
   };
-  /** Efecto de fletes y empaque sobre la utilidad del canal (ya incluido arriba). */
+  /** Fletes y empaque del rango — solo informativo, NO entran en `byStore`/`channel`. */
   freight: { subtotal: number; cost: number; utility: number };
   packaging: { subtotal: number; cost: number; utility: number };
 }
@@ -53,8 +56,9 @@ function figures(subtotal: number, cost: number): MarginFigures {
 }
 
 export function buildMarginSummary(rows: MarginInputRow[], storeIds: string[]): MarginSummary {
+  const productRows = rows.filter((r) => r.lineKind === 'product');
   const byStore = storeIds.map((storeId) => {
-    const own = rows.filter((r) => r.storeId === storeId);
+    const own = productRows.filter((r) => r.storeId === storeId);
     return {
       storeId,
       ...figures(

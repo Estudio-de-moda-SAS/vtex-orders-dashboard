@@ -71,6 +71,8 @@ test('classifyErpLine: flete, empaque y producto', () => {
   assert.equal(classifyErpLine('consumo bolsa diesel', null), 'packaging');
   assert.equal(classifyErpLine('CAJA', '741 - MATERIAL DE EMPAQUE'), 'packaging');
   assert.equal(classifyErpLine('CAMISETA M/C', '101 - CAMISETA'), 'product');
+  assert.equal(classifyErpLine('PORTADOCUMENTOS MFG', '801 - MATERIAL PUBLICITARIO'), 'advertising');
+  assert.equal(classifyErpLine('PIN DIESEL 1DR', ' 801 - material publicitario'), 'advertising');
   assert.equal(classifyErpLine(null, null), 'product');
 });
 

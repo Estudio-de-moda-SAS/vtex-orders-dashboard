@@ -15,6 +15,13 @@ export class ErpSalesQueryController {
     return this.erpSalesQueryService.getSummary(query.startDate, query.endDate);
   }
 
+  /** GET /api/erp-sales/margin-summary?startDate&endDate — margen y utilidad e-commerce por marca ("Resumen" de `/presupuesto`). */
+  @Get('margin-summary')
+  getMarginSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    return this.erpSalesQueryService.getMarginSummary(query.startDate, query.endDate);
+  }
+
   /** GET /api/erp-sales/smartsale-summary?startDate&endDate — pestaña "Ventas ERP" de `/smartsale` (vendedores 082P/168A). */
   @Get('smartsale-summary')
   getSmartSaleSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {

@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
 import { ChartPanel } from '@/components/OrdersByStoreChart';
-import { formatCOP } from '@/lib/format';
+import { formatCOP, formatPercentage } from '@/lib/format';
 import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { DashboardResponse, StoreInfo } from '@/types/dashboard';
-import { ErpSalesSummaryResponse } from '@/types/erp-sales';
+import { ErpMarginSummaryResponse, ErpSalesSummaryResponse } from '@/types/erp-sales';
 
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
@@ -18,6 +18,11 @@ const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbau
 interface ResumenData {
   vtex: DashboardResponse;
   erp: ErpSalesSummaryResponse;
+  margin: ErpMarginSummaryResponse;
+}
+
+function marginLabel(value: number | null): string {
+  return value === null ? '—' : formatPercentage(value);
 }
 
 function dayLabel(day: string): string {
@@ -25,8 +30,6 @@ function dayLabel(day: string): string {
   return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-/** Margen y utilidad todavía no se calculan (pendiente: definición del usuario, incluye comisión por marketplace). */
-const PENDING = '—';
 
 /**
  * Resumen de `/presupuesto`: una sola tabla por marca con ventas VTEX,
@@ -36,9 +39,14 @@ const PENDING = '—';
  *   y la pestaña "Ventas y presupuesto VTEX" (`/api/orders/dashboard`).
  * - Ventas ERP = facturas e-commerce del ERP (valor neto con IVA, sin
  *   notas crédito ni SmartSale) — mismo dato que "Presupuesto y ventas ERP".
- * - Margen y utilidad: en blanco a propósito, se definen en un paso
- *   siguiente (comisión por marketplace según `docto_referencia`, marcas
- *   dentro de Pilatos).
+ * - Utilidad = subtotal SIN IVA − costo (costo unitario × cantidad);
+ *   margen = utilidad ÷ subtotal (`buildMarginSummary` en el backend).
+ *   Margen total del canal: PONDERADO (utilidad total ÷ subtotal total)
+ *   como cifra principal y el PROMEDIO SIMPLE de las marcas al lado — el
+ *   usuario pidió ver los dos. Incluye fletes (costo $0 → todo utilidad) y
+ *   empaque (facturado en $0, con costo → resta), con su efecto aparte.
+ *   Pendiente: comisión por marketplace (`docto_referencia`) y marcas
+ *   dentro de Pilatos.
  */
 export function PresupuestoResumenTab() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter(
@@ -53,13 +61,15 @@ export function PresupuestoResumenTab() {
   }, []);
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
-    `presupuesto-resumen:v1:${startDate}:${endDate}`,
+    // "v2": se agregó `margin` (margen y utilidad ERP).
+    `presupuesto-resumen:v2:${startDate}:${endDate}`,
     async () => {
-      const [vtex, erp] = await Promise.all([
+      const [vtex, erp, margin] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
         ordersService.getErpSalesSummary(startDate, endDate),
+        ordersService.getErpMarginSummary(startDate, endDate),
       ]);
-      return { vtex, erp };
+      return { vtex, erp, margin };
     },
     { autoFetchOnKeyChange: false },
   );
@@ -69,7 +79,8 @@ export function PresupuestoResumenTab() {
   return (
     <div className="flex flex-col gap-6">
       <p className="max-w-2xl text-sm text-ink-muted">
-        Ventas VTEX y ventas ERP por marca en el mismo rango. Margen y utilidad se agregan en el siguiente paso.
+        Ventas VTEX y ventas ERP por marca en el mismo rango, con el margen y la utilidad de lo facturado en el ERP
+        (sobre el valor sin IVA).
       </p>
 
       <div className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
@@ -100,7 +111,8 @@ export function PresupuestoResumenTab() {
 }
 
 function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo[] }) {
-  const { vtex, erp } = data;
+  const { vtex, erp, margin } = data;
+  const marginByStore = new Map(margin.byStore.map((s) => [s.storeId, s]));
   const storeById = new Map(stores.map((s) => [s.id, s]));
   const vtexByStore = new Map(vtex.stores.map((s) => [s.id, s.data?.revenueTotalValue ?? 0]));
   const erpByStore = new Map(erp.byStore.map((s) => [s.storeId, s.total]));
@@ -110,6 +122,8 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
     color: storeById.get(storeId)?.color,
     vtexSales: vtexByStore.get(storeId) ?? 0,
     erpSales: erpByStore.get(storeId) ?? 0,
+    marginPercent: marginByStore.get(storeId)?.marginPercent ?? null,
+    utility: marginByStore.get(storeId)?.utility ?? 0,
   }));
 
   const erpNotice =
@@ -122,8 +136,16 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
   const cards = [
     { label: 'Ventas totales canal VTEX', value: formatCOP(vtex.summary.totalRevenueValue), hint: 'Venta contabilizada en VTEX', accent: true },
     { label: 'Ventas totales canal ERP', value: formatCOP(erp.channel.total), hint: 'Facturas e-commerce, con IVA' },
-    { label: 'Margen total canal', value: PENDING, hint: 'Pendiente de definir' },
-    { label: 'Utilidad total canal', value: PENDING, hint: 'Pendiente de definir' },
+    {
+      label: 'Margen total canal',
+      value: marginLabel(margin.channel.marginPercent),
+      hint: `Ponderado (utilidad total ÷ venta sin IVA). Promedio simple de las ${margin.channel.storesInSimpleAverage} marcas: ${marginLabel(margin.channel.simpleAverageMarginPercent)}`,
+    },
+    {
+      label: 'Utilidad total canal',
+      value: formatCOP(margin.channel.utility),
+      hint: `Venta sin IVA ${formatCOP(margin.channel.subtotal)} − costo ${formatCOP(margin.channel.cost)}`,
+    },
   ];
 
   const th = 'px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-faint';
@@ -139,7 +161,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             className={`rounded-2xl border border-surface-border p-5 shadow-panel ${card.accent ? 'bg-accent/5' : 'bg-surface-panel'}`}
           >
             <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">{card.label}</p>
-            <p className={`mt-1 font-display text-2xl font-semibold ${card.value === PENDING ? 'text-ink-faint' : 'text-ink'}`}>
+            <p className="mt-1 font-display text-2xl font-semibold text-ink">
               {card.value}
             </p>
             <p className="mt-1 text-xs text-ink-faint">{card.hint}</p>
@@ -170,19 +192,40 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.vtexSales)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSales)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-faint">{PENDING}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-faint">{PENDING}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink">{marginLabel(row.marginPercent)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.utility)}</td>
                 </tr>
               ))}
               <tr className="border-t-2 border-surface-border font-semibold text-ink">
                 <td className="px-3 py-2">Total</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatCOP(vtex.summary.totalRevenueValue)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatCOP(erp.channel.total)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink-faint">{PENDING}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink-faint">{PENDING}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {marginLabel(margin.channel.marginPercent)}
+                  <span className="block text-[11px] font-normal text-ink-faint">
+                    simple {marginLabel(margin.channel.simpleAverageMarginPercent)}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCOP(margin.channel.utility)}</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
+          <p>
+            <span className="font-semibold text-ink-muted">Margen y utilidad:</span> sobre la venta sin IVA de lo facturado en el
+            ERP (sin notas crédito). Utilidad = venta sin IVA − costo (costo unitario × cantidad). El margen total
+            ponderado pesa cada marca según lo que vende; el promedio simple pesa todas igual.
+          </p>
+          <p>
+            <span className="font-semibold text-ink-muted">Fletes:</span> en el ERP no tienen costo, así que toda su venta cuenta
+            como utilidad (+{formatCOP(margin.freight.utility)} en este rango). Lo que se paga a la transportadora no
+            está en esta fuente.
+          </p>
+          <p>
+            <span className="font-semibold text-ink-muted">Material de empaque:</span> se factura en $0 pero tiene costo, así que
+            resta utilidad ({formatCOP(margin.packaging.utility)} en este rango).
+          </p>
         </div>
       </ChartPanel>
     </>

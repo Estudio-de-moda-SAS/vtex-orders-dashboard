@@ -42,3 +42,21 @@ export interface ErpSmartSaleSummaryResponse {
   lastSyncedAt: string | null;
   lastDataDay: string | null;
 }
+
+/** Margen ERP: utilidad = subtotal SIN IVA − costo (costo unitario × cantidad); margen = utilidad ÷ subtotal. */
+export interface ErpMarginFigures {
+  subtotal: number;
+  cost: number;
+  utility: number;
+  /** `null` si no hubo venta. */
+  marginPercent: number | null;
+}
+
+/** "Resumen" de `/presupuesto` — margen y utilidad e-commerce por marca. `channel.marginPercent` es el PONDERADO. */
+export interface ErpMarginSummaryResponse {
+  filters: { startDate: string; endDate: string };
+  byStore: (ErpMarginFigures & { storeId: string })[];
+  channel: ErpMarginFigures & { simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };
+  freight: { subtotal: number; cost: number; utility: number };
+  packaging: { subtotal: number; cost: number; utility: number };
+}

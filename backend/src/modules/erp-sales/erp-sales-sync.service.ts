@@ -6,9 +6,9 @@ import {
   erpExclusionReason,
   isErpCreditNoteDoc,
   normalizeErpSellerCode,
-  resolveErpChannel,
-  resolveErpStoreIdFromCo,
+  resolveErpTarget,
   splitIntoDayChunks,
+  ErpChannel,
 } from '../../common/utils/erp-sales.util';
 import { AppConfig } from '../../config/configuration';
 import { ErpSaleDbRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
@@ -18,7 +18,8 @@ import { ErpSaleApiRow, ErpSalesSyncResult } from './erp-sales.interface';
 /** Reintentos por tramo cuando el ERP no responde a tiempo (la consulta es pesada). */
 const TIMEOUT_RETRIES = 1;
 
-function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
+function toDbRow(row: ErpSaleApiRow, target: { channel: ErpChannel; storeId: string }): ErpSaleDbRow {
+  const { storeId } = target;
   return {
     fecha: row.fecha.slice(0, 10),
     co: (row.co ?? '').trim(),
@@ -48,7 +49,7 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
     utilidadPromedio: row.utilidad_promedio ?? null,
     pedidoVtex: row.pedido_vtex ?? null,
     lineKind: classifyErpLine(row.desc_item, row.tipo),
-    channel: resolveErpChannel(row.codigo_vendedor),
+    channel: target.channel,
     isCreditNote: isErpCreditNoteDoc(row.nro_documento),
   };
 }
@@ -58,7 +59,7 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
  * Cualquier rango se pide en tramos de `chunkDays` días (3 por defecto) y
  * cada tramo se guarda apenas llega, así un fallo a mitad de camino no
  * pierde lo ya sincronizado. Cada línea guardada lleva su canal
- * ('ecommerce' o 'smartsale', `resolveErpChannel`); las notas crédito
+ * ('ecommerce', 'smartsale' o 'pos', `resolveErpTarget`); las notas crédito
  * ("NVF-…") se guardan marcadas (`isCreditNote`), nunca se restan. Lo
  * descartado (`erpExclusionReason`) se reporta contado por motivo.
  */
@@ -76,8 +77,8 @@ export class ErpSalesSyncService {
     const { chunkDays } = this.configService.get<AppConfig['erpSales']>('app.erpSales')!;
     const result: ErpSalesSyncResult = {
       saved: 0,
-      byChannel: { ecommerce: 0, smartsale: 0 },
-      creditNoteLines: { ecommerce: 0, smartsale: 0 },
+      byChannel: { ecommerce: 0, smartsale: 0, pos: 0 },
+      creditNoteLines: { ecommerce: 0, smartsale: 0, pos: 0 },
       excluded: {},
     };
 
@@ -90,7 +91,12 @@ export class ErpSalesSyncService {
           result.excluded[reason] = (result.excluded[reason] ?? 0) + 1;
           continue;
         }
-        const dbRow = toDbRow(row, resolveErpStoreIdFromCo(row.co)!);
+        const target = resolveErpTarget(row);
+        if (!target) {
+          result.excluded['unknown-co'] = (result.excluded['unknown-co'] ?? 0) + 1;
+          continue;
+        }
+        const dbRow = toDbRow(row, target);
         if (dbRow.isCreditNote) result.creditNoteLines[dbRow.channel] += 1;
         else result.byChannel[dbRow.channel] += 1;
         dbRows.push(dbRow);

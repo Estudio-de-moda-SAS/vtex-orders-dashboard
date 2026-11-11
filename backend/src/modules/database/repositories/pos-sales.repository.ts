@@ -84,6 +84,17 @@ export interface PosSalesCategoryRow {
   sales: number;
 }
 
+/**
+ * Tipo de producto POS en el MISMO formato que el ERP ("208 - TENIS"):
+ * `id_tipo` + `tipo` de la consulta POS. Por tienda; `getByTipo` combina.
+ */
+export interface PosSalesTipoRow {
+  storeId: string;
+  tipo: string;
+  units: number;
+  sales: number;
+}
+
 /** `marca` CRUDA (no `store_id`) — solo tiene sentido pedirla para Pilatos, la única tienda multimarca. */
 export interface PosSalesBrandRow {
   marca: string;
@@ -298,6 +309,28 @@ export class PosSalesRepository {
       [startDay, endDay],
     );
     return result.rows.map((r) => ({ categoria: r.categoria, units: Number(r.units), sales: Number(r.sales) }));
+  }
+
+  /**
+   * Venta por tipo de producto y tienda — mismo criterio que
+   * `getByCategory`: excluye fletes (no son tipo de producto) y ya neta de
+   * notas crédito. El tipo se arma como "208 - TENIS" (`id_tipo` + `tipo`)
+   * para coincidir EXACTO con el `tipo` del ERP (facturas), así el Resumen
+   * de SmartSale los combina sin emparejamiento aproximado.
+   */
+  async getByStoreTipo(startDay: string, endDay: string): Promise<PosSalesTipoRow[]> {
+    const result = await this.pool.query<{ store_id: string; tipo: string; units: string; sales: string }>(
+      `SELECT store_id,
+              CASE WHEN NULLIF(trim(id_tipo), '') IS NULL THEN COALESCE(trim(tipo), 'SIN TIPO')
+                   ELSE trim(id_tipo) || ' - ' || COALESCE(trim(tipo), '') END AS tipo,
+              COALESCE(SUM(cantidad_inv), 0) AS units,
+              COALESCE(SUM(valor_neto), 0) AS sales
+       FROM pos_sales
+       WHERE fecha BETWEEN $1 AND $2 AND NOT is_freight
+       GROUP BY 1, 2 ORDER BY sales DESC`,
+      [startDay, endDay],
+    );
+    return result.rows.map((r) => ({ storeId: r.store_id, tipo: r.tipo, units: Number(r.units), sales: Number(r.sales) }));
   }
 
   /**

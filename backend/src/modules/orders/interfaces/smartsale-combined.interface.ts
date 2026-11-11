@@ -1,3 +1,5 @@
+import { MarginSummary } from '../../../common/utils/erp-margin.util';
+import { CombinedTipo } from '../../../common/utils/smartsale-combined.util';
 import { GrowthStatus } from './trends.interface';
 
 /**
@@ -82,6 +84,26 @@ export interface SmartSaleCombinedSummaryResponse {
    * llegará por Excel).
    */
   erpCoverageStartDay: string | null;
+  /**
+   * Margen y utilidad por marca, POS + ERP (decisión del usuario: solo por
+   * marca, no por vendedor). Subtotal sin IVA y costo de las facturas ERP
+   * de SmartSale + de los documentos POS tomados del CO 810 de la consulta
+   * de facturas (la de POS no los trae). Sin notas crédito. Incluye fletes
+   * y empaque, igual que `/presupuesto`. Ponderado + promedio simple.
+   */
+  margin: MarginSummary;
+  /**
+   * Cobertura del margen POS: la consulta de facturas (de donde sale el
+   * costo POS) trae tarde los documentos del día. `posDocuments` = docs de
+   * venta de "Ventas POS" en el rango; `posDocumentsWithMargin` = cuántos
+   * de ellos ya están en la consulta de facturas. Si son menos, el margen
+   * POS todavía no incluye los que faltan (se completa en el próximo sync).
+   */
+  posMarginCoverage: { posDocuments: number; posDocumentsWithMargin: number };
+  /** Tipos de producto POS + ERP combinados ("208 - TENIS"), lista completa ordenada por venta. */
+  byTipo: CombinedTipo[];
+  /** Tipos por marca POS + ERP — siempre las 6 marcas. */
+  byStoreTipo: { storeId: string; byTipo: CombinedTipo[] }[];
 }
 
 export interface SmartSaleCombinedMonthlyTrendPoint {

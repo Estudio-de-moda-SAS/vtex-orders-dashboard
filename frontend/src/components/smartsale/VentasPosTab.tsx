@@ -12,6 +12,8 @@ import { ordersService } from '@/services/orders.service';
 import { StoreInfo } from '@/types/dashboard';
 import { PosSalesSummaryResponse } from '@/types/pos-sales';
 
+import { TipoRankingSections } from './TipoRankingSections';
+
 /** Única tienda multimarca — ver comentario de `pilatosByBrand` en el backend. */
 const PILATOS_STORE_ID = 'pilatos';
 
@@ -33,7 +35,10 @@ const MAX_CATEGORIES_SHOWN = 20;
  * la participación de cada tienda/vendedor DENTRO de este mismo canal POS.
  */
 export function VentasPosTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-pos-sales-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-pos-sales-range', getTodayRange, {
+    start: 'posStartDate',
+    end: 'posEndDate',
+  });
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {
@@ -43,7 +48,8 @@ export function VentasPosTab() {
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<PosSalesSummaryResponse>(
     // "v6": se agregó `units`/`totalUnits` (UPT) a vendedores, tiendas y marcas.
-    `pos-sales:v6:${startDate}:${endDate}`,
+    // "v7": se agregó `byTipo`/`byStoreTipo` (tipo de producto).
+    `pos-sales:v7:${startDate}:${endDate}`,
     () => ordersService.getPosSalesSummary(startDate, endDate),
     { autoFetchOnKeyChange: false },
   );
@@ -208,6 +214,8 @@ function PosSalesSummary({ data, storeById }: { data: PosSalesSummaryResponse; s
           </ul>
         </div>
       )}
+
+      <TipoRankingSections general={data.byTipo} byStore={data.byStoreTipo} stores={storeById} sourceLabel="POS" />
 
       {data.byCategory.length > 0 && (
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">

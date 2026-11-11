@@ -134,7 +134,7 @@ export function SmartSaleBudgetTab() {
     setStartDate: setCmpStartDate,
     endDate: cmpEndDate,
     setEndDate: setCmpEndDate,
-  } = useDateRangeFilter('vica-smartsale-budget-range');
+  } = useDateRangeFilter('vica-smartsale-budget-range', undefined, { start: 'pptoStartDate', end: 'pptoEndDate' });
 
   const { state: cmpState, refetch: runComparison } = useCachedQuery<{
     budget: BudgetRangeSummaryResponse;

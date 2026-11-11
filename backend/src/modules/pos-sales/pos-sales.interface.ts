@@ -53,6 +53,13 @@ export interface PosSalesCategorySummary {
   sales: number;
 }
 
+/** Tipo de producto ("208 - TENIS", mismo formato que el ERP), ya neto de notas crédito, sin fletes. */
+export interface PosSalesTipoSummary {
+  tipo: string;
+  units: number;
+  sales: number;
+}
+
 export interface PosSalesSummaryResponse {
   filters: { startDate: string; endDate: string };
   /** DEFINITIVO: incluye fletes y YA RESTA las notas crédito. */
@@ -76,4 +83,8 @@ export interface PosSalesSummaryResponse {
   pilatosByBrand: PosSalesBrandSummary[];
   /** Combinando las 6 tiendas — categoría CRUDA de POS, sin normalizar contra las categorías de VTEX. */
   byCategory: PosSalesCategorySummary[];
+  /** Tipos combinando las 6 tiendas, ordenados por venta — lista completa (la pantalla muestra el top 10). */
+  byTipo: PosSalesTipoSummary[];
+  /** Tipos por tienda — siempre las 6 tiendas, lista completa cada una. */
+  byStoreTipo: { storeId: string; byTipo: PosSalesTipoSummary[] }[];
 }

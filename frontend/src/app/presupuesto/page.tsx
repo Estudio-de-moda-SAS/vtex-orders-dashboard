@@ -1,11 +1,12 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense } from 'react';
 
 import { CreditNotesTab } from '@/components/presupuesto/CreditNotesTab';
 import { ErpBudgetTab } from '@/components/presupuesto/ErpBudgetTab';
 import { PresupuestoResumenTab } from '@/components/presupuesto/PresupuestoResumenTab';
 import { VtexBudgetTab } from '@/components/presupuesto/VtexBudgetTab';
+import { usePersistentTab } from '@/lib/usePersistentTab';
 
 type TabId = 'vtex' | 'notas-credito' | 'erp' | 'resumen';
 
@@ -26,7 +27,8 @@ export default function PresupuestoPage() {
 }
 
 function PresupuestoContent() {
-  const [tab, setTab] = useState<TabId>('vtex');
+  // Recordada en sessionStorage: al ir a otra página y volver, se abre la última pestaña vista.
+  const [tab, setTab] = usePersistentTab<TabId>('vica-presupuesto-tab', 'vtex', TABS.filter((t) => !t.disabled).map((t) => t.id));
 
   return (
     <main className="mx-auto flex max-w-screen-2xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">

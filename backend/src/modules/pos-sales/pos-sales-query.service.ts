@@ -2,11 +2,31 @@ import { Injectable } from '@nestjs/common';
 
 import { normalizeEndDate, normalizeStartDate, toDayBucketColombia, todayColombia } from '../../common/utils/date-range.util';
 import { friendlyPosSellerName } from '../../common/utils/pos-sales.util';
-import { PosSalesRepository, PosSalesStoreSellerRow } from '../database/repositories/pos-sales.repository';
-import { PosSalesSellerSummary, PosSalesSummaryResponse } from './pos-sales.interface';
+import { getStoresConfig } from '../../config/stores.config';
+import { PosSalesRepository, PosSalesStoreSellerRow, PosSalesTipoRow } from '../database/repositories/pos-sales.repository';
+import { PosSalesSellerSummary, PosSalesSummaryResponse, PosSalesTipoSummary } from './pos-sales.interface';
 
 /** Única tienda multimarca — ver comentario de `getByMarca` en el repositorio. */
 const PILATOS_STORE_ID = 'pilatos';
+
+/** Suma los tipos por tienda en el total combinado y agrupa por tienda — ambos ordenados por venta. */
+export function groupPosTipos(rows: PosSalesTipoRow[], storeIds: string[]): Pick<PosSalesSummaryResponse, 'byTipo' | 'byStoreTipo'> {
+  const totals = new Map<string, PosSalesTipoSummary>();
+  for (const r of rows) {
+    const t = totals.get(r.tipo) ?? { tipo: r.tipo, units: 0, sales: 0 };
+    t.units += r.units;
+    t.sales += r.sales;
+    totals.set(r.tipo, t);
+  }
+  const bySales = (a: PosSalesTipoSummary, b: PosSalesTipoSummary) => b.sales - a.sales;
+  return {
+    byTipo: Array.from(totals.values()).sort(bySales),
+    byStoreTipo: storeIds.map((storeId) => ({
+      storeId,
+      byTipo: rows.filter((r) => r.storeId === storeId).map(({ tipo, units, sales }) => ({ tipo, units, sales })).sort(bySales),
+    })),
+  };
+}
 
 function averageTicket(sales: number, orders: number): number {
   return orders > 0 ? sales / orders : 0;
@@ -37,14 +57,16 @@ export class PosSalesQueryService {
     const startDay = toDayBucketColombia(normalizeStartDate(rawStartDate));
     const endDay = toDayBucketColombia(normalizeEndDate(rawEndDate));
 
-    const [totals, bySellerRaw, byStoreRaw, bySellerByStoreRaw, pilatosByBrandRaw, byCategoryRaw] = await Promise.all([
+    const [totals, bySellerRaw, byStoreRaw, bySellerByStoreRaw, pilatosByBrandRaw, byCategoryRaw, storeTipoRaw] = await Promise.all([
       this.repository.getTotals(startDay, endDay, storeId),
       this.repository.getBySeller(startDay, endDay, storeId),
       this.repository.getByStore(startDay, endDay),
       this.repository.getBySellerByStore(startDay, endDay),
       this.repository.getByMarca(startDay, endDay, PILATOS_STORE_ID),
       this.repository.getByCategory(startDay, endDay),
+      this.repository.getByStoreTipo(startDay, endDay),
     ]);
+    const { byTipo, byStoreTipo } = groupPosTipos(storeTipoRaw, getStoresConfig().map((s) => s.id));
 
     const sellersByStoreId = new Map<string, PosSalesStoreSellerRow[]>();
     for (const row of bySellerByStoreRaw) {
@@ -71,6 +93,8 @@ export class PosSalesQueryService {
       })),
       pilatosByBrand: pilatosByBrandRaw,
       byCategory: byCategoryRaw,
+      byTipo,
+      byStoreTipo,
     };
   }
 

@@ -1,4 +1,16 @@
+import { ErpMarginFigures } from './erp-sales';
 import { GrowthStatus } from './trends';
+
+/** Tipo de producto POS + ERP ("208 - TENIS"); `total*` ya sumados. */
+export interface SmartSaleCombinedTipo {
+  tipo: string;
+  posUnits: number;
+  posSales: number;
+  erpUnits: number;
+  erpSales: number;
+  totalSales: number;
+  totalUnits: number;
+}
 
 /**
  * "Resumen" de `/smartsale`: POS + ERP (facturas de los vendedores
@@ -59,6 +71,17 @@ export interface SmartSaleCombinedSummaryResponse {
   byCategory: SmartSaleCombinedCategoryBreakdown[];
   /** Primer día con facturas ERP sincronizadas (`null` si no hay) — antes de ese día solo hay POS. */
   erpCoverageStartDay: string | null;
+  /** Margen y utilidad por marca, POS + ERP (sin IVA, sin notas crédito). `channel.marginPercent` es el ponderado. */
+  margin: {
+    byStore: (ErpMarginFigures & { storeId: string })[];
+    channel: ErpMarginFigures & { simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };
+    freight: { subtotal: number; cost: number; utility: number };
+    packaging: { subtotal: number; cost: number; utility: number };
+  };
+  /** Documentos POS del rango vs. cuántos ya tienen margen (están en la consulta de facturas). */
+  posMarginCoverage: { posDocuments: number; posDocumentsWithMargin: number };
+  byTipo: SmartSaleCombinedTipo[];
+  byStoreTipo: { storeId: string; byTipo: SmartSaleCombinedTipo[] }[];
 }
 
 export interface SmartSaleCombinedMonthlyTrendPoint {

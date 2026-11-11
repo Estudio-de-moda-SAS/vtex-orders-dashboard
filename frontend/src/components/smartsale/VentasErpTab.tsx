@@ -12,6 +12,8 @@ import { ordersService } from '@/services/orders.service';
 import { StoreInfo } from '@/types/dashboard';
 import { ErpCreditNotesSummary, ErpSalesBreakdown, ErpSmartSaleSellerSummary, ErpSmartSaleSummaryResponse } from '@/types/erp-sales';
 
+import { TipoRankingSections } from './TipoRankingSections';
+
 /** Única tienda multimarca — ver `pilatosByBrand` en el backend. */
 const PILATOS_STORE_ID = 'pilatos';
 
@@ -78,7 +80,10 @@ function SellerList({ sellers, whole, size }: { sellers: ErpSmartSaleSellerSumma
  * productos (como `/presupuesto` → ERP).
  */
 export function VentasErpTab() {
-  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-erp-smartsale-range', getTodayRange);
+  const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter('vica-erp-smartsale-range', getTodayRange, {
+    start: 'erpStartDate',
+    end: 'erpEndDate',
+  });
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {
@@ -88,7 +93,8 @@ export function VentasErpTab() {
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<ErpSmartSaleSummaryResponse>(
     // "v2": se agregó `creditNotes` (notas crédito, no restadas) al canal, vendedores y tiendas.
-    `erp-smartsale:v2:${startDate}:${endDate}`,
+    // "v3": se agregó `byTipo`/`byStoreTipo` (tipo de producto).
+    `erp-smartsale:v3:${startDate}:${endDate}`,
     () => ordersService.getErpSmartSaleSummary(startDate, endDate),
     { autoFetchOnKeyChange: false },
   );
@@ -251,6 +257,13 @@ function ErpSmartSaleSummary({ data, storeById }: { data: ErpSmartSaleSummaryRes
           </ul>
         </div>
       )}
+
+      <TipoRankingSections
+        general={data.byTipo.map((t) => ({ tipo: t.tipo, units: t.units, sales: t.total }))}
+        byStore={data.byStoreTipo.map((s) => ({ storeId: s.storeId, byTipo: s.byTipo.map((t) => ({ tipo: t.tipo, units: t.units, sales: t.total })) }))}
+        stores={storeById}
+        sourceLabel="ERP"
+      />
 
       {data.byCategory.length > 0 && (
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">

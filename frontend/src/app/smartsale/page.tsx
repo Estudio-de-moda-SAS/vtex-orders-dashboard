@@ -1,12 +1,13 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense } from 'react';
 
 import { SmartSaleBudgetTab } from '@/components/presupuesto/SmartSaleBudgetTab';
 import { ResumenTab } from '@/components/smartsale/ResumenTab';
 import { VentasErpTab } from '@/components/smartsale/VentasErpTab';
 import { VentasPosTab } from '@/components/smartsale/VentasPosTab';
 import { VentasVtexTab } from '@/components/smartsale/VentasVtexTab';
+import { usePersistentTab } from '@/lib/usePersistentTab';
 
 type TabId = 'vtex' | 'pos' | 'erp' | 'resumen' | 'presupuesto' | 'indicadores';
 
@@ -34,7 +35,8 @@ export default function SmartSalePage() {
 }
 
 function SmartSaleContent() {
-  const [tab, setTab] = useState<TabId>('vtex');
+  // Recordada en sessionStorage: al ir a otra página y volver, se abre la última pestaña vista.
+  const [tab, setTab] = usePersistentTab<TabId>('vica-smartsale-tab', 'vtex', TABS.filter((t) => !t.disabled).map((t) => t.id));
   const activeTab = TABS.find((t) => t.id === tab);
 
   return (

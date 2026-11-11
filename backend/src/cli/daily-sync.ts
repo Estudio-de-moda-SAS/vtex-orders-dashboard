@@ -80,7 +80,7 @@ async function syncErpSales(app: Awaited<ReturnType<typeof NestFactory.createApp
   try {
     const result = await app.get(ErpSalesSyncService).syncRange(from, to, (msg) => console.log(`  ${msg}`));
     console.log(
-      `Listo: ${result.saved} línea(s) ERP guardada(s) — facturas e-commerce: ${result.byChannel.ecommerce}, facturas SmartSale: ${result.byChannel.smartsale}, notas crédito (no se restan): ${result.creditNoteLines.ecommerce + result.creditNoteLines.smartsale}. Descartadas:`,
+      `Listo: ${result.saved} línea(s) ERP guardada(s) — facturas e-commerce: ${result.byChannel.ecommerce}, facturas SmartSale: ${result.byChannel.smartsale}, líneas POS CO 810 (solo margen): ${result.byChannel.pos}, notas crédito (no se restan): ${result.creditNoteLines.ecommerce + result.creditNoteLines.smartsale + result.creditNoteLines.pos}. Descartadas:`,
       result.excluded,
     );
     return true;

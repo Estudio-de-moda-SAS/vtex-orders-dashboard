@@ -13,6 +13,7 @@ import { ordersService } from '@/services/orders.service';
 import { StoreInfo } from '@/types/dashboard';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 
+import { SmartSaleBrandSummaryTable } from './SmartSaleBrandSummaryTable';
 import { TipoRankingSections } from './TipoRankingSections';
 
 function marginLabel(value: number | null): string {
@@ -284,6 +285,8 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           );
         })}
       </div>
+
+      <SmartSaleBrandSummaryTable summary={summary} storeById={storeById} />
 
       {summary.byCategory.length > 0 && (
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">

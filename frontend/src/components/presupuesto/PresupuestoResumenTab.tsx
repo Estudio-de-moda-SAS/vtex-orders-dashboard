@@ -10,7 +10,7 @@ import { useCachedQuery } from '@/lib/useCachedQuery';
 import { useDateRangeFilter } from '@/lib/useDateRangeFilter';
 import { ordersService } from '@/services/orders.service';
 import { DashboardResponse, StoreInfo } from '@/types/dashboard';
-import { ErpMarginSummaryResponse, ErpSalesSummaryResponse } from '@/types/erp-sales';
+import { ErpMarginSummaryResponse, ErpMarketplaceSummaryResponse, ErpSalesSummaryResponse } from '@/types/erp-sales';
 
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
@@ -19,6 +19,7 @@ interface ResumenData {
   vtex: DashboardResponse;
   erp: ErpSalesSummaryResponse;
   margin: ErpMarginSummaryResponse;
+  marketplaces: ErpMarketplaceSummaryResponse;
 }
 
 function marginLabel(value: number | null): string {
@@ -45,8 +46,11 @@ function dayLabel(day: string): string {
  *   como cifra principal y el PROMEDIO SIMPLE de las marcas al lado — el
  *   usuario pidió ver los dos. Incluye fletes (costo $0 → todo utilidad) y
  *   empaque (facturado en $0, con costo → resta), con su efecto aparte.
- *   Pendiente: comisión por marketplace (`docto_referencia`) y marcas
- *   dentro de Pilatos.
+ * - Cuadro de marketplaces (debajo): factura de marketplace = prefijo de
+ *   `docto_referencia` del cuadro de comisiones; comisión = venta sin IVA ×
+ *   %, utilidad = venta sin IVA − comisión (SIN costo, así lo calculan) —
+ *   `buildMarketplaceSummary`. El cuadro de marcas NO resta comisiones.
+ *   Pendiente: marcas dentro de Pilatos.
  */
 export function PresupuestoResumenTab() {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRangeFilter(
@@ -61,15 +65,16 @@ export function PresupuestoResumenTab() {
   }, []);
 
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
-    // "v2": se agregó `margin` (margen y utilidad ERP).
-    `presupuesto-resumen:v2:${startDate}:${endDate}`,
+    // "v2": se agregó `margin` (margen y utilidad ERP). "v3": se agregó `marketplaces`.
+    `presupuesto-resumen:v3:${startDate}:${endDate}`,
     async () => {
-      const [vtex, erp, margin] = await Promise.all([
+      const [vtex, erp, margin, marketplaces] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
         ordersService.getErpSalesSummary(startDate, endDate),
         ordersService.getErpMarginSummary(startDate, endDate),
+        ordersService.getErpMarketplaceSummary(startDate, endDate),
       ]);
-      return { vtex, erp, margin };
+      return { vtex, erp, margin, marketplaces };
     },
     { autoFetchOnKeyChange: false },
   );
@@ -266,6 +271,119 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
           </p>
         </div>
       </ChartPanel>
+
+      <MarketplaceTable data={data.marketplaces} />
     </>
+  );
+}
+
+/**
+ * Cuadro de marketplaces — una fila por marketplace del cuadro de
+ * comisiones. Comisión = venta sin IVA × %; utilidad = venta sin IVA −
+ * comisión (sin costo); margen = utilidad ÷ venta sin IVA.
+ */
+function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
+  const th = 'px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-faint';
+  const withMargin = data.rows.filter((r) => r.marginPercent !== null);
+
+  return (
+    <ChartPanel title="Resumen por marketplace">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className={`${th} text-left`}>Marketplace</th>
+              <th className={`${th} text-right`}>Comisión %</th>
+              <th className={`${th} text-right`}>Ventas VTEX</th>
+              <th className={`${th} text-right`}>Ventas ERP</th>
+              <th className={`${th} text-right`}>Ventas ERP sin IVA</th>
+              <th className={`${th} text-right`}>Comisión</th>
+              <th className={`${th} text-right`}>Utilidad</th>
+              <th className={`${th} text-right`}>Margen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row) => (
+              <tr key={row.prefix} className="border-t border-surface-border">
+                <td className="px-3 py-2 font-medium text-ink">
+                  {row.name} <span className="ml-1 text-xs font-normal text-ink-faint">{row.prefix}</span>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
+                  {new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(row.commissionPercent)}%
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.vtexSales)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSales)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.erpSubtotal)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.commission)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{formatCOP(row.utility)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink">{marginLabel(row.marginPercent)}</td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-surface-border font-semibold text-ink">
+              <td className="px-3 py-2">Total</td>
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.vtexSales)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.erpSales)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.erpSubtotal)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.commission)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatCOP(data.total.utility)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {marginLabel(data.total.marginPercent)}
+                <span className="block text-[11px] font-normal text-ink-faint">
+                  simple {marginLabel(data.total.simpleAverageMarginPercent)}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
+        <p>
+          <span className="font-semibold text-ink-muted">Cómo se identifica:</span> una factura del ERP es de un marketplace
+          cuando su referencia (docto_referencia) empieza por el ID VTEX del marketplace (ej. GVL1093638 → Agaval). Ventas
+          VTEX es la venta contabilizada de ese marketplace en VTEX; puede no coincidir con ERP porque el ERP no siempre
+          factura al mismo tiempo (agotados, tiempos de facturación, logística).
+        </p>
+        <ul className="ml-4 list-disc space-y-0.5">
+          <li>
+            <span className="text-ink-muted">Comisión</span> = venta ERP sin IVA × % de comisión del marketplace.
+          </li>
+          <li>
+            <span className="text-ink-muted">Utilidad</span> = venta ERP sin IVA − comisión (no se resta el costo de la mercancía).
+          </li>
+          <li>
+            <span className="text-ink-muted">Margen</span> = utilidad ÷ venta ERP sin IVA (equivale a 100% − % de comisión).
+          </li>
+          <li>
+            <span className="text-ink-muted">Margen total ponderado</span> = utilidad total ÷ venta total sin IVA ={' '}
+            <span className="tabular-nums">
+              {formatCOP(data.total.utility)} ÷ {formatCOP(data.total.erpSubtotal)} = {marginLabel(data.total.marginPercent)}
+            </span>
+            .
+          </li>
+          <li>
+            <span className="text-ink-muted">Margen total simple</span> = suma de los márgenes ÷ número de marketplaces con venta
+            {withMargin.length > 0 ? (
+              <span className="tabular-nums">
+                {' '}= ({withMargin.map((r) => `${r.name} ${marginLabel(r.marginPercent)}`).join(' + ')}) ÷ {withMargin.length} ={' '}
+                {marginLabel(data.total.simpleAverageMarginPercent)}
+              </span>
+            ) : (
+              ' — sin ventas de marketplace en el rango'
+            )}
+            .
+          </li>
+        </ul>
+        {data.otherPrefixes.length > 0 && (
+          <p className="text-warning">
+            <span className="font-semibold">Prefijos sin comisión definida (por validar):</span>{' '}
+            {data.otherPrefixes
+              .map((p) => `${p.prefix} — ${p.invoices} factura(s), ${formatCOP(p.erpSales)} con IVA (${formatCOP(p.erpSubtotal)} sin IVA)`)
+              .join(' · ')}
+            . No están en el cuadro de comisiones, así que no aparecen arriba.
+          </p>
+        )}
+      </div>
+    </ChartPanel>
   );
 }

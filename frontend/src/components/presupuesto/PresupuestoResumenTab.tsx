@@ -374,15 +374,6 @@ function MarketplaceTable({ data }: { data: ErpMarketplaceSummaryResponse }) {
             .
           </li>
         </ul>
-        {data.otherPrefixes.length > 0 && (
-          <p className="text-warning">
-            <span className="font-semibold">Prefijos sin comisión definida (por validar):</span>{' '}
-            {data.otherPrefixes
-              .map((p) => `${p.prefix} — ${p.invoices} factura(s), ${formatCOP(p.erpSales)} con IVA (${formatCOP(p.erpSubtotal)} sin IVA)`)
-              .join(' · ')}
-            . No están en el cuadro de comisiones, así que no aparecen arriba.
-          </p>
-        )}
       </div>
     </ChartPanel>
   );

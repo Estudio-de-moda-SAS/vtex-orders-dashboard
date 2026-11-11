@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   try {
     const result = await app.get(ErpSalesSyncService).syncRange(values.from, values.to, (msg) => console.log(`  ${msg}`));
     console.log(
-      `\nListo: ${result.saved} línea(s) guardada(s) — facturas e-commerce: ${result.byChannel.ecommerce}, facturas SmartSale: ${result.byChannel.smartsale}, notas crédito e-commerce: ${result.creditNoteLines.ecommerce}, notas crédito SmartSale: ${result.creditNoteLines.smartsale} (no se restan). Descartadas por motivo:`,
+      `\nListo: ${result.saved} línea(s) guardada(s) — facturas e-commerce: ${result.byChannel.ecommerce}, facturas SmartSale: ${result.byChannel.smartsale}, notas crédito e-commerce: ${result.creditNoteLines.ecommerce}, notas crédito SmartSale: ${result.creditNoteLines.smartsale} (no se restan), líneas POS CO 810 (solo margen): ${result.byChannel.pos} + ${result.creditNoteLines.pos} NPE. Descartadas por motivo:`,
       result.excluded,
     );
   } catch (error) {

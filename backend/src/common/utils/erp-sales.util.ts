@@ -5,6 +5,8 @@
  * que el sync y cualquier consulta futura apliquen exactamente lo mismo.
  */
 
+import { resolvePosStoreIdFromMarca } from './pos-sales.util';
+
 /** Centro de operación (`co`) → `storeId` interno. Cualquier otro CO se descarta. */
 const ERP_CO_TO_STORE: Record<string, string> = {
   '199': 'pilatos',
@@ -28,8 +30,16 @@ const ERP_SMARTSALE_SELLERS: Record<string, string> = {
   '168A': 'Felipe Rengifo',
 };
 
-/** CO 810 = SmartSale (otro departamento) — ya cae fuera por no estar en `ERP_CO_TO_STORE`, se nombra para que el log lo distinga. */
-export const ERP_SMARTSALE_CO = '810';
+/**
+ * CO 810 = POS físico de SmartSale. Son los MISMOS documentos que trae la
+ * consulta de ventas POS (validado documento por documento, nov-2026), pero
+ * esta consulta trae además subtotal sin IVA y costo. Se guardan como canal
+ * 'pos' SOLO para calcular el margen POS del Resumen de SmartSale — nunca
+ * se muestran como venta (la venta POS sigue saliendo de `pos_sales`).
+ * Ojo: esta consulta trae tarde los documentos del día (se completa con el
+ * sync de 3 días).
+ */
+export const ERP_POS_CO = '810';
 
 /**
  * CO que se excluyen a propósito mientras el usuario los valida (no son
@@ -43,10 +53,14 @@ const PENDING_VALIDATION_COS = new Set(['956']);
 
 export type ErpLineKind = 'product' | 'freight' | 'packaging';
 
-/** 'ecommerce' = tiendas virtuales (`/presupuesto`); 'smartsale' = vendedores SmartSale (`/smartsale` → "Ventas ERP"). */
-export type ErpChannel = 'ecommerce' | 'smartsale';
+/**
+ * 'ecommerce' = tiendas virtuales (`/presupuesto`); 'smartsale' = vendedores
+ * SmartSale (`/smartsale` → "Ventas ERP"); 'pos' = POS físico (CO 810), solo
+ * para el margen POS — ver `ERP_POS_CO`.
+ */
+export type ErpChannel = 'ecommerce' | 'smartsale' | 'pos';
 
-export type ErpExclusionReason = 'smartsale-co' | 'pending-co' | 'unknown-co';
+export type ErpExclusionReason = 'pending-co' | 'unknown-co';
 
 function norm(value: string | null | undefined): string {
   return (value ?? '').trim().toUpperCase();
@@ -57,14 +71,16 @@ export function resolveErpStoreIdFromCo(co: string | null | undefined): string |
 }
 
 /**
- * "NVF-..." = nota crédito (valor y cantidad vienen NEGATIVOS). Se guarda
+ * "NVF-..." = nota crédito e-commerce/SmartSale; "NPE-..." = nota crédito
+ * del POS (CO 810). Valor y cantidad vienen NEGATIVOS. Se guarda
  * con `is_credit_note = true` pero NUNCA entra en la venta: todas las
  * consultas de venta la excluyen (no se resta — decisión del usuario).
  * Solo se muestra aparte en "Ventas ERP" de `/smartsale` (cantidad y valor
  * por marca y vendedor); las de e-commerce ya tienen su propia pestaña.
  */
 export function isErpCreditNoteDoc(nroDocumento: string | null | undefined): boolean {
-  return norm(nroDocumento).startsWith('NVF');
+  const doc = norm(nroDocumento);
+  return doc.startsWith('NVF') || doc.startsWith('NPE');
 }
 
 /** Nombre amigable del vendedor SmartSale, o `null` si el código no es de SmartSale. */
@@ -78,8 +94,26 @@ export function normalizeErpSellerCode(codigoVendedor: string | null | undefined
   return code === '' ? null : code;
 }
 
-export function resolveErpChannel(codigoVendedor: string | null | undefined): ErpChannel {
-  return erpSmartSaleSellerName(codigoVendedor) !== null ? 'smartsale' : 'ecommerce';
+/**
+ * Canal y tienda de una línea que SÍ se guarda (ver `erpExclusionReason`):
+ * - CO 810 → canal 'pos'; tienda con la MISMA regla de "Ventas POS"
+ *   (`resolvePosStoreIdFromMarca` sobre la marca sin código: "DSA - DIESEL
+ *   ADULTO" → "DIESEL ADULTO" → diesel; lo no listado cae en Pilatos), para
+ *   que el margen POS caiga en la misma tienda que su venta POS.
+ * - Vendedor 082P/168A → 'smartsale'; el resto → 'ecommerce'; tienda por CO.
+ */
+export function resolveErpTarget(row: {
+  co: string | null | undefined;
+  codigo_vendedor: string | null | undefined;
+  marca: string | null | undefined;
+}): { channel: ErpChannel; storeId: string } | null {
+  if ((row.co ?? '').trim() === ERP_POS_CO) {
+    const marca = (row.marca ?? '').trim().replace(/^\S+\s+-\s+/, '');
+    return { channel: 'pos', storeId: resolvePosStoreIdFromMarca(marca) };
+  }
+  const storeId = resolveErpStoreIdFromCo(row.co);
+  if (storeId === null) return null;
+  return { channel: erpSmartSaleSellerName(row.codigo_vendedor) !== null ? 'smartsale' : 'ecommerce', storeId };
 }
 
 /**
@@ -89,9 +123,10 @@ export function resolveErpChannel(codigoVendedor: string | null | undefined): Er
  * facturas y a notas crédito.
  */
 export function erpExclusionReason(row: { co: string | null | undefined }): ErpExclusionReason | null {
-  if ((row.co ?? '').trim() === ERP_SMARTSALE_CO) return 'smartsale-co';
-  if (PENDING_VALIDATION_COS.has((row.co ?? '').trim())) return 'pending-co';
-  if (resolveErpStoreIdFromCo(row.co) === null) return 'unknown-co';
+  const co = (row.co ?? '').trim();
+  if (co === ERP_POS_CO) return null;
+  if (PENDING_VALIDATION_COS.has(co)) return 'pending-co';
+  if (resolveErpStoreIdFromCo(co) === null) return 'unknown-co';
   return null;
 }
 

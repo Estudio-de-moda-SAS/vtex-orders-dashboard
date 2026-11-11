@@ -39,6 +39,9 @@ export interface ErpSmartSaleSummaryResponse {
   byStore: (ErpSalesBreakdown & { storeId: string; creditNotes: ErpCreditNotesSummary; bySeller: ErpSmartSaleSellerSummary[] })[];
   pilatosByBrand: (ErpSalesBreakdown & { marca: string })[];
   byCategory: (ErpSalesBreakdown & { categoria: string })[];
+  /** Tipos de producto, solo producto — lista completa ordenada por venta. */
+  byTipo: (ErpSalesBreakdown & { tipo: string })[];
+  byStoreTipo: { storeId: string; byTipo: (ErpSalesBreakdown & { tipo: string })[] }[];
   lastSyncedAt: string | null;
   lastDataDay: string | null;
 }

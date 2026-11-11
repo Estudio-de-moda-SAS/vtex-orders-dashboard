@@ -13,6 +13,12 @@ import { ordersService } from '@/services/orders.service';
 import { StoreInfo } from '@/types/dashboard';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 
+import { TipoRankingSections } from './TipoRankingSections';
+
+function marginLabel(value: number | null): string {
+  return value === null ? '—' : formatPercentage(value);
+}
+
 /** Mismo orden que `stores.config.ts` y el resto del dashboard — NO por venta. */
 const STORE_DISPLAY_ORDER = ['pilatos', 'kipling', 'diesel', 'superdry', 'girbaud', 'replay'];
 
@@ -56,7 +62,8 @@ export function ResumenTab() {
     // "v3": agrega totalSales/totalOrders/totalUnits ya sumados por el backend (antes se sumaban en el cliente).
     // "v4": se agregó `vtexUnits`/`posUnits`/`totalUnits` (UPT) a `byStore`/`byPerson` y `totalVtexUnits`/`totalPosUnits` al total general.
     // "v5": VTEX + POS → POS + ERP (campos `vtex*` renombrados a `erp*`, `erpAvailable` en la tendencia).
-    `smartsale-resumen:v5:${startDate}:${endDate}`,
+    // "v6": se agregó `margin`/`posMarginCoverage` (margen POS + ERP por marca) y `byTipo`/`byStoreTipo`.
+    `smartsale-resumen:v6:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -147,6 +154,47 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
       </div>
 
       <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
+        <h3 className="mb-3 font-display text-base font-semibold text-ink">Margen y utilidad (POS + ERP)</h3>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Margen total canal</p>
+            <p className="mt-0.5 font-display text-xl font-semibold text-ink">{marginLabel(summary.margin.channel.marginPercent)}</p>
+            <p className="text-xs text-ink-faint">
+              Ponderado. Promedio simple de las {summary.margin.channel.storesInSimpleAverage} marcas:{' '}
+              {marginLabel(summary.margin.channel.simpleAverageMarginPercent)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Utilidad total canal</p>
+            <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.margin.channel.utility)}</p>
+            <p className="text-xs text-ink-faint">Venta sin IVA − costo</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Venta sin IVA (base del margen)</p>
+            <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.margin.channel.subtotal)}</p>
+            <p className="text-xs text-ink-faint">Costo {formatCOP(summary.margin.channel.cost)}</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
+          <p>
+            <span className="font-semibold text-ink-muted">Cómo se calcula:</span> utilidad = venta sin IVA − costo (costo
+            unitario × cantidad); margen = utilidad ÷ venta sin IVA, sumando POS + ERP por marca y sin notas crédito. Margen
+            total ponderado = {formatCOP(summary.margin.channel.utility)} ÷ {formatCOP(summary.margin.channel.subtotal)} ={' '}
+            {marginLabel(summary.margin.channel.marginPercent)}; el simple promedia el margen de cada marca con venta.
+          </p>
+          <p className="text-warning">
+            <span className="font-semibold">Importante:</span> las consultas de POS y ERP no se sincronizan al mismo tiempo —
+            en POS la venta llega de inmediato y en el ERP tarda en registrarse. El margen POS sale de la consulta del ERP,
+            por eso puede no coincidir con la venta total de POS de los últimos días; se valida en la próxima sincronización.
+            {summary.posMarginCoverage.posDocumentsWithMargin < summary.posMarginCoverage.posDocuments &&
+              ` En este rango, el margen incluye ${formatNumber(summary.posMarginCoverage.posDocumentsWithMargin)} de ${formatNumber(
+                summary.posMarginCoverage.posDocuments,
+              )} documentos POS; los demás aún no están en el ERP.`}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">
         <h3 className="mb-1 font-display text-base font-semibold text-ink">Total por vendedor (POS + ERP, todas las tiendas)</h3>
         <p className="mb-3 text-xs text-ink-faint">Cada vendedor de SmartSale, sumando ambos canales y las 6 tiendas.</p>
         {summary.bySeller.length === 0 ? (
@@ -198,6 +246,15 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
                   {formatAverageTicket(storeSales, storeOrders)} · UPT {formatUpt(storeUnits, storeOrders)} ·{' '}
                   {formatPercentage(percentage)} del total
                 </p>
+                {(() => {
+                  const m = summary.margin.byStore.find((s) => s.storeId === store.storeId);
+                  return m ? (
+                    <p className="mt-1 text-xs tabular-nums text-ink-faint">
+                      Margen <span className="font-semibold text-ink">{marginLabel(m.marginPercent)}</span> · Utilidad{' '}
+                      <span className="font-semibold text-ink">{formatCOP(m.utility)}</span> · Venta sin IVA {formatCOP(m.subtotal)}
+                    </p>
+                  ) : null;
+                })()}
               </div>
 
               {store.byPerson.length === 0 ? (
@@ -253,6 +310,16 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           </ul>
         </div>
       )}
+
+      <TipoRankingSections
+        general={summary.byTipo.map((t) => ({ tipo: t.tipo, units: t.totalUnits, sales: t.totalSales }))}
+        byStore={summary.byStoreTipo.map((s) => ({
+          storeId: s.storeId,
+          byTipo: s.byTipo.map((t) => ({ tipo: t.tipo, units: t.totalUnits, sales: t.totalSales })),
+        }))}
+        stores={storeById}
+        sourceLabel="POS + ERP"
+      />
 
       <SmartSaleTrendSection monthly={monthlyTrend} />
     </div>

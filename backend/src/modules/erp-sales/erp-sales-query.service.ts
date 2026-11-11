@@ -135,6 +135,24 @@ export class ErpSalesQueryService {
     return { filters: { startDate: startDay, endDate: endDay }, ...buildMarketplaceSummary(prefixRows, vtexByLabel) };
   }
 
+  /**
+   * Insumo del margen del Resumen de SmartSale: subtotal sin IVA y costo
+   * de las facturas ERP de SmartSale + de los documentos POS (CO 810, canal
+   * 'pos' — la consulta de ventas POS no trae subtotal ni costo). Sin notas
+   * crédito. `posDocumentsWithMargin` = documentos POS de venta (CO 810,
+   * sin NPE) que YA están en la consulta de facturas — se compara contra
+   * los documentos de "Ventas POS" para avisar cuántos faltan.
+   */
+  async getSmartSaleMarginInput(rawStartDate: string, rawEndDate: string) {
+    const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
+    const [erpRows, posRows, posTotals] = await Promise.all([
+      this.repository.getMarginRows(startDay, endDay, 'smartsale'),
+      this.repository.getMarginRows(startDay, endDay, 'pos'),
+      this.repository.getBreakdown(startDay, endDay, 'pos', 'none'),
+    ]);
+    return { rows: [...erpRows, ...posRows], posDocumentsWithMargin: posTotals[0]?.invoices ?? 0 };
+  }
+
   /** Año en curso completo, canal SmartSale, por mes — más el primer mes con ERP sincronizado (antes no hay datos ERP). */
   async getSmartSaleMonthlyTrend(): Promise<{ months: { month: string; orders: number; sales: number }[]; coverageStartMonth: string | null }> {
     const endDay = todayColombia();
@@ -168,6 +186,11 @@ export class ErpSalesQueryService {
       this.repository.getBreakdown(startDay, endDay, 'smartsale', 'categoria'),
       this.repository.getSyncInfo(),
     ]);
+    const [ssTipoRows, ssStoreTipoRows] = await Promise.all([
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'tipo'),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeTipo'),
+    ]);
+    const toSsTipo = (r: ErpSalesGroupedRow) => ({ tipo: r.keys.tipo ?? 'SIN TIPO', ...pickBreakdown(r) });
     // Notas crédito: se muestran aparte, NUNCA se restan de la venta de arriba.
     const [ncTotal, ncBySeller, ncByStore, ncByStoreSeller] = await Promise.all([
       this.repository.getCreditNotes(startDay, endDay, 'smartsale', 'none'),
@@ -199,6 +222,11 @@ export class ErpSalesQueryService {
         .filter((r) => r.keys.store_id === PILATOS_STORE_ID)
         .map((r) => ({ marca: r.keys.marca ?? 'SIN MARCA', ...pickBreakdown(r) })),
       byCategory: categoryRows.map((r) => ({ categoria: r.keys.categoria ?? 'SIN CATEGORÍA', ...pickBreakdown(r) })),
+      byTipo: ssTipoRows.map(toSsTipo),
+      byStoreTipo: getStoresConfig().map((store) => ({
+        storeId: store.id,
+        byTipo: ssStoreTipoRows.filter((r) => r.keys.store_id === store.id).map(toSsTipo),
+      })),
       ...syncInfo,
     };
   }

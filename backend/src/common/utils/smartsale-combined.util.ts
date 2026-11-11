@@ -104,3 +104,49 @@ export function buildErpCoverageNote(coverageStartDay: string | null, periodStar
   }
   return null;
 }
+
+export interface CombinedTipo {
+  tipo: string;
+  posUnits: number;
+  posSales: number;
+  erpUnits: number;
+  erpSales: number;
+  /** `posSales + erpSales`, YA SUMADO. */
+  totalSales: number;
+  totalUnits: number;
+}
+
+/**
+ * Tipos POS ("208 - TENIS", armado de `id_tipo` + `tipo`) + tipos ERP
+ * (mismo formato en las facturas) — coinciden exacto; se agrupan por
+ * `combinedCategoryKey` (mayúsculas, sin espacios repetidos). Ordenado por
+ * venta total. Solo producto en ambos lados (POS sin fletes, ERP sin
+ * flete ni empaque).
+ */
+export function mergeCombinedTipos(
+  posTipos: { tipo: string; units: number; sales: number }[],
+  erpTipos: { tipo: string; units: number; total: number }[],
+): CombinedTipo[] {
+  const byKey = new Map<string, CombinedTipo>();
+  const entryFor = (tipo: string) => {
+    const key = tipo.trim().toUpperCase().replace(/\s+/g, ' ');
+    const existing = byKey.get(key);
+    if (existing) return existing;
+    const created: CombinedTipo = { tipo: tipo.trim(), posUnits: 0, posSales: 0, erpUnits: 0, erpSales: 0, totalSales: 0, totalUnits: 0 };
+    byKey.set(key, created);
+    return created;
+  };
+  for (const p of posTipos) {
+    const e = entryFor(p.tipo);
+    e.posUnits += p.units;
+    e.posSales += p.sales;
+  }
+  for (const r of erpTipos) {
+    const e = entryFor(r.tipo);
+    e.erpUnits += r.units;
+    e.erpSales += r.total;
+  }
+  return Array.from(byKey.values())
+    .map((e) => ({ ...e, totalSales: e.posSales + e.erpSales, totalUnits: e.posUnits + e.erpUnits }))
+    .sort((a, b) => b.totalSales - a.totalSales);
+}

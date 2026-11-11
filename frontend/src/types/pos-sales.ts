@@ -49,4 +49,7 @@ export interface PosSalesSummaryResponse {
   pilatosByBrand: PosSalesBrandSummary[];
   /** Combinando las 6 tiendas — categoría CRUDA de POS, sin normalizar contra las categorías de VTEX. */
   byCategory: PosSalesCategorySummary[];
+  /** Tipos ("208 - TENIS", mismo formato que el ERP), sin fletes, ya netos de NC — lista completa ordenada por venta. */
+  byTipo: { tipo: string; units: number; sales: number }[];
+  byStoreTipo: { storeId: string; byTipo: { tipo: string; units: number; sales: number }[] }[];
 }

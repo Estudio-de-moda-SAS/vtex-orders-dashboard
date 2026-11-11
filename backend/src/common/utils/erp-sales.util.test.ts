@@ -8,7 +8,7 @@ import {
   isErpCreditNoteDoc,
   mergeSalesWithCreditNotes,
   normalizeErpSellerCode,
-  resolveErpChannel,
+  resolveErpTarget,
   resolveErpStoreIdFromCo,
   splitIntoDayChunks,
 } from './erp-sales.util';
@@ -24,29 +24,38 @@ test('resolveErpStoreIdFromCo mapea los 6 CO y descarta el resto', () => {
   assert.equal(resolveErpStoreIdFromCo(null), null);
 });
 
-test('erpExclusionReason: CO 810, CO 956 y CO desconocido (aplica a facturas y notas crédito)', () => {
+test('erpExclusionReason: CO 956 y CO desconocido; el CO 810 (POS) ya no se descarta', () => {
   assert.equal(erpExclusionReason({ co: '199' }), null);
   assert.equal(erpExclusionReason({ co: ' 209 ' }), null);
-  assert.equal(erpExclusionReason({ co: '810' }), 'smartsale-co');
+  assert.equal(erpExclusionReason({ co: '810' }), null);
   assert.equal(erpExclusionReason({ co: '956' }), 'pending-co');
   assert.equal(erpExclusionReason({ co: '999' }), 'unknown-co');
   assert.equal(erpExclusionReason({ co: null }), 'unknown-co');
 });
 
-test('isErpCreditNoteDoc: NVF es nota crédito (se guarda marcada, no se descarta)', () => {
+test('isErpCreditNoteDoc: NVF y NPE (POS) son nota crédito (se guardan marcadas, no se descartan)', () => {
   assert.equal(isErpCreditNoteDoc('NVF-00022259'), true);
   assert.equal(isErpCreditNoteDoc(' nvf-1'), true);
+  assert.equal(isErpCreditNoteDoc('NPE-00001664'), true);
   assert.equal(isErpCreditNoteDoc('FTF-00236369'), false);
+  assert.equal(isErpCreditNoteDoc('FPE-00007232'), false);
   assert.equal(isErpCreditNoteDoc(null), false);
 });
 
-test('resolveErpChannel / erpSmartSaleSellerName: 082P y 168A son SmartSale, sin distinguir mayúsculas', () => {
-  assert.equal(resolveErpChannel('082P'), 'smartsale');
-  assert.equal(resolveErpChannel('082p'), 'smartsale');
-  assert.equal(resolveErpChannel(' 168a '), 'smartsale');
-  assert.equal(resolveErpChannel('168A'), 'smartsale');
-  assert.equal(resolveErpChannel('001'), 'ecommerce');
-  assert.equal(resolveErpChannel(null), 'ecommerce');
+test('resolveErpTarget: SmartSale por vendedor (sin distinguir mayúsculas), e-commerce por CO, POS por CO 810', () => {
+  const row = (co: string | null, codigo_vendedor: string | null, marca: string | null = null) => ({ co, codigo_vendedor, marca });
+  assert.deepEqual(resolveErpTarget(row('199', '082P')), { channel: 'smartsale', storeId: 'pilatos' });
+  assert.deepEqual(resolveErpTarget(row('208', '082p')), { channel: 'smartsale', storeId: 'diesel' });
+  assert.deepEqual(resolveErpTarget(row('209', ' 168a ')), { channel: 'smartsale', storeId: 'superdry' });
+  assert.deepEqual(resolveErpTarget(row('203', '001')), { channel: 'ecommerce', storeId: 'kipling' });
+  assert.deepEqual(resolveErpTarget(row('204', null)), { channel: 'ecommerce', storeId: 'girbaud' });
+  assert.equal(resolveErpTarget(row('999', '001')), null);
+  // CO 810: misma regla de tienda que "Ventas POS" (marca sin código; lo no listado → Pilatos).
+  assert.deepEqual(resolveErpTarget(row('810', '168a', 'DSA - DIESEL ADULTO')), { channel: 'pos', storeId: 'diesel' });
+  assert.deepEqual(resolveErpTarget(row('810', '082P', 'KIP - KIPLING')), { channel: 'pos', storeId: 'kipling' });
+  assert.deepEqual(resolveErpTarget(row('810', '082P', 'MFG - MARITHE FRANCOIS GIRBAUD')), { channel: 'pos', storeId: 'girbaud' });
+  assert.deepEqual(resolveErpTarget(row('810', '082P', 'HOKA - HOKA')), { channel: 'pos', storeId: 'pilatos' });
+  assert.deepEqual(resolveErpTarget(row('810', '082P', 'NA - NO APLICA')), { channel: 'pos', storeId: 'pilatos' });
   assert.equal(erpSmartSaleSellerName('082p'), 'Juana Pinilla');
   assert.equal(erpSmartSaleSellerName('168a'), 'Felipe Rengifo');
   assert.equal(erpSmartSaleSellerName('001'), null);

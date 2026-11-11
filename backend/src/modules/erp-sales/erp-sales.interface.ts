@@ -60,9 +60,9 @@ export interface ErpSalesSummaryResponse {
 export interface ErpSalesSyncResult {
   saved: number;
   /** Líneas de FACTURA guardadas por canal (sin notas crédito). */
-  byChannel: { ecommerce: number; smartsale: number };
+  byChannel: { ecommerce: number; smartsale: number; pos: number };
   /** Líneas de nota crédito ("NVF-…") guardadas por canal — no se restan de nada. */
-  creditNoteLines: { ecommerce: number; smartsale: number };
+  creditNoteLines: { ecommerce: number; smartsale: number; pos: number };
   excluded: Record<string, number>;
 }
 
@@ -102,6 +102,10 @@ export interface ErpSmartSaleSummaryResponse {
   pilatosByBrand: (ErpSalesBreakdown & { marca: string })[];
   /** Solo líneas de producto, por `categoria` cruda del ERP, combinando las 6 tiendas. */
   byCategory: (ErpSalesBreakdown & { categoria: string })[];
+  /** Tipos de producto ("208 - TENIS"), solo producto, combinando las 6 tiendas — lista completa ordenada por venta. */
+  byTipo: (ErpSalesBreakdown & { tipo: string })[];
+  /** Tipos por tienda — siempre las 6 tiendas. */
+  byStoreTipo: { storeId: string; byTipo: (ErpSalesBreakdown & { tipo: string })[] }[];
   lastSyncedAt: string | null;
   lastDataDay: string | null;
 }

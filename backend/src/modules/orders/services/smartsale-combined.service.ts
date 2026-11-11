@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { buildCombinedMonthlyTrend, combinedCategoryKey, stripErpCategoryCode } from '../../../common/utils/smartsale-combined.util';
+import { buildMarginSummary } from '../../../common/utils/erp-margin.util';
+import { buildCombinedMonthlyTrend, combinedCategoryKey, mergeCombinedTipos, stripErpCategoryCode } from '../../../common/utils/smartsale-combined.util';
 import { getGrowthThresholds } from '../../../config/growth-thresholds.config';
 import { getStoresConfig } from '../../../config/stores.config';
 import { ErpSalesQueryService } from '../../erp-sales/erp-sales-query.service';
@@ -67,10 +68,11 @@ export class SmartSaleCombinedService {
   ) {}
 
   async getCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
-    const [erpSummary, posSummary, erpCoverageStartDay] = await Promise.all([
+    const [erpSummary, posSummary, erpCoverageStartDay, marginInput] = await Promise.all([
       this.erpSalesQueryService.getSmartSaleSummary(startDate, endDate),
       this.posSalesQueryService.getSummary(startDate, endDate),
       this.erpSalesQueryService.getCoverageStartDay(),
+      this.erpSalesQueryService.getSmartSaleMarginInput(startDate, endDate),
     ]);
     const posByStoreId = new Map(posSummary.byStore.map((s) => [s.storeId, s]));
     const erpByStoreId = new Map(erpSummary.byStore.map((s) => [s.storeId, s]));
@@ -161,6 +163,16 @@ export class SmartSaleCombinedService {
       bySeller,
       byCategory,
       erpCoverageStartDay,
+      margin: buildMarginSummary(marginInput.rows, this.storeIds),
+      posMarginCoverage: { posDocuments: totalPosOrders, posDocumentsWithMargin: marginInput.posDocumentsWithMargin },
+      byTipo: mergeCombinedTipos(posSummary.byTipo, erpSummary.byTipo),
+      byStoreTipo: this.storeIds.map((storeId) => ({
+        storeId,
+        byTipo: mergeCombinedTipos(
+          posSummary.byStoreTipo.find((s) => s.storeId === storeId)?.byTipo ?? [],
+          erpSummary.byStoreTipo.find((s) => s.storeId === storeId)?.byTipo ?? [],
+        ),
+      })),
     };
   }
 

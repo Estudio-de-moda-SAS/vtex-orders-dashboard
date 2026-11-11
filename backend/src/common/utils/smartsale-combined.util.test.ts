@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildCombinedMonthlyTrend, buildErpCoverageNote, combinedCategoryKey, stripErpCategoryCode } from './smartsale-combined.util';
+import { buildCombinedMonthlyTrend, buildErpCoverageNote, combinedCategoryKey, mergeCombinedTipos, stripErpCategoryCode } from './smartsale-combined.util';
 
 test('stripErpCategoryCode quita el código del ERP y deja el texto de POS', () => {
   assert.equal(stripErpCategoryCode('101B - CAMISETA M/C'), 'CAMISETA M/C');
@@ -66,4 +66,19 @@ test('buildErpCoverageNote avisa cuando un período empieza antes del ERP', () =
   assert.equal(buildErpCoverageNote('2026-11-01', ['2026-11-05', '2026-11-02']), null);
   assert.match(buildErpCoverageNote('2026-11-01', ['2026-11-05', '2026-10-01'])!, /desde el 2026-11-01/);
   assert.match(buildErpCoverageNote(null, ['2026-11-01'])!, /solo de POS/);
+});
+
+test('mergeCombinedTipos: POS y ERP coinciden por "208 - TENIS" y se ordena por venta total', () => {
+  const merged = mergeCombinedTipos(
+    [{ tipo: '208 - TENIS', units: 3, sales: 300 }, { tipo: '101 - CAMISETA', units: 1, sales: 50 }],
+    [{ tipo: '208 - tenis', units: 2, total: 200 }, { tipo: '402 - BOLSO', units: 1, total: 400 }],
+  );
+  assert.deepEqual(
+    merged.map((t) => [t.tipo, t.posSales, t.erpSales, t.totalSales, t.totalUnits]),
+    [
+      ['208 - TENIS', 300, 200, 500, 5],
+      ['402 - BOLSO', 0, 400, 400, 1],
+      ['101 - CAMISETA', 50, 0, 50, 1],
+    ],
+  );
 });

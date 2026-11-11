@@ -105,3 +105,20 @@ export interface ErpSmartSaleSummaryResponse {
   lastSyncedAt: string | null;
   lastDataDay: string | null;
 }
+
+/**
+ * Desglose adicional del canal e-commerce (pestaña "Presupuesto y ventas
+ * ERP" de `/presupuesto`), SOLO líneas de producto — flete y empaque no
+ * son marca ni tipo de producto. Listas COMPLETAS ordenadas por venta
+ * (con IVA) descendente; la pantalla muestra el top 10 y el "Resumen"
+ * podrá filtrarlas después.
+ */
+export interface ErpEcommerceBreakdownResponse {
+  filters: { startDate: string; endDate: string };
+  /** Marcas reales del ERP (`marca`) dentro de Pilatos — todas. */
+  pilatosByBrand: (ErpSalesBreakdown & { marca: string })[];
+  /** Tipos de producto (`tipo`, ej. "101 - CAMISETA") sumando las 6 marcas. */
+  byTipo: (ErpSalesBreakdown & { tipo: string })[];
+  /** Tipos por marca — siempre las 6 marcas, cada una con su lista completa. */
+  byStore: { storeId: string; byTipo: (ErpSalesBreakdown & { tipo: string })[] }[];
+}

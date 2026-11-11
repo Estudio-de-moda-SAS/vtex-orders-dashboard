@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { formatCOP, formatNumber, formatPercentage } from '@/lib/format';
@@ -28,6 +28,8 @@ export interface ChannelSales {
   breakdown?: { channel: ChannelSalesBreakdown; stores: Record<string, ChannelSalesBreakdown> };
   /** Aviso opcional bajo el filtro (ej. "datos ERP sincronizados hasta el 10 de noviembre"). */
   notice?: string | null;
+  /** Datos propios del canal para `renderExtra` (ej. ERP: marcas dentro de Pilatos y tipos). */
+  extra?: unknown;
 }
 
 /** Lo único que cambia entre "Ventas y presupuesto VTEX" y "Presupuesto y ventas ERP" — el resto de la pestaña es idéntico. */
@@ -41,6 +43,8 @@ export interface ChannelBudgetConfig {
   /** Prefijo de la cache key de `useCachedQuery` — incluir versión (ver CLAUDE.md, "Caché de sessionStorage"). */
   cacheKeyPrefix: string;
   fetchSales: (startDate: string, endDate: string) => Promise<ChannelSales>;
+  /** Secciones adicionales debajo de "Ventas vs. presupuesto" (hoy solo ERP) — reciben lo que devolvió `fetchSales`. */
+  renderExtra?: (sales: ChannelSales, stores: StoreInfo[]) => ReactNode;
 }
 
 const VTEX_CONFIG: ChannelBudgetConfig = {
@@ -600,6 +604,8 @@ export function ChannelBudgetTab({ config }: { config: ChannelBudgetConfig }) {
           </>
         )}
       </div>
+
+      {!cmpLoading && cmpSales && config.renderExtra?.(cmpSales, stores)}
 
       {/* --- Modal de código (solo al abrir "Crear presupuesto") --- */}
       {showCodeModal && (

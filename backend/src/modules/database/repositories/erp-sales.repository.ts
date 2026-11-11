@@ -71,6 +71,9 @@ const GROUPINGS = {
   storeSeller: { columns: ['store_id', 'codigo_vendedor'], productOnly: false },
   storeMarca: { columns: ['store_id', 'marca'], productOnly: true },
   categoria: { columns: ['categoria'], productOnly: true },
+  // `tipo` (ej. "101 - CAMISETA") — solo producto: flete ("NA - NO APLICA") y empaque ("741") NO son tipo de producto.
+  tipo: { columns: ['tipo'], productOnly: true },
+  storeTipo: { columns: ['store_id', 'tipo'], productOnly: true },
 } as const;
 export type ErpSalesGrouping = keyof typeof GROUPINGS;
 

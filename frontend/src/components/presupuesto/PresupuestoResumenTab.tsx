@@ -237,7 +237,15 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             <li>
               <span className="text-ink-muted">Margen total simple</span> = suma de los márgenes de las marcas ÷ número de marcas ={' '}
               <span className="tabular-nums">
-                ({rowsWithMargin.map((r) => marginLabel(r.marginPercent)).join(' + ')}) ÷ {rowsWithMargin.length} ={' '}
+                (
+                {rowsWithMargin.map((r, i) => (
+                  <span key={r.storeId} className="whitespace-nowrap">
+                    {i > 0 && ' + '}
+                    {r.color && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: r.color }} />}
+                    {r.name} {marginLabel(r.marginPercent)}
+                  </span>
+                ))}
+                ) ÷ {rowsWithMargin.length} ={' '}
                 {marginLabel(margin.channel.simpleAverageMarginPercent)}
               </span>
               . Todas las marcas pesan igual, sin importar cuánto venden (solo entran las que vendieron en el rango).

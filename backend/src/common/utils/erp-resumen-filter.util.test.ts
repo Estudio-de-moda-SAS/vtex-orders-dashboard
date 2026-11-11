@@ -5,7 +5,6 @@ import {
   buildResumenFilterOptions,
   matchErpMarcaToVtexBrand,
   parseFilterList,
-  singleBrandStoreVtexApplies,
   vtexSalesForErpMarcas,
 } from './erp-resumen-filter.util';
 
@@ -60,10 +59,4 @@ test('buildResumenFilterOptions: solo tipo camiseta → todas las tiendas que ve
   const o = buildResumenFilterOptions(COMBOS, { storeIds: [], marcas: [], tipos: ['101 - CAMISETA'] });
   assert.deepEqual(o.storeIds, ['pilatos', 'superdry', 'diesel', 'girbaud']);
   assert.deepEqual(o.storeMarcas.girbaud, ['MFG - MARITHE FRANCOIS GIRBAUD', 'CVS - CONVERSE']);
-});
-
-test('singleBrandStoreVtexApplies: solo si todas las marcas de la tienda están elegidas', () => {
-  assert.equal(singleBrandStoreVtexApplies(['DSA - DIESEL ADULTO'], ['DSA - DIESEL ADULTO', 'NIKE - NIKE']), true);
-  assert.equal(singleBrandStoreVtexApplies(['MFG - MARITHE FRANCOIS GIRBAUD', 'CVS - CONVERSE'], ['MFG - MARITHE FRANCOIS GIRBAUD']), false);
-  assert.equal(singleBrandStoreVtexApplies([], ['X']), false);
 });

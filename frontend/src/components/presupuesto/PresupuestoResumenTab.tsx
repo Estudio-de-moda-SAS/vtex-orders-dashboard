@@ -34,13 +34,17 @@ interface ResumenData {
 }
 
 /**
- * Venta VTEX de una tienda de una sola marca con filtro de marca: la venta
- * VTEX completa de la tienda solo si TODAS las marcas ERP que vende están
- * elegidas (ej. Girbaud también vende Converse → N/A si solo se eligió
- * Girbaud). Misma regla que `singleBrandStoreVtexApplies` del backend.
+ * Venta VTEX de una tienda (no Pilatos) con filtro de marca:
+ * - no vende ninguna de las marcas elegidas → 0;
+ * - todas sus marcas están elegidas → su venta VTEX completa;
+ * - solo algunas (ej. Girbaud también vende Converse) → `null` ("N/A"):
+ *   VTEX no separa la venta por marca en esa tienda.
  */
-function singleBrandStoreVtexApplies(storeMarcas: string[] | undefined, selected: string[]): boolean {
-  return !!storeMarcas && storeMarcas.length > 0 && storeMarcas.every((m) => selected.includes(m));
+function singleBrandStoreVtex(storeMarcas: string[] | undefined, selected: string[], storeTotal: number): number | null {
+  const marcas = storeMarcas ?? [];
+  const chosen = marcas.filter((m) => selected.includes(m));
+  if (chosen.length === 0) return 0;
+  return chosen.length === marcas.length ? storeTotal : null;
 }
 
 const FILTERS_STORAGE_KEY = 'vica-presupuesto-resumen-filters';
@@ -73,10 +77,10 @@ function dayLabel(day: string): string {
  * (e-commerce), venta sin IVA, margen y utilidad, más el cuadro de
  * marketplaces — dentro del rango y con FILTROS de selección múltiple:
  *
- * Los filtros se COMBINAN (tienda Y marca Y tipo) y, con marca o tipo,
- * solo aparecen las tiendas con venta en esa combinación (ej. Diesel
- * Adulto + camiseta → Pilatos y Diesel). Las opciones de cada filtro ya
- * vienen acotadas por los otros dos (backend, `buildResumenFilterOptions`).
+ * Los filtros se COMBINAN (tienda Y marca Y tipo). Siempre se muestran
+ * todas las tiendas (o las elegidas): las que no venden la combinación
+ * salen en 0, para no confundir con tiendas "desaparecidas". Las opciones
+ * de cada filtro vienen acotadas por los otros dos (`buildResumenFilterOptions`).
  * - Marca: la del ERP, en todas las tiendas. VTEX de Pilatos = marcas VTEX
  *   equivalentes; VTEX de una tienda de una sola marca = su venta completa
  *   solo si todas sus marcas están elegidas, si no "N/A".
@@ -112,7 +116,8 @@ export function PresupuestoResumenTab() {
   const filterKey = JSON.stringify(filters);
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
     // "v4": filtros de tienda/marca/tipo. "v5": filtros combinados y opciones en `resumen.options`.
-    `presupuesto-resumen:v5:${startDate}:${endDate}:${filterKey}`,
+    // "v6": siempre todas las tiendas (las que no cumplen el filtro en 0).
+    `presupuesto-resumen:v6:${startDate}:${endDate}:${filterKey}`,
     async () => {
       const [vtex, erp, resumen] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
@@ -207,15 +212,7 @@ export function PresupuestoResumenTab() {
 
       {requestState.status === 'error' && <ErrorState message={requestState.message} onRetry={() => runQuery()} />}
 
-      {requestState.status === 'success' && requestState.data.resumen.byStore.length === 0 && (
-        <p className="rounded-2xl border border-surface-border bg-surface-panel px-4 py-3 text-sm text-ink-faint">
-          Ninguna tienda tiene ventas con esa combinación de filtros en este rango.
-        </p>
-      )}
-
-      {requestState.status === 'success' && requestState.data.resumen.byStore.length > 0 && (
-        <ResumenContent data={requestState.data} stores={stores} />
-      )}
+      {requestState.status === 'success' && <ResumenContent data={requestState.data} stores={stores} />}
     </div>
   );
 }
@@ -237,9 +234,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
     if (tipoActive) return null;
     if (!marcaActive) return vtexByStore.get(storeId) ?? 0;
     if (storeId === PILATOS_STORE_ID) return resumen.vtex.pilatosBrands?.sales ?? null;
-    return singleBrandStoreVtexApplies(resumen.options.storeMarcas[storeId], resumen.filters.marcas)
-      ? (vtexByStore.get(storeId) ?? 0)
-      : null;
+    return singleBrandStoreVtex(resumen.options.storeMarcas[storeId], resumen.filters.marcas, vtexByStore.get(storeId) ?? 0);
   }
 
   const rows = STORE_DISPLAY_ORDER.filter((id) => resumenByStore.has(id)).map((storeId) => {
@@ -364,10 +359,10 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             <p className="text-warning">
               <span className="font-semibold">Filtros:</span>
               {tipoActive && ' con un tipo de producto elegido, Ventas VTEX es N/A porque VTEX no usa los mismos tipos que el ERP.'}
-              {' solo aparecen las tiendas con venta en la combinación elegida.'}
+              {' las tiendas que no venden la combinación elegida salen en $0.'}
               {marcaActive &&
                 !tipoActive &&
-                ' Con marca: VTEX de Pilatos suma las marcas VTEX equivalentes; en una tienda de una sola marca es su venta completa, y es N/A si la tienda vende otras marcas no elegidas (VTEX no la separa).'}
+                ' Con marca: VTEX de Pilatos suma las marcas VTEX equivalentes; en las demás tiendas es su venta completa si vende solo esa(s) marca(s), $0 si no la vende, y N/A si también vende otras marcas no elegidas (VTEX no la separa).'}
               {marcaActive && !tipoActive && unmatched.length > 0 && ` Sin equivalencia en VTEX (no suman en VTEX): ${unmatched.join(', ')}.`}
             </p>
           )}

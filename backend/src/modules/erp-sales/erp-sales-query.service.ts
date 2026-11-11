@@ -105,10 +105,9 @@ export class ErpSalesQueryService {
       brandOrTipo ? Promise.resolve({} as Record<string, number>) : this.repository.getVtexSalesByMarketplace(startDay, endDay),
       wantsPilatosBrands ? this.repository.getVtexSalesByBrand(startDay, endDay, PILATOS_STORE_ID) : Promise.resolve(null),
     ]);
-    // Con filtro de marca o tipo, solo se muestran las tiendas con venta en esa combinación (ej. Diesel Adulto + camiseta
-    // → Pilatos y Diesel, nunca Superdry). Solo con filtro de tienda, se muestran las elegidas aunque no tengan venta.
-    const storesWithLines = new Set(lines.map((l) => l.storeId));
-    const storeIds = brandOrTipo ? selectedStoreIds.filter((id) => storesWithLines.has(id)) : selectedStoreIds;
+    // Siempre se muestran todas las tiendas elegidas (o las 6); las que no venden la combinación salen en 0 (decisión del
+    // usuario: ocultarlas confundía). El promedio simple igual solo cuenta las que tuvieron venta.
+    const storeIds = selectedStoreIds;
 
     const margin = buildMarginSummary(lines, storeIds);
     const erpSalesByStore = new Map<string, number>();

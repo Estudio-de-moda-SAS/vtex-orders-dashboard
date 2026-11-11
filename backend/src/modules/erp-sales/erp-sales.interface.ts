@@ -66,8 +66,8 @@ export interface ErpSalesSummaryResponse {
 export interface ErpResumenFilteredResponse {
   filters: { startDate: string; endDate: string; storeIds: string[]; marcas: string[]; tipos: string[] };
   /**
-   * Sin filtro de marca/tipo: las tiendas seleccionadas (o las 6). Con
-   * filtro de marca o tipo: SOLO las tiendas con venta en esa combinación.
+   * Siempre las tiendas seleccionadas (o las 6), aunque no vendan la
+   * combinación de marca/tipo — en ese caso salen en 0.
    */
   byStore: { storeId: string; erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null }[];
   channel: { erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null; simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };

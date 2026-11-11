@@ -138,14 +138,3 @@ export function buildResumenFilterOptions(rows: FilterComboRow[], filters: ErpRe
     storeMarcas,
   };
 }
-
-/**
- * Venta VTEX de una tienda de una sola marca con filtro de marca: aplica
- * (la venta VTEX completa de la tienda) solo si TODAS las marcas ERP que
- * vende esa tienda en el rango están seleccionadas — si vende otra que no
- * se eligió (ej. Girbaud también vende Converse), VTEX no separa esa venta
- * → `false` (se muestra "N/A").
- */
-export function singleBrandStoreVtexApplies(storeMarcas: string[], selectedMarcas: string[]): boolean {
-  return storeMarcas.length > 0 && storeMarcas.every((m) => selectedMarcas.includes(m));
-}

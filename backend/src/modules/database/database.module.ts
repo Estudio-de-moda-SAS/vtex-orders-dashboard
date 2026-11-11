@@ -6,6 +6,7 @@ import { CreditNotesRepository } from './repositories/credit-notes.repository';
 import { DashboardQueryRepository } from './repositories/dashboard-query.repository';
 import { GaAggregatesRepository } from './repositories/ga-aggregates.repository';
 import { GaProductLinksRepository } from './repositories/ga-product-links.repository';
+import { ErpSalesRepository } from './repositories/erp-sales.repository';
 import { PosSalesRepository } from './repositories/pos-sales.repository';
 import { ReferenceRepository } from './repositories/reference.repository';
 import { SalesAggregatesRepository } from './repositories/sales-aggregates.repository';
@@ -32,6 +33,7 @@ import { SyncLogsRepository } from './repositories/sync-logs.repository';
     CreditNotesRepository,
     AssistantLogsRepository,
     PosSalesRepository,
+    ErpSalesRepository,
   ],
   exports: [
     pgPoolProvider,
@@ -45,6 +47,7 @@ import { SyncLogsRepository } from './repositories/sync-logs.repository';
     CreditNotesRepository,
     AssistantLogsRepository,
     PosSalesRepository,
+    ErpSalesRepository,
   ],
 })
 export class DatabaseModule {}

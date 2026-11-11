@@ -17,6 +17,7 @@ import {
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
 import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
+import { ErpSalesSummaryResponse } from '@/types/erp-sales';
 import { PosSalesSummaryResponse } from '@/types/pos-sales';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 import {
@@ -26,6 +27,9 @@ import {
   SmartSaleSummaryByStore,
 } from '@/types/smartsale';
 import { TrendsResponse } from '@/types/trends';
+
+/** Canal de `budgets_daily` — 'vtex' y 'erp' por marca (6 tiendas), 'smartsale' con un único store_id sintético. */
+export type BudgetChannel = 'vtex' | 'smartsale' | 'erp';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
@@ -305,6 +309,12 @@ export const ordersService = {
     return request<PosSalesSummaryResponse>(`/api/pos-sales/summary?${params.toString()}`);
   },
 
+  /** Ventas ERP (facturas e-commerce, ya sincronizadas en Supabase) por marca — pestaña "Presupuesto y ventas ERP" de `/presupuesto`. */
+  getErpSalesSummary(startDate: string, endDate: string): Promise<ErpSalesSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<ErpSalesSummaryResponse>(`/api/erp-sales/summary?${params.toString()}`);
+  },
+
   /** Igual que `getSmartSaleSummary`, pero sumando VTEX+POS (pestaña "Resumen" de `/smartsale`). */
   getSmartSaleCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
     const params = new URLSearchParams({ startDate, endDate });
@@ -321,13 +331,13 @@ export const ordersService = {
     return postJson<{ ok: true }>('/api/budgets/verify-code', { code });
   },
 
-  getBudgetMultiplier(year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<MultiplierResponse> {
+  getBudgetMultiplier(year: number, month: number, channel: BudgetChannel = 'vtex'): Promise<MultiplierResponse> {
     const params = new URLSearchParams({ year: String(year), month: String(month), channel });
     return request<MultiplierResponse>(`/api/budgets/multiplier?${params.toString()}`);
   },
 
   /** Resumen público (sin código) por marca + total de canal, para las cards de `/presupuesto`. */
-  getBudgetsSummary(year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<BudgetSummaryResponse> {
+  getBudgetsSummary(year: number, month: number, channel: BudgetChannel = 'vtex'): Promise<BudgetSummaryResponse> {
     const params = new URLSearchParams({ year: String(year), month: String(month), channel });
     return request<BudgetSummaryResponse>(`/api/budgets/summary?${params.toString()}`);
   },
@@ -336,7 +346,7 @@ export const ordersService = {
   getBudgetRangeSummary(
     startDate: string,
     endDate: string,
-    channel: 'vtex' | 'smartsale' = 'vtex',
+    channel: BudgetChannel = 'vtex',
   ): Promise<BudgetRangeSummaryResponse> {
     const params = new URLSearchParams({ startDate, endDate, channel });
     return request<BudgetRangeSummaryResponse>(`/api/budgets/range-summary?${params.toString()}`);
@@ -348,12 +358,12 @@ export const ordersService = {
     code: string,
     multiplier: number,
     confirmOverwrite = false,
-    channel: 'vtex' | 'smartsale' = 'vtex',
+    channel: BudgetChannel = 'vtex',
   ): Promise<SetMultiplierResponse> {
     return postJson<SetMultiplierResponse>('/api/budgets/multiplier', { year, month, code, multiplier, confirmOverwrite, channel });
   },
 
-  getBudgets(storeId: string, year: number, month: number, channel: 'vtex' | 'smartsale' = 'vtex'): Promise<GetBudgetsResponse> {
+  getBudgets(storeId: string, year: number, month: number, channel: BudgetChannel = 'vtex'): Promise<GetBudgetsResponse> {
     const params = new URLSearchParams({ storeId, year: String(year), month: String(month), channel });
     return request<GetBudgetsResponse>(`/api/budgets?${params.toString()}`);
   },
@@ -365,7 +375,7 @@ export const ordersService = {
     code: string,
     rawValues: number[],
     confirmOverwrite = false,
-    channel: 'vtex' | 'smartsale' = 'vtex',
+    channel: BudgetChannel = 'vtex',
   ): Promise<SaveBulkResponse> {
     return postJson<SaveBulkResponse>('/api/budgets/bulk', { storeId, year, month, code, rawValues, confirmOverwrite, channel });
   },

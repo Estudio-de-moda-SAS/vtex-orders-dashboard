@@ -10,6 +10,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { CreditNotesModule } from './modules/credit-notes/credit-notes.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { ErpSalesModule } from './modules/erp-sales/erp-sales.module';
 import { PosSalesModule } from './modules/pos-sales/pos-sales.module';
 import { ResumenModule } from './modules/resumen/resumen.module';
 import { StoresModule } from './modules/stores/stores.module';
@@ -37,6 +38,7 @@ import { SyncModule } from './modules/sync/sync.module';
     BudgetsModule,
     CreditNotesModule,
     PosSalesModule,
+    ErpSalesModule,
     AssistantModule,
   ],
 })

@@ -68,6 +68,40 @@ combinado), Presupuesto e Indicadores (estas 2 últimas pendientes).
   canales, su nombre debe agregarse IDÉNTICO en los dos mapeos o el
   emparejamiento no lo va a unir (aparecerá dos veces, una por canal).
 
+## Ventas ERP (`/presupuesto` → "Presupuesto y ventas ERP")
+
+Facturas e-commerce del ERP — API "Conní", consulta
+`estudiodemoda_Facuras_Ecommerce`, mismas credenciales que notas crédito,
+tabla `erp_sales` (migración 0026). Sync:
+`npm run erp-sales:sync -- --from=YYYY-MM-DD --to=YYYY-MM-DD` (requiere
+VPN), también incluido en `npm run daily-sync`. La consulta es pesada:
+el sync la pide en tramos de 3 días (`ERP_SALES_CHUNK_DAYS`) y guarda
+cada tramo apenas llega (BORRA e INSERTA el rango, igual que `pos_sales`).
+Histórico antes de nov-2026 llegará por Excel (pendiente).
+
+- Reglas de negocio en `backend/src/common/utils/erp-sales.util.ts`
+  (con pruebas): CO→marca (199 Pilatos, 202 Replay, 203 Kipling, 204
+  Girbaud, 208 Diesel, 209 Superdry). SE EXCLUYEN: notas crédito
+  (`nro_documento` "NVF-…", ya están en su propia pestaña), CO 810
+  (SmartSale), vendedores 082P/168A (SmartSale, sin distinguir
+  mayúsculas), CO 956 "REPLAY EDEN BOGOTA" (pendiente de validar por el
+  usuario — `PENDING_VALIDATION_COS`) y cualquier otro CO no listado.
+- Venta = `valor_neto` (con IVA). Flete: `desc_item` contiene "FLETE" o
+  `tipo` "NA - NO APLICA"; empaque: `desc_item` empieza por "CONSUMO" o
+  `tipo` "741 - MATERIAL DE EMPAQUE" (la descripción gana sobre `tipo`
+  NA). El presupuesto se mide contra el TOTAL (incluye fletes y empaque);
+  "Ventas productos" = total − fletes − empaque es solo informativo. El
+  empaque hoy viene facturado en $0 (esperado, confirmado por el usuario).
+- Presupuesto: canal `'erp'` en `budgets_daily`, por las 6 marcas, mismo
+  panel "Crear presupuesto" que VTEX. La pestaña VTEX y la ERP son el
+  mismo componente (`ChannelBudgetTab` en `VtexBudgetTab.tsx`) con un
+  `ChannelBudgetConfig` distinto — un cambio de layout aplica a ambas.
+- Sin VPN, Windows corta la conexión con `ETIMEDOUT` a los ~21s; el
+  cliente ERP lo distingue de un timeout real por el tiempo transcurrido
+  y lo reporta como "conéctate a la VPN".
+- Pendiente: ERP de SmartSale (ahí SÍ se usa `codigo_vendedor`) y el
+  "Resumen" de `/presupuesto` (margen, utilidad, ventas por categoría).
+
 ## Verificar un cambio al asistente ("Vico")
 
 El prompt del sistema está en `backend/src/modules/assistant/prompts/system-manual.ts`

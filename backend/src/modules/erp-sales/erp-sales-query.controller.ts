@@ -1,0 +1,17 @@
+import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
+
+import { OrdersQueryDto } from '../orders/dto/orders-query.dto';
+import { ErpSalesQueryService } from './erp-sales-query.service';
+
+/** Lectura de ventas ERP (pestaña "Presupuesto y ventas ERP" de `/presupuesto`) — SQL puro, nunca llama al ERP en vivo. */
+@Controller('api/erp-sales')
+export class ErpSalesQueryController {
+  constructor(private readonly erpSalesQueryService: ErpSalesQueryService) {}
+
+  /** GET /api/erp-sales/summary?startDate&endDate */
+  @Get('summary')
+  getSummary(@Query(new ValidationPipe({ transform: true, whitelist: true })) query: OrdersQueryDto) {
+    OrdersQueryDto.assertRange(query.startDate, query.endDate);
+    return this.erpSalesQueryService.getSummary(query.startDate, query.endDate);
+  }
+}

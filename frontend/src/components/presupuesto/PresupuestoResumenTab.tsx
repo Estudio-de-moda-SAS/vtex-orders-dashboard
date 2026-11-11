@@ -34,6 +34,22 @@ interface ResumenData {
   options: ErpEcommerceBreakdownResponse;
 }
 
+const FILTERS_STORAGE_KEY = 'vica-presupuesto-resumen-filters';
+const EMPTY_FILTERS: ResumenFilters = { storeIds: [], marcas: [], tipos: [] };
+
+/** Filtros recordados en sessionStorage (igual que el rango) — al volver a la pestaña, la key coincide con lo ya consultado. */
+function readStoredFilters(): ResumenFilters {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return EMPTY_FILTERS;
+    const parsed = JSON.parse(raw) as Partial<ResumenFilters>;
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    return { storeIds: list(parsed.storeIds), marcas: list(parsed.marcas), tipos: list(parsed.tipos) };
+  } catch {
+    return EMPTY_FILTERS;
+  }
+}
+
 function marginLabel(value: number | null): string {
   return value === null ? '—' : formatPercentage(value);
 }
@@ -68,7 +84,14 @@ export function PresupuestoResumenTab() {
     undefined,
     { start: 'resStartDate', end: 'resEndDate' },
   );
-  const [filters, setFilters] = useState<ResumenFilters>({ storeIds: [], marcas: [], tipos: [] });
+  const [filters, setFilters] = useState<ResumenFilters>(readStoredFilters);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    } catch {
+      // Storage bloqueado — solo implica que los filtros no se recordarán.
+    }
+  }, [filters]);
 
   const [stores, setStores] = useState<StoreInfo[]>([]);
   useEffect(() => {
@@ -93,13 +116,14 @@ export function PresupuestoResumenTab() {
 
   // Las fechas necesitan "Consultar" (dos campos); los filtros son una
   // elección atómica, así que cambiarlos SÍ consulta de inmediato — mismo
-  // criterio que el filtro de marca de "Notas crédito".
-  const isFirstFilterRender = useRef(true);
+  // criterio que el filtro de marca de "Notas crédito". Se compara contra
+  // la última key vista (no un "primer render"): en desarrollo React monta
+  // dos veces y un flag de primer render disparaba una consulta al volver
+  // a la pestaña aunque ya estuviera en caché.
+  const lastFilterKey = useRef(filterKey);
   useEffect(() => {
-    if (isFirstFilterRender.current) {
-      isFirstFilterRender.current = false;
-      return;
-    }
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
     runQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey]);
@@ -158,7 +182,7 @@ export function PresupuestoResumenTab() {
           {(filters.storeIds.length > 0 || filters.marcas.length > 0 || filters.tipos.length > 0) && (
             <button
               type="button"
-              onClick={() => setFilters({ storeIds: [], marcas: [], tipos: [] })}
+              onClick={() => setFilters(EMPTY_FILTERS)}
               className="mt-5 text-xs text-ink-faint underline transition hover:text-ink-muted"
             >
               Quitar filtros

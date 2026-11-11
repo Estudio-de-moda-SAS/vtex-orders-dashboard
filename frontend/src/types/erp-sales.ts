@@ -134,4 +134,9 @@ export interface ErpResumenFilteredResponse {
     /** Marcas ERP que vende cada tienda en el rango — para saber si su venta VTEX completa aplica. */
     storeMarcas: Record<string, string[]>;
   };
+  /** Notas crédito con los mismos filtros, YA RESTADAS en la venta: por tienda y total (valores negativos). */
+  creditNotes: {
+    byStore: { storeId: string; count: number; value: number; grossSales: number; netSales: number }[];
+    total: { count: number; value: number; grossSales: number; netSales: number };
+  };
 }

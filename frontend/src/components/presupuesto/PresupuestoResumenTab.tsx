@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { ErrorState } from '@/components/ErrorState';
 import { MultiSelectDropdown } from '@/components/MultiSelectDropdown';
+import { CreditNotesByStoreTable } from '@/components/CreditNotesByStoreTable';
 import { ChartPanel } from '@/components/OrdersByStoreChart';
 import { formatCOP, formatPercentage } from '@/lib/format';
 import { useCachedQuery } from '@/lib/useCachedQuery';
@@ -118,7 +119,8 @@ export function PresupuestoResumenTab() {
     // "v4": filtros de tienda/marca/tipo. "v5": filtros combinados y opciones en `resumen.options`.
     // "v6": siempre todas las tiendas (las que no cumplen el filtro en 0).
     // "v7": margen/utilidad y venta sin IVA solo de productos (sin fletes, bolsas ni material publicitario).
-    `presupuesto-resumen:v7:${startDate}:${endDate}:${filterKey}`,
+    // "v8": ventas, margen y utilidad netos de notas crédito + cuadro de notas crédito.
+    `presupuesto-resumen:v8:${startDate}:${endDate}:${filterKey}`,
     async () => {
       const [vtex, erp, resumen] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
@@ -275,7 +277,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
           : 'Venta contabilizada en VTEX',
       accent: true,
     },
-    { label: 'Ventas totales canal ERP', value: formatCOP(channel.erpSales), hint: 'Facturas e-commerce, con IVA' },
+    { label: 'Ventas totales canal ERP', value: formatCOP(channel.erpSales), hint: 'Ventas restando notas crédito (con IVA)' },
     {
       label: 'Margen total canal',
       value: marginLabel(channel.marginPercent),
@@ -369,7 +371,8 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
           )}
           <p>
             <span className="font-semibold text-ink-muted">Margen y utilidad:</span> solo productos, sobre la venta sin IVA de lo
-            facturado en el ERP (sin notas crédito). Las ventas sí incluyen fletes, bolsas y material publicitario.
+            facturado en el ERP restando notas crédito (la devolución resta su venta y su costo). Las ventas sí incluyen fletes,
+            bolsas y material publicitario. Ventas ERP = ventas restando notas crédito.
           </p>
           <ul className="ml-4 list-disc space-y-0.5">
             <li>
@@ -412,6 +415,34 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
           </p>
         </div>
       </ChartPanel>
+
+      <CreditNotesByStoreTable
+        title="Notas crédito (ERP)"
+        storeIds={resumen.creditNotes.byStore.map((s) => s.storeId)}
+        storeById={storeById}
+        columns={[
+          {
+            label: 'Notas crédito',
+            count: (id) => resumen.creditNotes.byStore.find((s) => s.storeId === id)?.count ?? 0,
+            value: (id) => resumen.creditNotes.byStore.find((s) => s.storeId === id)?.value ?? 0,
+            totalCount: resumen.creditNotes.total.count,
+            totalValue: resumen.creditNotes.total.value,
+          },
+        ]}
+        extra={[
+          {
+            label: 'Facturado',
+            value: (id) => resumen.creditNotes.byStore.find((s) => s.storeId === id)?.grossSales ?? 0,
+            total: resumen.creditNotes.total.grossSales,
+          },
+          {
+            label: 'Ventas ERP (neto)',
+            value: (id) => resumen.creditNotes.byStore.find((s) => s.storeId === id)?.netSales ?? 0,
+            total: resumen.creditNotes.total.netSales,
+          },
+        ]}
+        footnote="Notas crédito (NVF) del rango, con los mismos filtros de arriba. Ya están restadas en Ventas ERP, margen y utilidad: Ventas ERP (neto) = facturado + notas crédito (vienen en negativo)."
+      />
 
       <MarketplaceTable data={resumen.marketplaces} vtexNotApplicable={tipoActive || marcaActive} />
     </>

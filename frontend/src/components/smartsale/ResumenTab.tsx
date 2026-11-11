@@ -13,6 +13,8 @@ import { ordersService } from '@/services/orders.service';
 import { StoreInfo } from '@/types/dashboard';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 
+import { CreditNotesByStoreTable } from '@/components/CreditNotesByStoreTable';
+
 import { SmartSaleBrandSummaryTable } from './SmartSaleBrandSummaryTable';
 import { TipoRankingSections } from './TipoRankingSections';
 
@@ -65,7 +67,8 @@ export function ResumenTab() {
     // "v5": VTEX + POS → POS + ERP (campos `vtex*` renombrados a `erp*`, `erpAvailable` en la tendencia).
     // "v6": se agregó `margin`/`posMarginCoverage` (margen POS + ERP por marca) y `byTipo`/`byStoreTipo`.
     // "v7": margen/utilidad solo de productos (sin fletes, bolsas ni material publicitario).
-    `smartsale-resumen:v7:${startDate}:${endDate}`,
+    // "v8": ventas ERP, margen y utilidad netos de notas crédito + `creditNotes`.
+    `smartsale-resumen:v8:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -132,6 +135,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           {formatNumber(totalOrders)} factura(s)/documento(s) · {formatNumber(totalUnits)} und. · AVT{' '}
           {formatAverageTicket(totalSales, totalOrders)} · UPT {formatUpt(totalUnits, totalOrders)}
         </p>
+        <p className="mt-1 text-xs font-medium text-ink-muted">Ventas restando notas crédito (POS y ERP)</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -152,6 +156,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
             {formatAverageTicket(summary.totalErpSales, summary.totalErpOrders)} · UPT{' '}
             {formatUpt(summary.totalErpUnits, summary.totalErpOrders)}
           </p>
+          <p className="text-xs font-medium text-ink-muted">Ventas restando notas crédito</p>
         </div>
       </div>
 
@@ -181,7 +186,7 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           <p>
             <span className="font-semibold text-ink-muted">Cómo se calcula:</span> utilidad = venta sin IVA − costo (costo
             unitario × cantidad); margen = utilidad ÷ venta sin IVA, sumando POS + ERP por marca, solo productos (sin fletes, bolsas
-            ni material publicitario) y sin notas crédito. Margen
+            ni material publicitario) y restando notas crédito (la devolución resta su venta y su costo). Margen
             total ponderado = {formatCOP(summary.margin.channel.utility)} ÷ {formatCOP(summary.margin.channel.subtotal)} ={' '}
             {marginLabel(summary.margin.channel.marginPercent)}; el simple promedia el margen de cada marca con venta.
           </p>
@@ -289,6 +294,36 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
       </div>
 
       <SmartSaleBrandSummaryTable summary={summary} storeById={storeById} />
+
+      <CreditNotesByStoreTable
+        title="Notas crédito (POS + ERP)"
+        storeIds={summary.creditNotes.byStore.map((s) => s.storeId)}
+        storeById={storeById}
+        columns={[
+          {
+            label: 'POS',
+            count: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.posCount ?? 0,
+            value: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.posValue ?? 0,
+            totalCount: summary.creditNotes.total.posCount,
+            totalValue: summary.creditNotes.total.posValue,
+          },
+          {
+            label: 'ERP',
+            count: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.erpCount ?? 0,
+            value: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.erpValue ?? 0,
+            totalCount: summary.creditNotes.total.erpCount,
+            totalValue: summary.creditNotes.total.erpValue,
+          },
+          {
+            label: 'Total',
+            count: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.totalCount ?? 0,
+            value: (id) => summary.creditNotes.byStore.find((s) => s.storeId === id)?.totalValue ?? 0,
+            totalCount: summary.creditNotes.total.totalCount,
+            totalValue: summary.creditNotes.total.totalValue,
+          },
+        ]}
+        footnote="Notas crédito del rango: POS (NPE) y ERP (NVF de los vendedores SmartSale). Ya están restadas en las ventas totales, el cuadro por marca, los vendedores, el margen y la utilidad."
+      />
 
       {summary.byCategory.length > 0 && (
         <div className="rounded-2xl border border-surface-border bg-surface-panel p-5 shadow-panel">

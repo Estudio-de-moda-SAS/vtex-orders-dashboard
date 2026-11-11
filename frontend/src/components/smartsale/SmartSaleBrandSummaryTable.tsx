@@ -95,9 +95,9 @@ export function SmartSaleBrandSummaryTable({
       </div>
       <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
         <p>
-          <span className="font-semibold text-ink-muted">Ventas:</span> POS ya resta sus notas crédito; ERP es lo facturado sin
-          notas crédito. <span className="font-semibold text-ink-muted">Margen y utilidad:</span> solo productos, sobre la venta sin
-          IVA de POS + ERP, sin notas crédito.
+          <span className="font-semibold text-ink-muted">Ventas:</span> ventas restando notas crédito, en POS y en ERP.{' '}
+          <span className="font-semibold text-ink-muted">Margen y utilidad:</span> solo productos, sobre la venta sin IVA de POS +
+          ERP restando notas crédito (la devolución resta su venta y su costo).
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>

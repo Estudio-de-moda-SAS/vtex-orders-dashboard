@@ -7,6 +7,14 @@ import { PG_POOL } from '../pg-pool.provider';
 
 const BATCH_SIZE = 500;
 
+/**
+ * `net: true` = venta NETA (facturas + notas crédito, que vienen en
+ * negativo). Sin `net`, solo facturas. Ver `getBreakdown`.
+ */
+export interface SalesQueryOptions {
+  net?: boolean;
+}
+
 /** Una fila de `erp_sales` — ver migración 0026. */
 export interface ErpSaleDbRow {
   /** "YYYY-MM-DD". */
@@ -164,9 +172,9 @@ export class ErpSalesRepository {
     await client.query(`INSERT INTO erp_sales (${COLUMNS.join(', ')}) VALUES ${valuesSql}`, params);
   }
 
-  /** Totales por tienda del rango para un canal (solo tiendas con al menos una línea). */
-  async getTotalsByStore(startDay: string, endDay: string, channel: ErpChannel): Promise<ErpSalesTotalsRow[]> {
-    const rows = await this.getBreakdown(startDay, endDay, channel, 'store');
+  /** Totales por tienda del rango para un canal (solo tiendas con al menos una línea). `net` = restando notas crédito. */
+  async getTotalsByStore(startDay: string, endDay: string, channel: ErpChannel, opts: SalesQueryOptions = {}): Promise<ErpSalesTotalsRow[]> {
+    const rows = await this.getBreakdown(startDay, endDay, channel, 'store', opts);
     return rows.map(({ keys, ...b }) => ({ ...b, storeId: keys.store_id ?? '' }));
   }
 
@@ -176,8 +184,19 @@ export class ErpSalesRepository {
    * (`store_id:nro_documento`) — una factura con varias líneas cuenta una
    * vez. `units` = `cantidad` de líneas de producto (sin flete/empaque),
    * base del UPT. Ordenado por venta total descendente.
+   *
+   * `net: true` = VENTA NETA (decisión del usuario, nov-2026, así lo mide
+   * el área en su Excel): incluye las notas crédito, que vienen en negativo
+   * y restan solas (valor y unidades). `invoices` cuenta SIEMPRE solo
+   * facturas, nunca notas crédito. Sin `net`, solo facturas (bruto).
    */
-  async getBreakdown(startDay: string, endDay: string, channel: ErpChannel, grouping: ErpSalesGrouping): Promise<ErpSalesGroupedRow[]> {
+  async getBreakdown(
+    startDay: string,
+    endDay: string,
+    channel: ErpChannel,
+    grouping: ErpSalesGrouping,
+    opts: SalesQueryOptions = {},
+  ): Promise<ErpSalesGroupedRow[]> {
     const { columns, productOnly } = GROUPINGS[grouping];
     const select = columns.length > 0 ? `${columns.join(', ')}, ` : '';
     const groupBy = columns.length > 0 ? `GROUP BY ${columns.join(', ')}` : '';
@@ -187,10 +206,10 @@ export class ErpSalesRepository {
               COALESCE(SUM(valor_neto) FILTER (WHERE line_kind = 'freight'), 0) AS freight,
               COALESCE(SUM(valor_neto) FILTER (WHERE line_kind = 'packaging'), 0) AS packaging,
               COALESCE(SUM(valor_neto) FILTER (WHERE line_kind = 'product'), 0) AS product,
-              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS invoices,
+              COUNT(DISTINCT (store_id || ':' || nro_documento)) FILTER (WHERE NOT is_credit_note) AS invoices,
               COALESCE(SUM(cantidad) FILTER (WHERE line_kind = 'product'), 0) AS units
        FROM erp_sales
-       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note${productOnly ? " AND line_kind = 'product'" : ''}
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3${opts.net ? '' : ' AND NOT is_credit_note'}${productOnly ? " AND line_kind = 'product'" : ''}
        ${groupBy}
        ORDER BY total DESC`,
       [startDay, endDay, channel],
@@ -238,15 +257,22 @@ export class ErpSalesRepository {
    * margen (`buildMarginSummary`). Costo = `costo_promedio_uni_inst` ×
    * `cantidad` (fórmula del usuario); si la fila es anterior a la
    * migración 0030 y no tiene el unitario, usa `costo_promedio_total`.
-   * Sin notas crédito (el margen es sobre lo facturado).
+   * `net: true` incluye las notas crédito: su subtotal y su costo vienen en
+   * negativo (cantidad negativa), así la devolución resta venta Y costo —
+   * margen sobre la venta neta, sin inflarse (decisión del usuario).
    */
-  async getMarginRows(startDay: string, endDay: string, channel: ErpChannel): Promise<{ storeId: string; lineKind: ErpLineKind; subtotal: number; cost: number }[]> {
+  async getMarginRows(
+    startDay: string,
+    endDay: string,
+    channel: ErpChannel,
+    opts: SalesQueryOptions = {},
+  ): Promise<{ storeId: string; lineKind: ErpLineKind; subtotal: number; cost: number }[]> {
     const result = await this.pool.query<{ store_id: string; line_kind: ErpLineKind; subtotal: string; cost: string }>(
       `SELECT store_id, line_kind,
               COALESCE(SUM(valor_subtotal), 0) AS subtotal,
               COALESCE(SUM(COALESCE(costo_promedio_uni_inst * cantidad, costo_promedio_total, 0)), 0) AS cost
        FROM erp_sales
-       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3${opts.net ? '' : ' AND NOT is_credit_note'}
        GROUP BY store_id, line_kind`,
       [startDay, endDay, channel],
     );
@@ -298,16 +324,75 @@ export class ErpSalesRepository {
    * Pilatos). Un filtro de marca o tipo deja fuera flete y empaque por sí
    * solo (su marca es "NA - NO APLICA"/"PILA - PILATOS" y su tipo no es de
    * producto).
-   * Sin notas crédito.
+   * INCLUYE notas crédito, marcadas con `isCreditNote` (valores negativos):
+   * el caller decide si suma neto (ventas, margen) o solo facturas
+   * (marketplaces).
    */
   async getFilteredLines(
     startDay: string,
     endDay: string,
     channel: ErpChannel,
     filters: ErpResumenFilters,
-  ): Promise<{ storeId: string; lineKind: ErpLineKind; prefix: string | null; total: number; subtotal: number; cost: number; invoices: number }[]> {
+  ): Promise<
+    { storeId: string; lineKind: ErpLineKind; prefix: string | null; isCreditNote: boolean; total: number; subtotal: number; cost: number; invoices: number }[]
+  > {
+    const { where, params } = this.filteredWhere(startDay, endDay, channel, filters);
+    const result = await this.pool.query<{
+      store_id: string;
+      line_kind: ErpLineKind;
+      prefix: string | null;
+      is_credit_note: boolean;
+      total: string;
+      subtotal: string;
+      cost: string;
+      invoices: string;
+    }>(
+      `SELECT store_id, line_kind,
+              substring(upper(trim(docto_referencia)) from '^[A-Z]+') AS prefix,
+              is_credit_note,
+              COALESCE(SUM(valor_neto), 0) AS total,
+              COALESCE(SUM(valor_subtotal), 0) AS subtotal,
+              COALESCE(SUM(COALESCE(costo_promedio_uni_inst * cantidad, costo_promedio_total, 0)), 0) AS cost,
+              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS invoices
+       FROM erp_sales
+       WHERE ${where}
+       GROUP BY 1, 2, 3, 4`,
+      params,
+    );
+    return result.rows.map((r) => ({
+      storeId: r.store_id,
+      lineKind: r.line_kind,
+      prefix: r.prefix,
+      isCreditNote: r.is_credit_note,
+      total: Number(r.total),
+      subtotal: Number(r.subtotal),
+      cost: Number(r.cost),
+      invoices: Number(r.invoices),
+    }));
+  }
+
+  /** Notas crédito por tienda con los MISMOS filtros del Resumen — cantidad de notas distintas y valor (negativo). */
+  async getFilteredCreditNotesByStore(
+    startDay: string,
+    endDay: string,
+    channel: ErpChannel,
+    filters: ErpResumenFilters,
+  ): Promise<{ storeId: string; count: number; value: number }[]> {
+    const { where, params } = this.filteredWhere(startDay, endDay, channel, filters);
+    const result = await this.pool.query<{ store_id: string; count: string; value: string }>(
+      `SELECT store_id, COUNT(DISTINCT nro_documento) AS count, COALESCE(SUM(valor_neto), 0) AS value
+       FROM erp_sales
+       WHERE ${where} AND is_credit_note
+       GROUP BY 1`,
+      params,
+    );
+    return result.rows.map((r) => ({ storeId: r.store_id, count: Number(r.count), value: Number(r.value) }));
+  }
+
+  /** WHERE de los filtros combinados del Resumen (tienda Y marca Y tipo), sin condición de nota crédito. */
+  private filteredWhere(startDay: string, endDay: string, channel: ErpChannel, filters: ErpResumenFilters): { where: string; params: unknown[] } {
     const params: unknown[] = [startDay, endDay, channel];
-    let where = 'fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note';
+    let where = 'fecha BETWEEN $1 AND $2 AND channel = $3';
     if (filters.storeIds.length > 0) {
       params.push(filters.storeIds);
       where += ` AND store_id = ANY($${params.length})`;
@@ -320,35 +405,7 @@ export class ErpSalesRepository {
       params.push(filters.tipos);
       where += ` AND tipo = ANY($${params.length})`;
     }
-    const result = await this.pool.query<{
-      store_id: string;
-      line_kind: ErpLineKind;
-      prefix: string | null;
-      total: string;
-      subtotal: string;
-      cost: string;
-      invoices: string;
-    }>(
-      `SELECT store_id, line_kind,
-              substring(upper(trim(docto_referencia)) from '^[A-Z]+') AS prefix,
-              COALESCE(SUM(valor_neto), 0) AS total,
-              COALESCE(SUM(valor_subtotal), 0) AS subtotal,
-              COALESCE(SUM(COALESCE(costo_promedio_uni_inst * cantidad, costo_promedio_total, 0)), 0) AS cost,
-              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS invoices
-       FROM erp_sales
-       WHERE ${where}
-       GROUP BY 1, 2, 3`,
-      params,
-    );
-    return result.rows.map((r) => ({
-      storeId: r.store_id,
-      lineKind: r.line_kind,
-      prefix: r.prefix,
-      total: Number(r.total),
-      subtotal: Number(r.subtotal),
-      cost: Number(r.cost),
-      invoices: Number(r.invoices),
-    }));
+    return { where, params };
   }
 
   /**
@@ -379,14 +436,19 @@ export class ErpSalesRepository {
     return Object.fromEntries(result.rows.map((r) => [r.brand_name, Number(r.sales)]));
   }
 
-  /** Venta total y facturas por mes de un canal — para la tendencia mensual del "Resumen" de SmartSale. */
-  async getMonthlyTotals(startDay: string, endDay: string, channel: ErpChannel): Promise<{ month: string; orders: number; sales: number }[]> {
+  /** Venta y facturas por mes de un canal — tendencia mensual del "Resumen" de SmartSale. `net` = restando notas crédito. */
+  async getMonthlyTotals(
+    startDay: string,
+    endDay: string,
+    channel: ErpChannel,
+    opts: SalesQueryOptions = {},
+  ): Promise<{ month: string; orders: number; sales: number }[]> {
     const result = await this.pool.query<{ month: string; orders: string; sales: string }>(
       `SELECT to_char(fecha, 'YYYY-MM') AS month,
-              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS orders,
+              COUNT(DISTINCT (store_id || ':' || nro_documento)) FILTER (WHERE NOT is_credit_note) AS orders,
               COALESCE(SUM(valor_neto), 0) AS sales
        FROM erp_sales
-       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3${opts.net ? '' : ' AND NOT is_credit_note'}
        GROUP BY 1 ORDER BY 1`,
       [startDay, endDay, channel],
     );

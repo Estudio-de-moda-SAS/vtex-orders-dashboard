@@ -311,6 +311,18 @@ export class PosSalesRepository {
     return result.rows.map((r) => ({ categoria: r.categoria, units: Number(r.units), sales: Number(r.sales) }));
   }
 
+  /** Notas crédito POS (NPE) por tienda — cantidad de documentos y valor (negativo, ya restado en la venta POS). */
+  async getCreditNotesByStore(startDay: string, endDay: string): Promise<{ storeId: string; count: number; value: number }[]> {
+    const result = await this.pool.query<{ store_id: string; count: string; value: string }>(
+      `SELECT store_id, COUNT(DISTINCT nro_documento) AS count, COALESCE(SUM(valor_neto), 0) AS value
+       FROM pos_sales
+       WHERE fecha BETWEEN $1 AND $2 AND is_credit_note
+       GROUP BY 1`,
+      [startDay, endDay],
+    );
+    return result.rows.map((r) => ({ storeId: r.store_id, count: Number(r.count), value: Number(r.value) }));
+  }
+
   /**
    * Venta por tipo de producto y tienda — mismo criterio que
    * `getByCategory`: excluye fletes (no son tipo de producto) y ya neta de

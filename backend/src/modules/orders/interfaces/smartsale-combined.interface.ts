@@ -100,6 +100,15 @@ export interface SmartSaleCombinedSummaryResponse {
    * POS todavía no incluye los que faltan (se completa en el próximo sync).
    */
   posMarginCoverage: { posDocuments: number; posDocumentsWithMargin: number };
+  /**
+   * Notas crédito POS (NPE) + ERP (NVF de SmartSale), por tienda y total —
+   * YA RESTADAS en las ventas de arriba (POS siempre llegó neto; ERP se pide
+   * neto desde nov-2026). Valores negativos.
+   */
+  creditNotes: {
+    byStore: { storeId: string; posCount: number; posValue: number; erpCount: number; erpValue: number; totalCount: number; totalValue: number }[];
+    total: { posCount: number; posValue: number; erpCount: number; erpValue: number; totalCount: number; totalValue: number };
+  };
   /** Tipos de producto POS + ERP combinados ("208 - TENIS"), lista completa ordenada por venta. */
   byTipo: CombinedTipo[];
   /** Tipos por marca POS + ERP — siempre las 6 marcas. */

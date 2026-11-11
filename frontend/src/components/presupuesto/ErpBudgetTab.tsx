@@ -143,11 +143,11 @@ const ERP_CONFIG: ChannelBudgetConfig = {
   label: 'ERP',
   intro: 'Presupuesto mensual por marca, ERP (facturas de las tiendas virtuales)',
   comparisonDescription:
-    'Venta facturada en el ERP (valor neto con IVA, sin notas crédito ni SmartSale) contra el presupuesto del rango elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo. El cumplimiento se mide contra la venta total, que incluye fletes y material de empaque.',
+    'Ventas ERP restando notas crédito: lo facturado en el ERP (valor neto con IVA, sin SmartSale) menos las notas crédito del rango, contra el presupuesto del rango elegido — y, si el rango cae dentro de un solo mes, también contra la meta del mes completo. El cumplimiento se mide contra esa venta total neta, que incluye fletes y material de empaque.',
   dateStorageKey: 'vica-presupuesto-erp-comparison-range',
   dateParamNames: { start: 'erpStartDate', end: 'erpEndDate' },
-  // "v2": se agregó `extra` (marcas dentro de Pilatos y tipos).
-  cacheKeyPrefix: 'presupuesto-erp-comparison:v2',
+  // "v2": se agregó `extra` (marcas dentro de Pilatos y tipos). "v3": ventas netas de notas crédito.
+  cacheKeyPrefix: 'presupuesto-erp-comparison:v3',
   fetchSales: async (startDate, endDate) => {
     const [res, breakdown] = await Promise.all([
       ordersService.getErpSalesSummary(startDate, endDate),

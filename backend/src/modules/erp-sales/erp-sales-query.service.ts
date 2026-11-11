@@ -6,7 +6,7 @@ import { buildMarketplaceSummary, MarketplaceSummary } from '../../common/utils/
 import { buildResumenFilterOptions, ErpResumenFilters, vtexSalesForErpMarcas } from '../../common/utils/erp-resumen-filter.util';
 import { erpSmartSaleSellerName, mergeSalesWithCreditNotes } from '../../common/utils/erp-sales.util';
 import { getStoresConfig } from '../../config/stores.config';
-import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
+import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository, SalesQueryOptions } from '../database/repositories/erp-sales.repository';
 import {
   ErpCreditNotesSummary,
   ErpEcommerceBreakdownResponse,
@@ -63,7 +63,8 @@ export class ErpSalesQueryService {
   async getSummary(rawStartDate: string, rawEndDate: string): Promise<ErpSalesSummaryResponse> {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
     const [rows, syncInfo] = await Promise.all([
-      this.repository.getTotalsByStore(startDay, endDay, 'ecommerce'),
+      // NETO de notas crédito (decisión del usuario: así lo mide el área; el presupuesto se compara contra esto).
+      this.repository.getTotalsByStore(startDay, endDay, 'ecommerce', { net: true }),
       this.repository.getSyncInfo(),
     ]);
 
@@ -109,12 +110,23 @@ export class ErpSalesQueryService {
     // usuario: ocultarlas confundía). El promedio simple igual solo cuenta las que tuvieron venta.
     const storeIds = selectedStoreIds;
 
+    // Venta, margen y utilidad NETOS de notas crédito (las NC vienen en negativo: restan venta Y costo). Los
+    // marketplaces quedan con solo facturas (decisión del usuario, por ahora).
     const margin = buildMarginSummary(lines, storeIds);
     const erpSalesByStore = new Map<string, number>();
-    for (const l of lines) erpSalesByStore.set(l.storeId, (erpSalesByStore.get(l.storeId) ?? 0) + l.total);
+    const erpGrossByStore = new Map<string, number>();
+    for (const l of lines) {
+      erpSalesByStore.set(l.storeId, (erpSalesByStore.get(l.storeId) ?? 0) + l.total);
+      if (!l.isCreditNote) erpGrossByStore.set(l.storeId, (erpGrossByStore.get(l.storeId) ?? 0) + l.total);
+    }
+    const creditNotesRows = await this.repository.getFilteredCreditNotesByStore(startDay, endDay, 'ecommerce', filters);
+    const creditNotesByStore = storeIds.map((storeId) => {
+      const r = creditNotesRows.find((x) => x.storeId === storeId);
+      return { storeId, count: r?.count ?? 0, value: r?.value ?? 0, grossSales: erpGrossByStore.get(storeId) ?? 0, netSales: erpSalesByStore.get(storeId) ?? 0 };
+    });
 
     const prefixRows = new Map<string | null, { prefix: string | null; total: number; subtotal: number; invoices: number }>();
-    for (const l of lines) {
+    for (const l of lines.filter((x) => !x.isCreditNote)) {
       const r = prefixRows.get(l.prefix) ?? { prefix: l.prefix, total: 0, subtotal: 0, invoices: 0 };
       r.total += l.total;
       r.subtotal += l.subtotal;
@@ -137,6 +149,15 @@ export class ErpSalesQueryService {
         pilatosBrands: vtexPilatosBrands && storeIds.includes(PILATOS_STORE_ID) ? vtexSalesForErpMarcas(filters.marcas, vtexPilatosBrands) : null,
       },
       options: buildResumenFilterOptions(combos, filters),
+      creditNotes: {
+        byStore: creditNotesByStore,
+        total: {
+          count: creditNotesByStore.reduce((a, s) => a + s.count, 0),
+          value: creditNotesByStore.reduce((a, s) => a + s.value, 0),
+          grossSales: creditNotesByStore.reduce((a, s) => a + s.grossSales, 0),
+          netSales: creditNotesByStore.reduce((a, s) => a + s.netSales, 0),
+        },
+      },
     };
   }
 
@@ -148,9 +169,9 @@ export class ErpSalesQueryService {
   async getEcommerceBreakdown(rawStartDate: string, rawEndDate: string): Promise<ErpEcommerceBreakdownResponse> {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
     const [storeMarcaRows, tipoRows, storeTipoRows] = await Promise.all([
-      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeMarca'),
-      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'tipo'),
-      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeTipo'),
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeMarca', { net: true }),
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'tipo', { net: true }),
+      this.repository.getBreakdown(startDay, endDay, 'ecommerce', 'storeTipo', { net: true }),
     ]);
     const toTipo = (r: ErpSalesGroupedRow) => ({ tipo: r.keys.tipo ?? 'SIN TIPO', ...pickBreakdown(r) });
     return {
@@ -173,7 +194,7 @@ export class ErpSalesQueryService {
    */
   async getMarginSummary(rawStartDate: string, rawEndDate: string): Promise<MarginSummary & { filters: { startDate: string; endDate: string } }> {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
-    const rows = await this.repository.getMarginRows(startDay, endDay, 'ecommerce');
+    const rows = await this.repository.getMarginRows(startDay, endDay, 'ecommerce', { net: true });
     const summary = buildMarginSummary(rows, getStoresConfig().map((s) => s.id));
     return { filters: { startDate: startDay, endDate: endDay }, ...summary };
   }
@@ -203,8 +224,9 @@ export class ErpSalesQueryService {
   async getSmartSaleMarginInput(rawStartDate: string, rawEndDate: string) {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
     const [erpRows, posRows, posTotals] = await Promise.all([
-      this.repository.getMarginRows(startDay, endDay, 'smartsale'),
-      this.repository.getMarginRows(startDay, endDay, 'pos'),
+      // Neto de notas crédito (NVF de SmartSale y NPE del POS): la devolución resta venta y costo.
+      this.repository.getMarginRows(startDay, endDay, 'smartsale', { net: true }),
+      this.repository.getMarginRows(startDay, endDay, 'pos', { net: true }),
       this.repository.getBreakdown(startDay, endDay, 'pos', 'none'),
     ]);
     return { rows: [...erpRows, ...posRows], posDocumentsWithMargin: posTotals[0]?.invoices ?? 0 };
@@ -215,7 +237,7 @@ export class ErpSalesQueryService {
     const endDay = todayColombia();
     const startDay = `${endDay.slice(0, 4)}-01-01`;
     const [months, coverageStartDay] = await Promise.all([
-      this.repository.getMonthlyTotals(startDay, endDay, 'smartsale'),
+      this.repository.getMonthlyTotals(startDay, endDay, 'smartsale', { net: true }),
       this.repository.getCoverageStartDay(),
     ]);
     return { months, coverageStartMonth: coverageStartDay?.slice(0, 7) ?? null };
@@ -232,20 +254,20 @@ export class ErpSalesQueryService {
   }
 
   /** Canal SmartSale (vendedores 082P/168A) — pestaña "Ventas ERP" de `/smartsale`. */
-  async getSmartSaleSummary(rawStartDate: string, rawEndDate: string): Promise<ErpSmartSaleSummaryResponse> {
+  async getSmartSaleSummary(rawStartDate: string, rawEndDate: string, opts: SalesQueryOptions = {}): Promise<ErpSmartSaleSummaryResponse> {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
     const [totalRows, sellerRows, storeRows, storeSellerRows, storeMarcaRows, categoryRows, syncInfo] = await Promise.all([
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'none'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'seller'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'store'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeSeller'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeMarca'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'categoria'),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'none', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'seller', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'store', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeSeller', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeMarca', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'categoria', opts),
       this.repository.getSyncInfo(),
     ]);
     const [ssTipoRows, ssStoreTipoRows] = await Promise.all([
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'tipo'),
-      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeTipo'),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'tipo', opts),
+      this.repository.getBreakdown(startDay, endDay, 'smartsale', 'storeTipo', opts),
     ]);
     const toSsTipo = (r: ErpSalesGroupedRow) => ({ tipo: r.keys.tipo ?? 'SIN TIPO', ...pickBreakdown(r) });
     // Notas crédito: se muestran aparte, NUNCA se restan de la venta de arriba.

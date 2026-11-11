@@ -86,6 +86,15 @@ export interface ErpResumenFilteredResponse {
   };
   /** Opciones COMBINADAS de los filtros (cada lista con los otros dos aplicados) — ver `buildResumenFilterOptions`. */
   options: import('../../common/utils/erp-resumen-filter.util').ResumenFilterOptions;
+  /**
+   * Notas crédito con los mismos filtros (cuadro aparte): por tienda y
+   * total — `value` negativo; `grossSales` = solo facturas, `netSales` =
+   * facturas + notas crédito (la venta que se muestra arriba).
+   */
+  creditNotes: {
+    byStore: { storeId: string; count: number; value: number; grossSales: number; netSales: number }[];
+    total: { count: number; value: number; grossSales: number; netSales: number };
+  };
 }
 
 export interface ErpSalesSyncResult {

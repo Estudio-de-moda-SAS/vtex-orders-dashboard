@@ -33,6 +33,8 @@ export interface ErpSaleDbRow {
   categoria: string | null;
   tipo: string | null;
   costoPromedioTotal: number | null;
+  /** Costo promedio UNITARIO (`costo_promedio_uni_inst`) — costo total = esto × cantidad (migración 0030). */
+  costoPromedioUniInst: number | null;
   utilidadPromedio: number | null;
   pedidoVtex: string | null;
   lineKind: ErpLineKind;
@@ -98,6 +100,7 @@ const COLUMNS = [
   'estado_docto', 'cliente_factura', 'bodega', 'item', 'referencia', 'desc_item', 'cantidad', 'valor_neto',
   'valor_bruto', 'valor_descuentos', 'valor_impuestos', 'valor_subtotal', 'marca', 'categoria', 'tipo',
   'costo_promedio_total', 'utilidad_promedio', 'pedido_vtex', 'line_kind', 'channel', 'is_credit_note',
+  'costo_promedio_uni_inst',
 ];
 
 function rowValues(r: ErpSaleDbRow): unknown[] {
@@ -106,6 +109,7 @@ function rowValues(r: ErpSaleDbRow): unknown[] {
     r.estadoDocto, r.clienteFactura, r.bodega, r.item, r.referencia, r.descItem, r.cantidad, r.valorNeto,
     r.valorBruto, r.valorDescuentos, r.valorImpuestos, r.valorSubtotal, r.marca, r.categoria, r.tipo,
     r.costoPromedioTotal, r.utilidadPromedio, r.pedidoVtex, r.lineKind, r.channel, r.isCreditNote,
+    r.costoPromedioUniInst,
   ];
 }
 
@@ -223,6 +227,61 @@ export class ErpSalesRepository {
       value: Number(r.value),
       units: Number(r.units),
     }));
+  }
+
+  /**
+   * Subtotal (SIN IVA) y costo por tienda y tipo de línea — insumo del
+   * margen (`buildMarginSummary`). Costo = `costo_promedio_uni_inst` ×
+   * `cantidad` (fórmula del usuario); si la fila es anterior a la
+   * migración 0030 y no tiene el unitario, usa `costo_promedio_total`.
+   * Sin notas crédito (el margen es sobre lo facturado).
+   */
+  async getMarginRows(startDay: string, endDay: string, channel: ErpChannel): Promise<{ storeId: string; lineKind: ErpLineKind; subtotal: number; cost: number }[]> {
+    const result = await this.pool.query<{ store_id: string; line_kind: ErpLineKind; subtotal: string; cost: string }>(
+      `SELECT store_id, line_kind,
+              COALESCE(SUM(valor_subtotal), 0) AS subtotal,
+              COALESCE(SUM(COALESCE(costo_promedio_uni_inst * cantidad, costo_promedio_total, 0)), 0) AS cost
+       FROM erp_sales
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note
+       GROUP BY store_id, line_kind`,
+      [startDay, endDay, channel],
+    );
+    return result.rows.map((r) => ({ storeId: r.store_id, lineKind: r.line_kind, subtotal: Number(r.subtotal), cost: Number(r.cost) }));
+  }
+
+  /**
+   * Venta ERP por prefijo alfabético de `docto_referencia` (mismo criterio
+   * que `doctoReferenciaPrefix`: "GVL1093638" → "GVL"; `null` si empieza
+   * por número). Sin notas crédito. Insumo de `buildMarketplaceSummary`.
+   */
+  async getSalesByDoctoPrefix(startDay: string, endDay: string, channel: ErpChannel): Promise<{ prefix: string | null; total: number; subtotal: number; invoices: number }[]> {
+    const result = await this.pool.query<{ prefix: string | null; total: string; subtotal: string; invoices: string }>(
+      `SELECT substring(upper(trim(docto_referencia)) from '^[A-Z]+') AS prefix,
+              COALESCE(SUM(valor_neto), 0) AS total,
+              COALESCE(SUM(valor_subtotal), 0) AS subtotal,
+              COUNT(DISTINCT (store_id || ':' || nro_documento)) AS invoices
+       FROM erp_sales
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note
+       GROUP BY 1`,
+      [startDay, endDay, channel],
+    );
+    return result.rows.map((r) => ({ prefix: r.prefix, total: Number(r.total), subtotal: Number(r.subtotal), invoices: Number(r.invoices) }));
+  }
+
+  /**
+   * Venta VTEX contabilizada por marketplace (`sales_daily_by_marketplace`,
+   * mismo dato que `/pilatos`) — para comparar contra ERP en el cuadro de
+   * marketplaces. Clave = etiqueta de `stores.config.ts` ("Addi", "Agaval"…).
+   */
+  async getVtexSalesByMarketplace(startDay: string, endDay: string): Promise<Record<string, number>> {
+    const result = await this.pool.query<{ marketplace_name: string; sales: string }>(
+      `SELECT marketplace_name, COALESCE(SUM(revenue_sales), 0) AS sales
+       FROM sales_daily_by_marketplace
+       WHERE date BETWEEN $1 AND $2
+       GROUP BY 1`,
+      [startDay, endDay],
+    );
+    return Object.fromEntries(result.rows.map((r) => [r.marketplace_name, Number(r.sales)]));
   }
 
   /** Venta total y facturas por mes de un canal — para la tendencia mensual del "Resumen" de SmartSale. */

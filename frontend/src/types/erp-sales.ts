@@ -42,3 +42,53 @@ export interface ErpSmartSaleSummaryResponse {
   lastSyncedAt: string | null;
   lastDataDay: string | null;
 }
+
+/** Margen ERP: utilidad = subtotal SIN IVA − costo (costo unitario × cantidad); margen = utilidad ÷ subtotal. */
+export interface ErpMarginFigures {
+  subtotal: number;
+  cost: number;
+  utility: number;
+  /** `null` si no hubo venta. */
+  marginPercent: number | null;
+}
+
+/** "Resumen" de `/presupuesto` — margen y utilidad e-commerce por marca. `channel.marginPercent` es el PONDERADO. */
+export interface ErpMarginSummaryResponse {
+  filters: { startDate: string; endDate: string };
+  byStore: (ErpMarginFigures & { storeId: string })[];
+  channel: ErpMarginFigures & { simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };
+  freight: { subtotal: number; cost: number; utility: number };
+  packaging: { subtotal: number; cost: number; utility: number };
+}
+
+/** Un marketplace del cuadro de comisiones: comisión = venta sin IVA × %, utilidad = venta sin IVA − comisión (sin costo). */
+export interface ErpMarketplaceRow {
+  prefix: string;
+  name: string;
+  commissionPercent: number;
+  vtexSales: number;
+  erpSales: number;
+  erpSubtotal: number;
+  invoices: number;
+  commission: number;
+  utility: number;
+  marginPercent: number | null;
+}
+
+export interface ErpMarketplaceSummaryResponse {
+  filters: { startDate: string; endDate: string };
+  rows: ErpMarketplaceRow[];
+  total: {
+    vtexSales: number;
+    erpSales: number;
+    erpSubtotal: number;
+    invoices: number;
+    commission: number;
+    utility: number;
+    marginPercent: number | null;
+    simpleAverageMarginPercent: number | null;
+    marketplacesInSimpleAverage: number;
+  };
+  /** Prefijos de `docto_referencia` con venta que no están en el cuadro de comisiones (ej. "SLR"). */
+  otherPrefixes: { prefix: string; erpSales: number; erpSubtotal: number; invoices: number }[];
+}

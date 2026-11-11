@@ -44,6 +44,7 @@ function toDbRow(row: ErpSaleApiRow, storeId: string): ErpSaleDbRow {
     categoria: row.categoria ?? null,
     tipo: row.tipo ?? null,
     costoPromedioTotal: row.costo_promedio_total ?? null,
+    costoPromedioUniInst: row.costo_promedio_uni_inst ?? null,
     utilidadPromedio: row.utilidad_promedio ?? null,
     pedidoVtex: row.pedido_vtex ?? null,
     lineKind: classifyErpLine(row.desc_item, row.tipo),

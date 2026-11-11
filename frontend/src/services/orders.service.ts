@@ -17,7 +17,12 @@ import {
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
 import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
-import { ErpSalesSummaryResponse, ErpSmartSaleSummaryResponse } from '@/types/erp-sales';
+import {
+  ErpMarginSummaryResponse,
+  ErpMarketplaceSummaryResponse,
+  ErpSalesSummaryResponse,
+  ErpSmartSaleSummaryResponse,
+} from '@/types/erp-sales';
 import { PosSalesSummaryResponse } from '@/types/pos-sales';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 import {
@@ -313,6 +318,18 @@ export const ordersService = {
   getErpSalesSummary(startDate: string, endDate: string): Promise<ErpSalesSummaryResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<ErpSalesSummaryResponse>(`/api/erp-sales/summary?${params.toString()}`);
+  },
+
+  /** Margen y utilidad ERP e-commerce por marca (ponderado + promedio simple) — pestaña "Resumen" de `/presupuesto`. */
+  getErpMarginSummary(startDate: string, endDate: string): Promise<ErpMarginSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<ErpMarginSummaryResponse>(`/api/erp-sales/margin-summary?${params.toString()}`);
+  },
+
+  /** Margen por marketplace (comisión por prefijo de `docto_referencia`) — cuadro del "Resumen" de `/presupuesto`. */
+  getErpMarketplaceSummary(startDate: string, endDate: string): Promise<ErpMarketplaceSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<ErpMarketplaceSummaryResponse>(`/api/erp-sales/marketplace-summary?${params.toString()}`);
   },
 
   /** Ventas ERP del canal SmartSale (vendedores 082P/168A, ya sincronizadas en Supabase) — pestaña "Ventas ERP" de `/smartsale`. */

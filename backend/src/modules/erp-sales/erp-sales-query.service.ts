@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
 import { normalizeEndDate, normalizeStartDate, toDayBucketColombia, todayColombia } from '../../common/utils/date-range.util';
+import { buildMarginSummary, MarginSummary } from '../../common/utils/erp-margin.util';
+import { buildMarketplaceSummary, MarketplaceSummary } from '../../common/utils/erp-marketplace.util';
 import { erpSmartSaleSellerName, mergeSalesWithCreditNotes } from '../../common/utils/erp-sales.util';
 import { getStoresConfig } from '../../config/stores.config';
 import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
@@ -78,6 +80,32 @@ export class ErpSalesQueryService {
     }, emptyBreakdown());
 
     return { filters: { startDate: startDay, endDate: endDay }, channel, byStore, ...syncInfo };
+  }
+
+  /**
+   * Margen y utilidad del canal e-commerce por marca — pestaña "Resumen"
+   * de `/presupuesto`. Sobre el subtotal SIN IVA, sin notas crédito; ver
+   * `buildMarginSummary` (ponderado + promedio simple, fletes y empaque).
+   */
+  async getMarginSummary(rawStartDate: string, rawEndDate: string): Promise<MarginSummary & { filters: { startDate: string; endDate: string } }> {
+    const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
+    const rows = await this.repository.getMarginRows(startDay, endDay, 'ecommerce');
+    const summary = buildMarginSummary(rows, getStoresConfig().map((s) => s.id));
+    return { filters: { startDate: startDay, endDate: endDay }, ...summary };
+  }
+
+  /**
+   * Cuadro de marketplaces del "Resumen" de `/presupuesto` (e-commerce):
+   * venta VTEX vs. ERP por marketplace, comisión y utilidad — ver
+   * `buildMarketplaceSummary` (utilidad = subtotal − comisión, sin costo).
+   */
+  async getMarketplaceSummary(rawStartDate: string, rawEndDate: string): Promise<MarketplaceSummary & { filters: { startDate: string; endDate: string } }> {
+    const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
+    const [prefixRows, vtexByLabel] = await Promise.all([
+      this.repository.getSalesByDoctoPrefix(startDay, endDay, 'ecommerce'),
+      this.repository.getVtexSalesByMarketplace(startDay, endDay),
+    ]);
+    return { filters: { startDate: startDay, endDate: endDay }, ...buildMarketplaceSummary(prefixRows, vtexByLabel) };
   }
 
   /** Año en curso completo, canal SmartSale, por mes — más el primer mes con ERP sincronizado (antes no hay datos ERP). */

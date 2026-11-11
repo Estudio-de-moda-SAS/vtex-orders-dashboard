@@ -29,16 +29,19 @@ test('una marca sin venta no entra al promedio simple (no es 0%)', () => {
   assert.equal(m.channel.storesInSimpleAverage, 1);
 });
 
-test('fletes suman utilidad y empaque la resta, y se reportan aparte', () => {
+test('fletes y empaque NO entran al margen (solo productos) y se reportan aparte', () => {
   const rows: MarginInputRow[] = [
     { storeId: 'a', lineKind: 'product', subtotal: 1000, cost: 500 },
     { storeId: 'a', lineKind: 'freight', subtotal: 50, cost: 0 },
     { storeId: 'a', lineKind: 'packaging', subtotal: 0, cost: 10 },
+    { storeId: 'a', lineKind: 'advertising', subtotal: 0, cost: 7 },
   ];
   const m = buildMarginSummary(rows, ['a']);
-  assert.equal(m.channel.subtotal, 1050);
-  assert.equal(m.channel.cost, 510);
-  assert.equal(m.channel.utility, 540);
+  assert.equal(m.channel.subtotal, 1000);
+  assert.equal(m.channel.cost, 500);
+  assert.equal(m.channel.utility, 500);
+  assert.equal(m.channel.marginPercent, 50);
+  assert.equal(m.byStore[0].subtotal, 1000);
   assert.deepEqual(m.freight, { subtotal: 50, cost: 0, utility: 50 });
   assert.deepEqual(m.packaging, { subtotal: 0, cost: 10, utility: -10 });
 });

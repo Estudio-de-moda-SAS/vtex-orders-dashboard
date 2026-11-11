@@ -117,7 +117,8 @@ export function PresupuestoResumenTab() {
   const { state: requestState, refetch: runQuery } = useCachedQuery<ResumenData>(
     // "v4": filtros de tienda/marca/tipo. "v5": filtros combinados y opciones en `resumen.options`.
     // "v6": siempre todas las tiendas (las que no cumplen el filtro en 0).
-    `presupuesto-resumen:v6:${startDate}:${endDate}:${filterKey}`,
+    // "v7": margen/utilidad y venta sin IVA solo de productos (sin fletes, bolsas ni material publicitario).
+    `presupuesto-resumen:v7:${startDate}:${endDate}:${filterKey}`,
     async () => {
       const [vtex, erp, resumen] = await Promise.all([
         ordersService.getDashboardData(startDate, endDate),
@@ -315,7 +316,7 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
                 <th className={`${th} text-left`}>Marca</th>
                 <th className={`${th} text-right`}>Ventas VTEX</th>
                 <th className={`${th} text-right`}>Ventas ERP</th>
-                <th className={`${th} text-right`}>Ventas ERP sin IVA</th>
+                <th className={`${th} text-right`}>Ventas ERP sin IVA (productos)</th>
                 <th className={`${th} text-right`}>Margen</th>
                 <th className={`${th} text-right`}>Utilidad</th>
               </tr>
@@ -367,8 +368,8 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             </p>
           )}
           <p>
-            <span className="font-semibold text-ink-muted">Margen y utilidad:</span> sobre la venta sin IVA de lo facturado en el
-            ERP (sin notas crédito).
+            <span className="font-semibold text-ink-muted">Margen y utilidad:</span> solo productos, sobre la venta sin IVA de lo
+            facturado en el ERP (sin notas crédito). Las ventas sí incluyen fletes, bolsas y material publicitario.
           </p>
           <ul className="ml-4 list-disc space-y-0.5">
             <li>
@@ -406,13 +407,8 @@ function ResumenContent({ data, stores }: { data: ResumenData; stores: StoreInfo
             </li>
           </ul>
           <p>
-            <span className="font-semibold text-ink-muted">Fletes:</span> en el ERP no tienen costo, así que toda su venta cuenta
-            como utilidad (+{formatCOP(resumen.freight.utility)} en este rango). Lo que se paga a la transportadora no está en esta
-            fuente.
-          </p>
-          <p>
-            <span className="font-semibold text-ink-muted">Material de empaque:</span> se factura en $0 pero tiene costo, así que
-            resta utilidad ({formatCOP(resumen.packaging.utility)} en este rango).
+            <span className="font-semibold text-ink-muted">Fletes, bolsas y material publicitario:</span> cuentan en las ventas pero
+            no en el margen ni en la utilidad (fletes del rango: {formatCOP(resumen.freight.subtotal)} sin IVA).
           </p>
         </div>
       </ChartPanel>

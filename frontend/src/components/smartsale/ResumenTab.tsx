@@ -64,7 +64,8 @@ export function ResumenTab() {
     // "v4": se agregó `vtexUnits`/`posUnits`/`totalUnits` (UPT) a `byStore`/`byPerson` y `totalVtexUnits`/`totalPosUnits` al total general.
     // "v5": VTEX + POS → POS + ERP (campos `vtex*` renombrados a `erp*`, `erpAvailable` en la tendencia).
     // "v6": se agregó `margin`/`posMarginCoverage` (margen POS + ERP por marca) y `byTipo`/`byStoreTipo`.
-    `smartsale-resumen:v6:${startDate}:${endDate}`,
+    // "v7": margen/utilidad solo de productos (sin fletes, bolsas ni material publicitario).
+    `smartsale-resumen:v7:${startDate}:${endDate}`,
     async () => {
       const [summary, monthlyTrend] = await Promise.all([
         ordersService.getSmartSaleCombinedSummary(startDate, endDate),
@@ -173,13 +174,14 @@ function ResumenContent({ data, storeById }: { data: ResumenData; storeById: Map
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Venta sin IVA (base del margen)</p>
             <p className="mt-0.5 font-display text-xl font-semibold text-ink">{formatCOP(summary.margin.channel.subtotal)}</p>
-            <p className="text-xs text-ink-faint">Costo {formatCOP(summary.margin.channel.cost)}</p>
+            <p className="text-xs text-ink-faint">Solo productos · costo {formatCOP(summary.margin.channel.cost)}</p>
           </div>
         </div>
         <div className="mt-3 flex flex-col gap-1 border-t border-surface-border pt-3 text-xs text-ink-faint">
           <p>
             <span className="font-semibold text-ink-muted">Cómo se calcula:</span> utilidad = venta sin IVA − costo (costo
-            unitario × cantidad); margen = utilidad ÷ venta sin IVA, sumando POS + ERP por marca y sin notas crédito. Margen
+            unitario × cantidad); margen = utilidad ÷ venta sin IVA, sumando POS + ERP por marca, solo productos (sin fletes, bolsas
+            ni material publicitario) y sin notas crédito. Margen
             total ponderado = {formatCOP(summary.margin.channel.utility)} ÷ {formatCOP(summary.margin.channel.subtotal)} ={' '}
             {marginLabel(summary.margin.channel.marginPercent)}; el simple promedia el margen de cada marca con venta.
           </p>

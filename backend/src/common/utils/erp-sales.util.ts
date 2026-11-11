@@ -51,7 +51,13 @@ export const ERP_POS_CO = '810';
  */
 const PENDING_VALIDATION_COS = new Set(['956']);
 
-export type ErpLineKind = 'product' | 'freight' | 'packaging';
+/**
+ * 'advertising' = material publicitario (tipo "801 - MATERIAL
+ * PUBLICITARIO": portadocumentos, pines, muestras) — facturado en $0 con
+ * costo; como flete y empaque, NO es producto (no entra a margen, utilidad,
+ * tipos ni unidades).
+ */
+export type ErpLineKind = 'product' | 'freight' | 'packaging' | 'advertising';
 
 /**
  * 'ecommerce' = tiendas virtuales (`/presupuesto`); 'smartsale' = vendedores
@@ -145,6 +151,7 @@ export function classifyErpLine(descItem: string | null | undefined, tipo: strin
   const t = norm(tipo);
   if (desc.includes('FLETE')) return 'freight';
   if (desc.startsWith('CONSUMO') || t.startsWith('741')) return 'packaging';
+  if (t.startsWith('801')) return 'advertising';
   if (t === 'NA - NO APLICA' || t === 'NA') return 'freight';
   return 'product';
 }

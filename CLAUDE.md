@@ -69,6 +69,12 @@ Resumen (POS + ERP combinado), Presupuesto e Indicadores (pendiente).
   (unidades de producto ÷ facturas). Notas crédito (NVF) del canal: se
   MUESTRAN aparte (cantidad y valor por vendedor y por marca) y NUNCA se
   restan — a diferencia de POS, que sí las resta.
+- **Tipo de producto** ("208 - TENIS") en Ventas POS, Ventas ERP y
+  Resumen: top 10 general y por marca, ordenado por venta, sin flete ni
+  empaque (`TipoRankingSections`). En POS se arma con `id_tipo` + `tipo`
+  de la consulta POS (`PosSalesRepository.getByStoreTipo`) — mismo
+  formato que el `tipo` del ERP, así que POS + ERP coinciden exacto
+  (`mergeCombinedTipos`).
 - **Resumen** combina POS (`PosSalesQueryService`, por `nit_vendedor`) +
   ERP (`ErpSalesQueryService.getSmartSaleSummary`, por `codigo_vendedor`)
   — `SmartSaleCombinedService`
@@ -89,12 +95,23 @@ Resumen (POS + ERP combinado), Presupuesto e Indicadores (pendiente).
   salen solo POS, marcados "Solo POS" y SIN % de crecimiento (se
   completan cuando llegue el histórico ERP por Excel) —
   `buildCombinedMonthlyTrend` en `smartsale-combined.util.ts`.
+- **Margen y utilidad del Resumen (POS + ERP), solo por marca** (no por
+  vendedor). La consulta POS NO trae subtotal sin IVA ni costo: se toman
+  de los MISMOS documentos POS en la consulta de facturas (CO 810, canal
+  `'pos'` de `erp_sales`, ver sección siguiente). Panel "Margen y
+  utilidad", margen/utilidad en cada tarjeta y cuadro "Resumen por marca
+  (POS + ERP)" (`SmartSaleBrandSummaryTable`) con ventas POS, ventas ERP,
+  total, venta sin IVA, margen y utilidad. Nota obligatoria: las dos
+  consultas no se sincronizan al mismo tiempo (POS llega de inmediato, el
+  ERP tarde); `posMarginCoverage` compara documentos de venta POS del
+  rango vs. los que ya están en el ERP (conteo documento×tienda, igual que
+  Ventas POS) y la nota dice cuántos tienen margen cuando faltan.
 
 ## Ventas ERP (`/presupuesto` y `/smartsale`)
 
 Facturas del ERP — API "Conní", consulta
 `estudiodemoda_Facuras_Ecommerce`, mismas credenciales que notas crédito,
-tabla `erp_sales` (migraciones 0026-0029). Sync:
+tabla `erp_sales` (migraciones 0026-0030). Sync:
 `npm run erp-sales:sync -- --from=YYYY-MM-DD --to=YYYY-MM-DD` (requiere
 VPN), también incluido en `npm run daily-sync`. La consulta es pesada:
 el sync la pide en tramos de 3 días (`ERP_SALES_CHUNK_DAYS`) y guarda
@@ -105,16 +122,31 @@ festivo) no deja filas. Histórico antes de nov-2026 llegará por Excel.
 
 - Reglas de negocio en `backend/src/common/utils/erp-sales.util.ts`
   (con pruebas): CO→marca (199 Pilatos, 202 Replay, 203 Kipling, 204
-  Girbaud, 208 Diesel, 209 Superdry). SE EXCLUYEN en ambos canales: CO
-  810 (SmartSale, otra fuente), CO 956 "REPLAY EDEN BOGOTA" (pendiente de
-  validar por el usuario — `PENDING_VALIDATION_COS`) y cualquier otro CO.
-- Canal (`channel`, 0027): vendedores 082P (Juana Pinilla) / 168A
-  (Felipe Rengifo), sin distinguir mayúsculas → `'smartsale'`
-  (`/smartsale` → Ventas ERP); el resto → `'ecommerce'` (`/presupuesto`).
-- Notas crédito "NVF-…" (0029): se GUARDAN con `is_credit_note = true`
-  (valor y cantidad negativos) y TODAS las consultas de venta las
-  excluyen — nunca se restan. Solo se muestran en Ventas ERP de
-  `/smartsale`; las de e-commerce ya tienen su pestaña de notas crédito.
+  Girbaud, 208 Diesel, 209 Superdry). SE EXCLUYEN: CO 956 "REPLAY EDEN
+  BOGOTA" (pendiente de validar por el usuario — `PENDING_VALIDATION_COS`)
+  y cualquier otro CO no listado.
+- Canal (`channel`, 0027) — `resolveErpTarget`:
+  - CO 810 → `'pos'`: documentos del POS físico (FPE ventas, NPE notas
+    crédito). Son los MISMOS de la consulta POS (validado documento por
+    documento) pero con subtotal y costo; se guardan SOLO para el margen
+    POS del Resumen de SmartSale, nunca como venta. Tienda con la MISMA
+    regla de Ventas POS (marca sin código → `resolvePosStoreIdFromMarca`).
+  - Vendedores 082P (Juana Pinilla) / 168A (Felipe Rengifo), sin
+    distinguir mayúsculas → `'smartsale'` (`/smartsale` → Ventas ERP).
+  - El resto → `'ecommerce'` (`/presupuesto`).
+  Toda consulta de venta filtra por canal: un backend desplegado con
+  código anterior al canal sumaría todo junto — desplegar el código al día
+  ANTES de correr el sync de una versión nueva.
+- Notas crédito "NVF-…" y "NPE-…" (0029): se GUARDAN con
+  `is_credit_note = true` (valor y cantidad negativos) y TODAS las
+  consultas de venta las excluyen — nunca se restan. Solo se muestran en
+  Ventas ERP de `/smartsale`; las de e-commerce ya tienen su pestaña.
+- Facturas con prefijo **SLR** en `docto_referencia` (órdenes de seller,
+  ~1/3 de la venta e-commerce): se atribuyen a la tienda de su CO, como
+  cualquier factura — así VTEX y ERP cuadran tienda por tienda, porque
+  VTEX también las cuenta en la tienda que despacha. Confirmado por el
+  usuario: se quedan así. No están en el cuadro de comisiones, así que no
+  aparecen en el cuadro de marketplaces (cuentan como venta directa).
 - Venta = `valor_neto` (con IVA). Flete: `desc_item` contiene "FLETE" o
   `tipo` "NA - NO APLICA"; empaque: `desc_item` empieza por "CONSUMO" o
   `tipo` "741 - MATERIAL DE EMPAQUE" (la descripción gana sobre `tipo`
@@ -129,8 +161,47 @@ festivo) no deja filas. Histórico antes de nov-2026 llegará por Excel.
 - Sin VPN, Windows corta la conexión con `ETIMEDOUT` a los ~21s; el
   cliente ERP lo distingue de un timeout real por el tiempo transcurrido
   y lo reporta como "conéctate a la VPN".
-- Pendiente: "Resumen" de `/presupuesto` (margen, utilidad, ventas por
-  categoría y filtros).
+- "Presupuesto y ventas ERP" también muestra (solo producto, sin flete ni
+  empaque): marcas dentro de Pilatos (todas) y tipo más vendido en
+  general y por marca (top 10; el backend devuelve las listas completas,
+  `GET /api/erp-sales/ecommerce-breakdown`). La pestaña VTEX/ERP comparte
+  componente: lo exclusivo de ERP entra por `renderExtra`.
+
+### Resumen de `/presupuesto` (margen, utilidad, marketplaces, filtros)
+
+- **Margen** (fórmula del usuario): costo = `costo_promedio_uni_inst` ×
+  `cantidad` (0030; filas viejas sin unitario usan `costo_promedio_total`);
+  utilidad = `valor_subtotal` (SIN IVA) − costo; margen = utilidad ÷
+  subtotal. Total del canal: PONDERADO (utilidad total ÷ subtotal total,
+  cifra principal) y PROMEDIO SIMPLE de las marcas con venta al lado —
+  el usuario pidió los dos; la nota de la tabla muestra ambas fórmulas con
+  los números del rango. Incluye fletes (costo $0 → todo utilidad) y
+  empaque ($0 facturado con costo → resta). Sin notas crédito.
+  `buildMarginSummary` (`erp-margin.util.ts`, con pruebas). En 74 de 2.672
+  líneas el ERP trae costo unitario × cantidad ≠ costo total (efecto en
+  margen: 0,002 puntos) — viene así del ERP, no es un error nuestro.
+- **Marketplaces**: factura de marketplace = `docto_referencia` que
+  EMPIEZA por el ID VTEX del cuadro de comisiones (`ERP_MARKETPLACES` en
+  `erp-marketplace.util.ts`: FFC 40,85%, VPC 11%, DTF 26%, DDD 13%, GVL
+  17%, FBL 20%). Comisión = subtotal × %; utilidad = subtotal − comisión
+  (SIN costo, así lo calculan ellos); margen = utilidad ÷ subtotal. El
+  cuadro por marca NO resta comisiones. VTEX por marketplace sale de
+  `sales_daily_by_marketplace` (puede no cuadrar: el ERP factura tarde).
+- **Filtros** (selección múltiple: tienda, marca, tipo —
+  `GET /api/erp-sales/resumen`, cada filtro un arreglo JSON): se COMBINAN
+  (tienda Y marca Y tipo). La marca es la del ERP en TODAS las tiendas (la
+  tienda Diesel vende "DSA - DIESEL ADULTO", igual que Pilatos). Siempre se
+  muestran todas las tiendas (o las elegidas); las que no cumplen salen en
+  0 (decisión del usuario: ocultarlas confundía). Las opciones de cada
+  filtro se acotan con los otros dos (`buildResumenFilterOptions`). Lado
+  VTEX: con tipo → "N/A" (VTEX no usa los tipos del ERP; el usuario
+  enviará la equivalencia); con marca → Pilatos suma las marcas VTEX
+  equivalentes (`matchErpMarcaToVtexBrand`), las demás tiendas su venta
+  completa si solo venden las marcas elegidas, 0 si no la venden, "N/A" si
+  venden otras también (ej. Girbaud también vende Converse).
+- Pendiente: equivalencia de tipos VTEX ↔ ERP y margen por campaña
+  (cruce por `pedido_vtex` = número de orden VTEX; requiere guardar
+  orden → campaña en el sync de VTEX).
 
 ## Verificar un cambio al asistente ("Vico")
 
@@ -183,6 +254,16 @@ para esa página. Páginas con este patrón hoy: Dashboard (`page.tsx`),
 `/tendencias`, `/descuentos`, `/pilatos`, `/metodos-pago`, `/analytics`,
 `/resumen`, `/smartsale` y `/presupuesto` (sus pestañas también cachean
 por rango — ej. `presupuesto-comparison:v2`, `smartsale-budget-comparison:v2`).
+
+En `/smartsale` y `/presupuesto` cada pestaña guarda SU PROPIO rango con
+su propio par de parámetros en la URL (`posStartDate`, `erpStartDate`,
+`resStartDate`… — `paramNames` de `useDateRangeFilter`). Antes todas
+usaban `startDate`/`endDate` y una pisaba el rango de la otra. La pestaña
+activa se recuerda con `usePersistentTab`; los filtros del Resumen de
+`/presupuesto`, en `sessionStorage`. Para reconsultar al cambiar un
+filtro, comparar contra la ÚLTIMA key vista, nunca con un flag de "primer
+render": en desarrollo React monta dos veces (`reactStrictMode`) y el
+flag disparaba una consulta aunque el resultado ya estuviera en caché.
 
 ## Procesos en segundo plano — compromiso con el usuario
 

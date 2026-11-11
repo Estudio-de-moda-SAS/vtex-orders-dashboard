@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-import { canonicalizeVtexCategory, matchPosCategoryToVtex } from '../../../common/utils/category-normalize.util';
+import { buildCombinedMonthlyTrend, combinedCategoryKey, stripErpCategoryCode } from '../../../common/utils/smartsale-combined.util';
 import { getGrowthThresholds } from '../../../config/growth-thresholds.config';
 import { getStoresConfig } from '../../../config/stores.config';
+import { ErpSalesQueryService } from '../../erp-sales/erp-sales-query.service';
 import { PosSalesQueryService } from '../../pos-sales/pos-sales-query.service';
 import {
   SmartSaleCombinedCategoryBreakdown,
@@ -11,16 +12,16 @@ import {
   SmartSaleCombinedStoreSummary,
   SmartSaleCombinedSummaryResponse,
 } from '../interfaces/smartsale-combined.interface';
-import { classifyMonthlyGrowth, SmartSaleService } from './smartsale.service';
+import { classifyMonthlyGrowth } from './smartsale.service';
 
 function emptyPerson(name: string): SmartSaleCombinedPersonBreakdown {
   return {
     name,
-    vtexOrders: 0,
-    vtexSales: 0,
+    erpOrders: 0,
+    erpSales: 0,
     posOrders: 0,
     posSales: 0,
-    vtexUnits: 0,
+    erpUnits: 0,
     posUnits: 0,
     totalSales: 0,
     totalOrders: 0,
@@ -28,81 +29,83 @@ function emptyPerson(name: string): SmartSaleCombinedPersonBreakdown {
   };
 }
 
-function combinedSales(p: SmartSaleCombinedPersonBreakdown): number {
-  return p.vtexSales + p.posSales;
-}
-
 /** Rellena `totalSales`/`totalOrders`/`totalUnits` — se llama SIEMPRE justo antes de devolver un `SmartSaleCombinedPersonBreakdown`, nunca a mitad de una acumulación (ver comentario del campo en la interfaz). */
 function finalizePerson(p: SmartSaleCombinedPersonBreakdown): SmartSaleCombinedPersonBreakdown {
   return {
     ...p,
-    totalSales: p.vtexSales + p.posSales,
-    totalOrders: p.vtexOrders + p.posOrders,
-    totalUnits: p.vtexUnits + p.posUnits,
+    totalSales: p.erpSales + p.posSales,
+    totalOrders: p.erpOrders + p.posOrders,
+    totalUnits: p.erpUnits + p.posUnits,
   };
 }
 
+function bySalesDesc(a: SmartSaleCombinedPersonBreakdown, b: SmartSaleCombinedPersonBreakdown): number {
+  return b.erpSales + b.posSales - (a.erpSales + a.posSales);
+}
+
 /**
- * Combina el canal SmartSale de VTEX (`SmartSaleService`, atribución por
- * `utmiCampaign`) con el de POS (`PosSalesQueryService`, atribución por
- * `nit_vendedor`) — para la pestaña "Resumen" de `/smartsale`. Reusa
- * TAL CUAL los cálculos ya hechos por cada servicio (nunca reimplementa
- * la lectura de `smartsale_daily_by_person`/`pos_sales`); solo suma y
- * empareja por nombre. El emparejamiento por NOMBRE (no por id, que son
- * distintos en cada sistema: `utmiCampaign` vs. `nit_vendedor`) funciona
- * porque los nombres "amigables" de ambos lados coinciden exactamente
- * para los vendedores que venden por los dos canales (confirmado:
- * "Felipe Rengifo", "Juana Pinilla") — un vendedor nuevo en un solo canal
- * simplemente aparece con `0` del lado que no le aplica.
+ * "Resumen" de `/smartsale`: combina POS (`PosSalesQueryService`,
+ * vendedor por `nit_vendedor`) con ERP (`ErpSalesQueryService`, facturas
+ * de los vendedores SmartSale por `codigo_vendedor`). Antes combinaba
+ * VTEX + POS — VTEX era un acercamiento hasta tener ERP (cambio pedido por
+ * el usuario en nov-2026; la pestaña "Ventas VTEX" sigue existiendo aparte).
+ *
+ * Reusa TAL CUAL los cálculos de cada servicio; solo suma y empareja por
+ * NOMBRE amigable ("Juana Pinilla", "Felipe Rengifo" — idénticos en
+ * `pos-sales.util.ts` y `erp-sales.util.ts`). La venta ERP es la TOTAL
+ * (incluye fletes y empaque, sin desglose aquí — decisión del usuario).
+ * Lo usan también la pestaña Presupuesto de `/smartsale` y Vico
+ * (`get_smartsale_sales`, `get_smartsale_budget_vs_actual`).
  */
 @Injectable()
 export class SmartSaleCombinedService {
   private readonly storeIds = getStoresConfig().map((s) => s.id);
 
   constructor(
-    private readonly smartSaleService: SmartSaleService,
     private readonly posSalesQueryService: PosSalesQueryService,
+    private readonly erpSalesQueryService: ErpSalesQueryService,
   ) {}
 
   async getCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
-    const [vtexByStore, posSummary, vtexCategoryContribution] = await Promise.all([
-      this.smartSaleService.getSummary(startDate, endDate),
+    const [erpSummary, posSummary, erpCoverageStartDay] = await Promise.all([
+      this.erpSalesQueryService.getSmartSaleSummary(startDate, endDate),
       this.posSalesQueryService.getSummary(startDate, endDate),
-      this.smartSaleService.getCategoryContribution(startDate, endDate),
+      this.erpSalesQueryService.getCoverageStartDay(),
     ]);
     const posByStoreId = new Map(posSummary.byStore.map((s) => [s.storeId, s]));
+    const erpByStoreId = new Map(erpSummary.byStore.map((s) => [s.storeId, s]));
 
-    let totalVtexOrders = 0;
-    let totalVtexSales = 0;
+    let totalErpOrders = 0;
+    let totalErpSales = 0;
     let totalPosOrders = 0;
     let totalPosSales = 0;
-    let totalVtexUnits = 0;
+    let totalErpUnits = 0;
     let totalPosUnits = 0;
     const sellerTotals = new Map<string, SmartSaleCombinedPersonBreakdown>();
 
     const byStore: SmartSaleCombinedStoreSummary[] = this.storeIds.map((storeId) => {
-      const vtex = vtexByStore[storeId];
+      const erp = erpByStoreId.get(storeId);
       const pos = posByStoreId.get(storeId);
-      const vtexOrders = vtex?.smartSaleOrders ?? 0;
-      const vtexSales = vtex?.smartSaleSales ?? 0;
+      const erpOrders = erp?.invoices ?? 0;
+      const erpSales = erp?.total ?? 0;
       const posOrders = pos?.orders ?? 0;
       const posSales = pos?.sales ?? 0;
-      const vtexUnits = vtex?.smartSaleUnits ?? 0;
+      const erpUnits = erp?.units ?? 0;
       const posUnits = pos?.units ?? 0;
-      totalVtexOrders += vtexOrders;
-      totalVtexSales += vtexSales;
+      totalErpOrders += erpOrders;
+      totalErpSales += erpSales;
       totalPosOrders += posOrders;
       totalPosSales += posSales;
-      totalVtexUnits += vtexUnits;
+      totalErpUnits += erpUnits;
       totalPosUnits += posUnits;
 
       const byPersonMap = new Map<string, SmartSaleCombinedPersonBreakdown>();
-      for (const person of vtex?.byPerson ?? []) {
+      for (const person of erp?.bySeller ?? []) {
         byPersonMap.set(person.name, {
           ...emptyPerson(person.name),
-          vtexOrders: person.orders,
-          vtexSales: person.sales,
-          vtexUnits: person.units,
+          erpOrders: person.invoices,
+          erpSales: person.total,
+          erpUnits: person.units,
         });
       }
       for (const person of pos?.bySeller ?? []) {
@@ -112,127 +115,106 @@ export class SmartSaleCombinedService {
         entry.posUnits = person.units;
         byPersonMap.set(person.name, entry);
       }
-      const byPerson = Array.from(byPersonMap.values())
-        .sort((a, b) => combinedSales(b) - combinedSales(a))
-        .map(finalizePerson);
+      const byPerson = Array.from(byPersonMap.values()).sort(bySalesDesc).map(finalizePerson);
 
       for (const person of byPerson) {
         const total = sellerTotals.get(person.name) ?? emptyPerson(person.name);
-        total.vtexOrders += person.vtexOrders;
-        total.vtexSales += person.vtexSales;
+        total.erpOrders += person.erpOrders;
+        total.erpSales += person.erpSales;
         total.posOrders += person.posOrders;
         total.posSales += person.posSales;
-        total.vtexUnits += person.vtexUnits;
+        total.erpUnits += person.erpUnits;
         total.posUnits += person.posUnits;
         sellerTotals.set(person.name, total);
       }
 
       return {
         storeId,
-        vtexOrders,
-        vtexSales,
+        erpOrders,
+        erpSales,
         posOrders,
         posSales,
-        vtexUnits,
+        erpUnits,
         posUnits,
-        totalSales: vtexSales + posSales,
-        totalOrders: vtexOrders + posOrders,
-        totalUnits: vtexUnits + posUnits,
+        totalSales: erpSales + posSales,
+        totalOrders: erpOrders + posOrders,
+        totalUnits: erpUnits + posUnits,
         byPerson,
       };
     });
 
-    const bySeller = Array.from(sellerTotals.values())
-      .sort((a, b) => combinedSales(b) - combinedSales(a))
-      .map(finalizePerson);
-    const byCategory = this.buildCombinedCategories(vtexCategoryContribution.general, posSummary.byCategory);
+    const bySeller = Array.from(sellerTotals.values()).sort(bySalesDesc).map(finalizePerson);
+    const byCategory = this.buildCombinedCategories(erpSummary.byCategory, posSummary.byCategory);
 
     return {
       filters: { startDate, endDate },
-      totalVtexOrders,
-      totalVtexSales,
+      totalErpOrders,
+      totalErpSales,
       totalPosOrders,
       totalPosSales,
-      totalVtexUnits,
+      totalErpUnits,
       totalPosUnits,
+      totalSales: totalErpSales + totalPosSales,
+      totalOrders: totalErpOrders + totalPosOrders,
+      totalUnits: totalErpUnits + totalPosUnits,
       byStore,
       bySeller,
       byCategory,
+      erpCoverageStartDay,
     };
   }
 
   /**
-   * Combina categorías VTEX (nombre general, ej. "Camisetas") con
-   * categorías POS (mucho más granulares, ej. "CAMISETA M/C") — ver
-   * `category-normalize.util.ts` para el porqué del emparejamiento por
-   * prefijo en vez de una comparación de texto directa. Las categorías de
-   * VTEX con duplicados conocidos (Buzo/Buzos, Gorro/Gorros, Polo/Polos)
-   * se colapsan PRIMERO (`canonicalizeVtexCategory`), antes de intentar
-   * emparejar nada de POS contra ellas.
+   * Categorías POS + ERP — ambas vienen del mismo ERP; las de facturas
+   * solo anteponen el código ("101B - CAMISETA M/C"), así que se agrupan
+   * por `combinedCategoryKey` y se muestran con el nombre sin código.
+   * Solo líneas de producto (POS ya excluye fletes; ERP también empaque).
    */
   private buildCombinedCategories(
-    vtexGeneral: Record<string, { quantity: number; value: number }>,
+    erpByCategory: { categoria: string; units: number; total: number }[],
     posByCategory: { categoria: string; units: number; sales: number }[],
   ): SmartSaleCombinedCategoryBreakdown[] {
-    const emptyCategory = (category: string): SmartSaleCombinedCategoryBreakdown => ({
-      category,
-      vtexUnits: 0,
-      vtexSales: 0,
-      posUnits: 0,
-      posSales: 0,
-      totalSales: 0,
-      totalUnits: 0,
-    });
+    const byKey = new Map<string, SmartSaleCombinedCategoryBreakdown>();
+    const entryFor = (rawName: string): SmartSaleCombinedCategoryBreakdown => {
+      const key = combinedCategoryKey(rawName);
+      const existing = byKey.get(key);
+      if (existing) return existing;
+      const created = { category: stripErpCategoryCode(rawName), erpUnits: 0, erpSales: 0, posUnits: 0, posSales: 0, totalSales: 0, totalUnits: 0 };
+      byKey.set(key, created);
+      return created;
+    };
 
-    const byCategory = new Map<string, SmartSaleCombinedCategoryBreakdown>();
-    for (const [rawName, breakdown] of Object.entries(vtexGeneral)) {
-      const canonical = canonicalizeVtexCategory(rawName);
-      const entry = byCategory.get(canonical) ?? emptyCategory(canonical);
-      entry.vtexUnits += breakdown.quantity;
-      entry.vtexSales += breakdown.value;
-      byCategory.set(canonical, entry);
-    }
-
-    const vtexCategoryNames = Array.from(byCategory.keys());
     for (const pos of posByCategory) {
-      const matched = matchPosCategoryToVtex(pos.categoria, vtexCategoryNames);
-      const key = matched ?? pos.categoria;
-      const entry = byCategory.get(key) ?? emptyCategory(key);
+      const entry = entryFor(pos.categoria);
       entry.posUnits += pos.units;
       entry.posSales += pos.sales;
-      byCategory.set(key, entry);
+    }
+    for (const erp of erpByCategory) {
+      const entry = entryFor(erp.categoria);
+      entry.erpUnits += erp.units;
+      entry.erpSales += erp.total;
     }
 
-    return Array.from(byCategory.values())
-      .map((entry) => ({ ...entry, totalSales: entry.vtexSales + entry.posSales, totalUnits: entry.vtexUnits + entry.posUnits }))
+    return Array.from(byKey.values())
+      .map((entry) => ({ ...entry, totalSales: entry.erpSales + entry.posSales, totalUnits: entry.erpUnits + entry.posUnits }))
       .sort((a, b) => b.totalSales - a.totalSales);
   }
 
   /**
-   * Un punto por mes, año en curso — eje de meses tomado de VTEX (el canal
-   * con más historia; POS arrancó el mismo mes de lanzamiento, así que en
-   * la práctica coinciden). El % de crecimiento se recalcula sobre el
-   * total COMBINADO de cada mes (nunca reusa el `growthPercent` ya
-   * calculado por `SmartSaleService`, que es solo del lado VTEX).
+   * Un punto por mes del año en curso, POS + ERP. Los meses anteriores al
+   * primer mes con ERP sincronizado salen solo con POS y SIN % de
+   * crecimiento (`erpAvailable: false`) — comparar contra ellos inflaría
+   * el crecimiento (opción A elegida por el usuario: se completan cuando
+   * llegue el histórico ERP por Excel). Ver `buildCombinedMonthlyTrend`.
    */
   async getCombinedMonthlyTrend(): Promise<SmartSaleCombinedMonthlyTrendPoint[]> {
-    const [vtexMonths, posMonths] = await Promise.all([
-      this.smartSaleService.getMonthlyTrend(),
+    const [posMonths, erpTrend] = await Promise.all([
       this.posSalesQueryService.getMonthlyTrend(),
+      this.erpSalesQueryService.getSmartSaleMonthlyTrend(),
     ]);
-    const posByMonth = new Map(posMonths.map((m) => [m.month, m]));
     const thresholds = getGrowthThresholds();
-    let priorSales: number | null = null;
-
-    return vtexMonths.map((vtex, index) => {
-      const pos = posByMonth.get(vtex.month);
-      const vtexSales = vtex.sales;
-      const posSales = pos?.sales ?? 0;
-      const sales = vtexSales + posSales;
-      const orders = vtex.orders + (pos?.orders ?? 0);
-      const { growthPercent, status } = classifyMonthlyGrowth(sales, index === 0 ? null : priorSales, thresholds);
-      priorSales = sales;
-      return { month: vtex.month, vtexSales, posSales, sales, orders, growthPercent, status };
-    });
+    return buildCombinedMonthlyTrend(posMonths, erpTrend.months, erpTrend.coverageStartMonth, (current, prior) =>
+      classifyMonthlyGrowth(current, prior, thresholds),
+    );
   }
 }

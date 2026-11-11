@@ -4,14 +4,16 @@ import { Suspense, useState } from 'react';
 
 import { SmartSaleBudgetTab } from '@/components/presupuesto/SmartSaleBudgetTab';
 import { ResumenTab } from '@/components/smartsale/ResumenTab';
+import { VentasErpTab } from '@/components/smartsale/VentasErpTab';
 import { VentasPosTab } from '@/components/smartsale/VentasPosTab';
 import { VentasVtexTab } from '@/components/smartsale/VentasVtexTab';
 
-type TabId = 'vtex' | 'pos' | 'resumen' | 'presupuesto' | 'indicadores';
+type TabId = 'vtex' | 'pos' | 'erp' | 'resumen' | 'presupuesto' | 'indicadores';
 
 const TABS: { id: TabId; label: string; disabled?: boolean; placeholder?: string }[] = [
   { id: 'vtex', label: 'Ventas VTEX' },
   { id: 'pos', label: 'Ventas POS' },
+  { id: 'erp', label: 'Ventas ERP' },
   { id: 'resumen', label: 'Resumen' },
   { id: 'presupuesto', label: 'Presupuesto' },
   {
@@ -69,6 +71,7 @@ function SmartSaleContent() {
 
       {tab === 'vtex' && <VentasVtexTab />}
       {tab === 'pos' && <VentasPosTab />}
+      {tab === 'erp' && <VentasErpTab />}
       {tab === 'resumen' && <ResumenTab />}
       {tab === 'presupuesto' && <SmartSaleBudgetTab />}
       {activeTab?.placeholder && (

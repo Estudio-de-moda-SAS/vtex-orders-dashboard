@@ -1,23 +1,23 @@
 import { GrowthStatus } from './trends.interface';
 
 /**
- * Un vendedor combinando VTEX (`utmiCampaign`) + POS (`nit_vendedor`) —
- * emparejados por NOMBRE (ver `SmartSaleCombinedService`, confirmado que
- * los nombres "amigables" de ambos lados coinciden exactamente para los
- * vendedores que venden por los dos canales). `0` en el lado que no
- * vendió nada en el rango, nunca `null` — igual criterio que el resto del
- * dashboard para "sin datos".
+ * Un vendedor combinando POS (`nit_vendedor`) + ERP (facturas,
+ * `codigo_vendedor` 082P/168A) — emparejados por NOMBRE amigable (ver
+ * `SmartSaleCombinedService`). `erpOrders` son FACTURAS y `posOrders`
+ * documentos POS. `erpSales` es la venta TOTAL de ERP (incluye fletes y
+ * empaque, sin desglose en el Resumen — decisión del usuario). `0` en el
+ * lado que no vendió nada en el rango, nunca `null`.
  */
 export interface SmartSaleCombinedPersonBreakdown {
   name: string;
-  vtexOrders: number;
-  vtexSales: number;
+  erpOrders: number;
+  erpSales: number;
   posOrders: number;
   posSales: number;
-  vtexUnits: number;
+  erpUnits: number;
   posUnits: number;
   /**
-   * `vtexSales + posSales`/`vtexOrders + posOrders`/`vtexUnits + posUnits`,
+   * `erpSales + posSales`/`erpOrders + posOrders`/`erpUnits + posUnits`,
    * YA SUMADOS acá — confirmado en producción que dejarle esta suma al
    * modelo de Vico daba un total distinto cada vez (ver
    * `AssistantSmartSaleService`). Nunca los sumes de nuevo en otro lado,
@@ -30,13 +30,13 @@ export interface SmartSaleCombinedPersonBreakdown {
 
 export interface SmartSaleCombinedStoreSummary {
   storeId: string;
-  vtexOrders: number;
-  vtexSales: number;
+  erpOrders: number;
+  erpSales: number;
   posOrders: number;
   posSales: number;
-  vtexUnits: number;
+  erpUnits: number;
   posUnits: number;
-  /** `vtexSales + posSales`/`vtexOrders + posOrders`/`vtexUnits + posUnits`, YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
+  /** YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
   totalSales: number;
   totalOrders: number;
   totalUnits: number;
@@ -44,45 +44,55 @@ export interface SmartSaleCombinedStoreSummary {
 }
 
 /**
- * `category` es el nombre CANÓNICO de VTEX cuando hay equivalencia
- * encontrada (`matchPosCategoryToVtex`); si una categoría de POS no tiene
- * equivalencia clara (ver `category-normalize.util.ts`), aparece con su
- * propio nombre crudo de POS y `vtexUnits`/`vtexSales` en 0 — nunca se
- * fuerza a una categoría VTEX solo para no dejarla fuera.
+ * `category` es el nombre de POS (sin el código que antepone el ERP, ver
+ * `stripErpCategoryCode`) — POS y ERP vienen del mismo ERP, así que
+ * coinciden exacto. Solo líneas de producto (sin fletes/empaque).
  */
 export interface SmartSaleCombinedCategoryBreakdown {
   category: string;
-  vtexUnits: number;
-  vtexSales: number;
+  erpUnits: number;
+  erpSales: number;
   posUnits: number;
   posSales: number;
-  /** `vtexSales + posSales`/`vtexUnits + posUnits`, YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
+  /** YA SUMADOS — ver comentario de `SmartSaleCombinedPersonBreakdown`. */
   totalSales: number;
   totalUnits: number;
 }
 
 export interface SmartSaleCombinedSummaryResponse {
   filters: { startDate: string; endDate: string };
-  totalVtexOrders: number;
-  totalVtexSales: number;
+  totalErpOrders: number;
+  totalErpSales: number;
   totalPosOrders: number;
   totalPosSales: number;
-  totalVtexUnits: number;
+  totalErpUnits: number;
   totalPosUnits: number;
+  /** `totalErpSales + totalPosSales`, YA SUMADO. */
+  totalSales: number;
+  totalOrders: number;
+  totalUnits: number;
   byStore: SmartSaleCombinedStoreSummary[];
   /** Combinando las 6 tiendas. */
   bySeller: SmartSaleCombinedPersonBreakdown[];
   /** Combinando las 6 tiendas y los dos canales — ver comentario de `SmartSaleCombinedCategoryBreakdown`. */
   byCategory: SmartSaleCombinedCategoryBreakdown[];
+  /**
+   * Primer día con facturas ERP sincronizadas (`null` si no hay ninguna) —
+   * si el rango empieza antes, esos días solo traen POS (el histórico ERP
+   * llegará por Excel).
+   */
+  erpCoverageStartDay: string | null;
 }
 
 export interface SmartSaleCombinedMonthlyTrendPoint {
   month: string;
-  vtexSales: number;
+  erpSales: number;
   posSales: number;
-  /** `vtexSales + posSales`. */
+  /** `erpSales + posSales`. */
   sales: number;
   orders: number;
+  /** `false` = mes sin ERP sincronizado (solo POS) — sin % de crecimiento. */
+  erpAvailable: boolean;
   growthPercent: number | null;
   status: GrowthStatus;
 }

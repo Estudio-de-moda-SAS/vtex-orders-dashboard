@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { DatabaseModule } from '../database/database.module';
+import { ErpSalesModule } from '../erp-sales/erp-sales.module';
 import { PosSalesModule } from '../pos-sales/pos-sales.module';
 import { SyncModule } from '../sync/sync.module';
 import { OrdersController } from './controllers/orders.controller';
@@ -27,7 +28,7 @@ import { TrendsService } from './services/trends.service';
  * toca VTEX, y solo para esos días puntuales faltantes.
  */
 @Module({
-  imports: [DatabaseModule, SyncModule, PosSalesModule],
+  imports: [DatabaseModule, SyncModule, PosSalesModule, ErpSalesModule],
   controllers: [
     OrdersController,
     SyncStatusController,

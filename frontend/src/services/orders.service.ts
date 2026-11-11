@@ -17,7 +17,7 @@ import {
 } from '@/types/product-analytics';
 import { PilatosMixResponse } from '@/types/pilatos-mix';
 import { PaymentMethodsTrendResponse } from '@/types/payment-methods-trend';
-import { ErpSalesSummaryResponse } from '@/types/erp-sales';
+import { ErpSalesSummaryResponse, ErpSmartSaleSummaryResponse } from '@/types/erp-sales';
 import { PosSalesSummaryResponse } from '@/types/pos-sales';
 import { SmartSaleCombinedMonthlyTrendPoint, SmartSaleCombinedSummaryResponse } from '@/types/smartsale-combined';
 import {
@@ -313,6 +313,12 @@ export const ordersService = {
   getErpSalesSummary(startDate: string, endDate: string): Promise<ErpSalesSummaryResponse> {
     const params = new URLSearchParams({ startDate, endDate });
     return request<ErpSalesSummaryResponse>(`/api/erp-sales/summary?${params.toString()}`);
+  },
+
+  /** Ventas ERP del canal SmartSale (vendedores 082P/168A, ya sincronizadas en Supabase) — pestaña "Ventas ERP" de `/smartsale`. */
+  getErpSmartSaleSummary(startDate: string, endDate: string): Promise<ErpSmartSaleSummaryResponse> {
+    const params = new URLSearchParams({ startDate, endDate });
+    return request<ErpSmartSaleSummaryResponse>(`/api/erp-sales/smartsale-summary?${params.toString()}`);
   },
 
   /** Igual que `getSmartSaleSummary`, pero sumando VTEX+POS (pestaña "Resumen" de `/smartsale`). */

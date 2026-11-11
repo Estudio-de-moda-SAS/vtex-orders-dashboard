@@ -16,11 +16,17 @@ const ERP_CO_TO_STORE: Record<string, string> = {
 };
 
 /**
- * Vendedores del canal SmartSale — sus facturas pueden venir con el CO de
- * una marca, pero NO son venta de la tienda virtual (pendiente validar
- * aparte). Comparación sin distinguir mayúsculas/espacios ("168a" = "168A").
+ * Vendedores del canal SmartSale (código del ERP → nombre amigable) — sus
+ * facturas vienen con el CO de una marca, pero NO son venta de la tienda
+ * virtual: van a la pestaña "Ventas ERP" de `/smartsale`. Comparación sin
+ * distinguir mayúsculas/espacios ("168a" = "168A"). Un vendedor nuevo se
+ * agrega A MANO aquí, con el nombre IDÉNTICO al de `pos-sales.util.ts` y
+ * `smartsale.config.ts` (el "Resumen" de SmartSale empareja por nombre).
  */
-const EXCLUDED_SELLER_CODES = new Set(['082P', '168A']);
+const ERP_SMARTSALE_SELLERS: Record<string, string> = {
+  '082P': 'Juana Pinilla',
+  '168A': 'Felipe Rengifo',
+};
 
 /** CO 810 = SmartSale (otro departamento) — ya cae fuera por no estar en `ERP_CO_TO_STORE`, se nombra para que el log lo distinga. */
 export const ERP_SMARTSALE_CO = '810';
@@ -37,7 +43,10 @@ const PENDING_VALIDATION_COS = new Set(['956']);
 
 export type ErpLineKind = 'product' | 'freight' | 'packaging';
 
-export type ErpExclusionReason = 'credit-note' | 'smartsale-co' | 'pending-co' | 'smartsale-seller' | 'unknown-co';
+/** 'ecommerce' = tiendas virtuales (`/presupuesto`); 'smartsale' = vendedores SmartSale (`/smartsale` → "Ventas ERP"). */
+export type ErpChannel = 'ecommerce' | 'smartsale';
+
+export type ErpExclusionReason = 'smartsale-co' | 'pending-co' | 'unknown-co';
 
 function norm(value: string | null | undefined): string {
   return (value ?? '').trim().toUpperCase();
@@ -47,30 +56,42 @@ export function resolveErpStoreIdFromCo(co: string | null | undefined): string |
   return ERP_CO_TO_STORE[(co ?? '').trim()] ?? null;
 }
 
-/** "NVF-..." = nota crédito — ya se cubre en la pestaña de notas crédito, aquí se omite. */
+/**
+ * "NVF-..." = nota crédito (valor y cantidad vienen NEGATIVOS). Se guarda
+ * con `is_credit_note = true` pero NUNCA entra en la venta: todas las
+ * consultas de venta la excluyen (no se resta — decisión del usuario).
+ * Solo se muestra aparte en "Ventas ERP" de `/smartsale` (cantidad y valor
+ * por marca y vendedor); las de e-commerce ya tienen su propia pestaña.
+ */
 export function isErpCreditNoteDoc(nroDocumento: string | null | undefined): boolean {
   return norm(nroDocumento).startsWith('NVF');
 }
 
-export function isErpExcludedSeller(codigoVendedor: string | null | undefined): boolean {
-  return EXCLUDED_SELLER_CODES.has(norm(codigoVendedor));
+/** Nombre amigable del vendedor SmartSale, o `null` si el código no es de SmartSale. */
+export function erpSmartSaleSellerName(codigoVendedor: string | null | undefined): string | null {
+  return ERP_SMARTSALE_SELLERS[norm(codigoVendedor)] ?? null;
+}
+
+/** Código normalizado ("168a " → "168A") — así se guarda, para agrupar sin duplicados por mayúsculas. */
+export function normalizeErpSellerCode(codigoVendedor: string | null | undefined): string | null {
+  const code = norm(codigoVendedor);
+  return code === '' ? null : code;
+}
+
+export function resolveErpChannel(codigoVendedor: string | null | undefined): ErpChannel {
+  return erpSmartSaleSellerName(codigoVendedor) !== null ? 'smartsale' : 'ecommerce';
 }
 
 /**
- * Motivo por el que una línea NO se guarda, o `null` si sí cuenta como
- * venta de la tienda virtual. El orden solo afecta qué motivo se reporta
- * en el log (cualquiera de ellos basta para descartarla).
+ * Motivo por el que una línea NO se guarda en ningún canal, o `null` si
+ * sí se guarda (el canal lo decide `resolveErpChannel`; las notas crédito
+ * SÍ se guardan, marcadas con `isErpCreditNoteDoc`). Aplica igual a
+ * facturas y a notas crédito.
  */
-export function erpExclusionReason(row: {
-  co: string | null | undefined;
-  codigo_vendedor: string | null | undefined;
-  nro_documento: string | null | undefined;
-}): ErpExclusionReason | null {
-  if (isErpCreditNoteDoc(row.nro_documento)) return 'credit-note';
+export function erpExclusionReason(row: { co: string | null | undefined }): ErpExclusionReason | null {
   if ((row.co ?? '').trim() === ERP_SMARTSALE_CO) return 'smartsale-co';
   if (PENDING_VALIDATION_COS.has((row.co ?? '').trim())) return 'pending-co';
   if (resolveErpStoreIdFromCo(row.co) === null) return 'unknown-co';
-  if (isErpExcludedSeller(row.codigo_vendedor)) return 'smartsale-seller';
   return null;
 }
 
@@ -109,4 +130,34 @@ export function splitIntoDayChunks(from: string, to: string, chunkDays = 3): { s
     chunks.push({ start: fmt(cursor), end: fmt(Math.min(cursor + (chunkDays - 1) * DAY, endMs)) });
   }
   return chunks;
+}
+
+/**
+ * Une filas de venta y de notas crédito por la misma clave (ej. código de
+ * vendedor), conservando el orden de las ventas y agregando AL FINAL las
+ * claves que solo tienen notas crédito (un vendedor que en el rango solo
+ * tuvo devoluciones igual debe aparecer). Pura — la usa
+ * `ErpSalesQueryService` para vendedores y vendedores por tienda.
+ */
+export function mergeSalesWithCreditNotes<S, C>(
+  sales: S[],
+  creditNotes: C[],
+  saleKey: (s: S) => string,
+  creditKey: (c: C) => string,
+): { key: string; sale: S | null; creditNote: C | null }[] {
+  const creditByKey = new Map(creditNotes.map((c) => [creditKey(c), c]));
+  const merged: { key: string; sale: S | null; creditNote: C | null }[] = sales.map((s) => ({
+    key: saleKey(s),
+    sale: s,
+    creditNote: creditByKey.get(saleKey(s)) ?? null,
+  }));
+  const seen = new Set(merged.map((m) => m.key));
+  for (const c of creditNotes) {
+    const key = creditKey(c);
+    if (!seen.has(key)) {
+      merged.push({ key, sale: null, creditNote: c });
+      seen.add(key);
+    }
+  }
+  return merged;
 }

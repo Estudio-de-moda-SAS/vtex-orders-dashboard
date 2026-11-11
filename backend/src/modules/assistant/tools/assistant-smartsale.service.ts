@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
 import { percentChange } from '../../../common/utils/percent-change.util';
+import { buildErpCoverageNote } from '../../../common/utils/smartsale-combined.util';
 import { buildErpSyncNote, checkSyncFreshness } from '../../../common/utils/sync-freshness.util';
 import { PosSalesRepository } from '../../database/repositories/pos-sales.repository';
+import { ErpSalesQueryService } from '../../erp-sales/erp-sales-query.service';
 import {
   SmartSaleCombinedCategoryBreakdown,
   SmartSaleCombinedPersonBreakdown,
@@ -10,26 +12,26 @@ import {
   SmartSaleCombinedSummaryResponse,
 } from '../../orders/interfaces/smartsale-combined.interface';
 import { SmartSaleCombinedService } from '../../orders/services/smartsale-combined.service';
-import { AssistantSalesService } from './assistant-sales.service';
 
 const POS_SOURCE_NAME = 'Ventas POS';
+const ERP_SOURCE_NAME = 'Ventas ERP';
 
 export interface SmartSalePeriodTotals {
   startDay: string;
   endDay: string;
-  /** `vtexSales + posSales`. */
+  /** `erpSales + posSales`. */
   totalSales: number;
-  /** `vtexOrders + posOrders` — ojo: son conceptos de "orden" distintos entre los dos canales (una orden VTEX vs. un documento POS), se suman solo como referencia de volumen total. */
+  /** `erpOrders + posOrders` — facturas ERP + documentos POS, se suman solo como referencia de volumen total. */
   totalOrders: number;
-  vtexSales: number;
-  vtexOrders: number;
+  erpSales: number;
+  erpOrders: number;
   posSales: number;
   posOrders: number;
-  /** `vtexUnits + posUnits`. */
+  /** `erpUnits + posUnits`. */
   totalUnits: number;
-  vtexUnits: number;
+  erpUnits: number;
   posUnits: number;
-  /** `totalUnits ÷ totalOrders`, YA CALCULADO — nunca lo calcules tú mismo. `null` si `totalOrders` es 0. Unidades promedio por pedido/documento del canal SmartSale. */
+  /** `totalUnits ÷ totalOrders`, YA CALCULADO — nunca lo calcules tú mismo. `null` si `totalOrders` es 0. Unidades promedio por factura/documento del canal SmartSale. */
   upt: number | null;
 }
 
@@ -41,101 +43,90 @@ export interface AssistantSmartSaleResult {
   periodB: SmartSalePeriodTotals | null;
   /** % de cambio de A respecto a B (B es la base) — `null` si no se pidió periodB, o si B fue 0. NUNCA los calcules tú mismo, ya vienen listos. */
   totalSalesChangePercent: number | null;
-  vtexSalesChangePercent: number | null;
+  erpSalesChangePercent: number | null;
   posSalesChangePercent: number | null;
-  /** Por vendedor, de periodA — combinando VTEX+POS. Si se dio `storeId`, es solo de esa tienda; si no, combina las 6. */
+  /** Por vendedor, de periodA — combinando POS+ERP. Si se dio `storeId`, es solo de esa tienda; si no, combina las 6. */
   bySeller: SmartSaleCombinedPersonBreakdown[];
   /**
-   * Categorías más vendidas de periodA, VTEX+POS combinadas — SIEMPRE
+   * Categorías más vendidas de periodA, POS+ERP combinadas — SIEMPRE
    * combina las 6 tiendas (hoy no existe un corte de categoría por
-   * tienda), incluso si se pidió `storeId`. Usa esto para "¿cuál ha sido
-   * la categoría más vendida?" — el número es siempre el de Resumen
-   * (VTEX+POS), nunca solo de un canal.
+   * tienda), incluso si se pidió `storeId`.
    */
   byCategory: SmartSaleCombinedCategoryBreakdown[];
   /** `null` si se filtró por `storeId` (no aplica desglose por tienda en ese caso) — de periodA. */
   byStore: SmartSaleCombinedStoreSummary[] | null;
-  /**
-   * SIEMPRE presente (nunca `null`) — nota discreta de cuándo se
-   * sincronizó por última vez el ERP de ventas POS (manual, requiere VPN
-   * — a diferencia de VTEX, que es automático). Menciónala igual que el
-   * `syncNote` de `get_sales`, pero nunca la confundas con VTEX.
-   */
+  /** SIEMPRE presente — última sincronización de ventas POS (ERP "Conní", manual por VPN). */
   posSyncNote: string;
-  /** Solo presente si se dio `storeId` (requiere una tienda puntual) — mismo criterio que el `syncNote` de `get_sales`. `null` cuando no se filtró por tienda: NO inventes un valor para esto. */
-  vtexSyncNote: string | null;
+  /** SIEMPRE presente — última sincronización de facturas ERP (manual por VPN). */
+  erpSyncNote: string;
+  /**
+   * Aviso YA REDACTADO si alguno de los períodos empieza antes del primer
+   * día con facturas ERP sincronizadas (esos días solo traen POS; el
+   * histórico ERP llegará por Excel) — `null` si ambos están cubiertos.
+   * Menciónalo tal cual cuando no sea `null`.
+   */
+  erpCoverageNote: string | null;
 }
 
-function toPeriodTotals(
-  startDay: string,
-  endDay: string,
-  vtexSales: number,
-  vtexOrders: number,
-  posSales: number,
-  posOrders: number,
-  vtexUnits: number,
-  posUnits: number,
-): SmartSalePeriodTotals {
-  const totalOrders = vtexOrders + posOrders;
-  const totalUnits = vtexUnits + posUnits;
+type ChannelTotals = { erpSales: number; erpOrders: number; posSales: number; posOrders: number; erpUnits: number; posUnits: number };
+
+function toPeriodTotals(startDay: string, endDay: string, t: ChannelTotals): SmartSalePeriodTotals {
+  const totalOrders = t.erpOrders + t.posOrders;
+  const totalUnits = t.erpUnits + t.posUnits;
   return {
     startDay,
     endDay,
-    totalSales: vtexSales + posSales,
+    totalSales: t.erpSales + t.posSales,
     totalOrders,
-    vtexSales,
-    vtexOrders,
-    posSales,
-    posOrders,
+    erpSales: t.erpSales,
+    erpOrders: t.erpOrders,
+    posSales: t.posSales,
+    posOrders: t.posOrders,
     totalUnits,
-    vtexUnits,
-    posUnits,
+    erpUnits: t.erpUnits,
+    posUnits: t.posUnits,
     upt: totalOrders > 0 ? Number((totalUnits / totalOrders).toFixed(2)) : null,
   };
 }
 
-/** Extrae los totales VTEX+POS de UNA tienda (o de las 6 combinadas si `storeId` es `null`) de una respuesta de `SmartSaleCombinedService.getCombinedSummary`. */
-function extractTotals(
-  summary: SmartSaleCombinedSummaryResponse,
-  storeId: string | null,
-): { vtexSales: number; vtexOrders: number; posSales: number; posOrders: number; vtexUnits: number; posUnits: number } {
+/** Extrae los totales POS+ERP de UNA tienda (o de las 6 combinadas si `storeId` es `null`). */
+function extractTotals(summary: SmartSaleCombinedSummaryResponse, storeId: string | null): ChannelTotals {
   if (!storeId) {
     return {
-      vtexSales: summary.totalVtexSales,
-      vtexOrders: summary.totalVtexOrders,
+      erpSales: summary.totalErpSales,
+      erpOrders: summary.totalErpOrders,
       posSales: summary.totalPosSales,
       posOrders: summary.totalPosOrders,
-      vtexUnits: summary.totalVtexUnits,
+      erpUnits: summary.totalErpUnits,
       posUnits: summary.totalPosUnits,
     };
   }
   const store = summary.byStore.find((s) => s.storeId === storeId);
   return {
-    vtexSales: store?.vtexSales ?? 0,
-    vtexOrders: store?.vtexOrders ?? 0,
+    erpSales: store?.erpSales ?? 0,
+    erpOrders: store?.erpOrders ?? 0,
     posSales: store?.posSales ?? 0,
     posOrders: store?.posOrders ?? 0,
-    vtexUnits: store?.vtexUnits ?? 0,
+    erpUnits: store?.erpUnits ?? 0,
     posUnits: store?.posUnits ?? 0,
   };
 }
 
 /**
  * Herramienta `get_smartsale_sales` — la fuente de verdad de Vico para
- * CUALQUIER pregunta de ventas de SmartSale es siempre "Resumen" (VTEX +
- * POS combinados, ver `SmartSaleCombinedService`), nunca un canal por
- * separado salvo que el usuario pida explícitamente solo VTEX o solo
- * POS (para eso están `vtexSales`/`posSales` ya desglosados en la misma
- * respuesta). `periodB` es opcional — si se da, se devuelve también el
- * total de ese período y el % de cambio YA CALCULADO (nunca lo calcules
- * tú mismo), mismo patrón que `compare_periods`/`get_diagnosis`.
+ * CUALQUIER pregunta de ventas de SmartSale es siempre "Resumen" (POS +
+ * ERP combinados, ver `SmartSaleCombinedService`), nunca un canal por
+ * separado salvo que el usuario pida explícitamente solo POS o solo ERP
+ * (para eso están `posSales`/`erpSales` ya desglosados). `periodB` es
+ * opcional — si se da, se devuelve también el total de ese período y el %
+ * de cambio YA CALCULADO (nunca lo calcules tú mismo).
  */
 @Injectable()
 export class AssistantSmartSaleService {
   constructor(
     private readonly combinedService: SmartSaleCombinedService,
     private readonly posSalesRepository: PosSalesRepository,
-    private readonly assistantSalesService: AssistantSalesService,
+    private readonly erpSalesQueryService: ErpSalesQueryService,
   ) {}
 
   async getSmartSaleSales(
@@ -144,41 +135,15 @@ export class AssistantSmartSaleService {
     storeId?: string,
   ): Promise<AssistantSmartSaleResult> {
     const effectiveStoreId = storeId ?? null;
-    const [summaryA, posLastSyncedAt, vtexSyncNote] = await Promise.all([
+    const [summaryA, posLastSyncedAt, erpLastSyncedAt] = await Promise.all([
       this.combinedService.getCombinedSummary(periodA.startDay, periodA.endDay),
       this.posSalesRepository.getLastSyncedAt(),
-      effectiveStoreId ? this.assistantSalesService.getSyncNote(effectiveStoreId) : Promise.resolve(null),
+      this.erpSalesQueryService.getLastSyncedAt(),
     ]);
-    const totalsA = extractTotals(summaryA, effectiveStoreId);
+    const summaryB = periodB ? await this.combinedService.getCombinedSummary(periodB.startDay, periodB.endDay) : null;
 
-    let totalsB: ReturnType<typeof extractTotals> | null = null;
-    if (periodB) {
-      const summaryB = await this.combinedService.getCombinedSummary(periodB.startDay, periodB.endDay);
-      totalsB = extractTotals(summaryB, effectiveStoreId);
-    }
-
-    const periodATotals = toPeriodTotals(
-      periodA.startDay,
-      periodA.endDay,
-      totalsA.vtexSales,
-      totalsA.vtexOrders,
-      totalsA.posSales,
-      totalsA.posOrders,
-      totalsA.vtexUnits,
-      totalsA.posUnits,
-    );
-    const periodBTotals = periodB && totalsB
-      ? toPeriodTotals(
-          periodB.startDay,
-          periodB.endDay,
-          totalsB.vtexSales,
-          totalsB.vtexOrders,
-          totalsB.posSales,
-          totalsB.posOrders,
-          totalsB.vtexUnits,
-          totalsB.posUnits,
-        )
-      : null;
+    const periodATotals = toPeriodTotals(periodA.startDay, periodA.endDay, extractTotals(summaryA, effectiveStoreId));
+    const periodBTotals = periodB && summaryB ? toPeriodTotals(periodB.startDay, periodB.endDay, extractTotals(summaryB, effectiveStoreId)) : null;
 
     const byPerson = effectiveStoreId
       ? (summaryA.byStore.find((s) => s.storeId === effectiveStoreId)?.byPerson ?? [])
@@ -189,13 +154,14 @@ export class AssistantSmartSaleService {
       periodA: periodATotals,
       periodB: periodBTotals,
       totalSalesChangePercent: periodBTotals ? percentChange(periodBTotals.totalSales, periodATotals.totalSales) : null,
-      vtexSalesChangePercent: periodBTotals ? percentChange(periodBTotals.vtexSales, periodATotals.vtexSales) : null,
+      erpSalesChangePercent: periodBTotals ? percentChange(periodBTotals.erpSales, periodATotals.erpSales) : null,
       posSalesChangePercent: periodBTotals ? percentChange(periodBTotals.posSales, periodATotals.posSales) : null,
       bySeller: byPerson,
       byCategory: summaryA.byCategory,
       byStore: effectiveStoreId ? null : summaryA.byStore,
       posSyncNote: buildErpSyncNote(POS_SOURCE_NAME, checkSyncFreshness(posLastSyncedAt)),
-      vtexSyncNote,
+      erpSyncNote: buildErpSyncNote(ERP_SOURCE_NAME, checkSyncFreshness(erpLastSyncedAt)),
+      erpCoverageNote: buildErpCoverageNote(summaryA.erpCoverageStartDay, periodB ? [periodA.startDay, periodB.startDay] : [periodA.startDay]),
     };
   }
 }

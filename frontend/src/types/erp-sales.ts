@@ -126,4 +126,12 @@ export interface ErpResumenFilteredResponse {
     /** Solo con filtro de marca y Pilatos incluida. */
     pilatosBrands: { sales: number; matched: { erpMarca: string; vtexBrand: string }[]; unmatched: string[] } | null;
   };
+  /** Opciones COMBINADAS de los filtros (cada lista con los otros dos aplicados). */
+  options: {
+    storeIds: string[];
+    marcas: string[];
+    tipos: string[];
+    /** Marcas ERP que vende cada tienda en el rango — para saber si su venta VTEX completa aplica. */
+    storeMarcas: Record<string, string[]>;
+  };
 }

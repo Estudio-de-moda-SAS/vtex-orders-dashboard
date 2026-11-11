@@ -292,10 +292,12 @@ export class ErpSalesRepository {
    * Líneas e-commerce FILTRADAS (Resumen de `/presupuesto`) agrupadas por
    * tienda, tipo de línea y prefijo de `docto_referencia` — de aquí salen
    * ventas ERP, margen/utilidad (`buildMarginSummary`) y marketplaces
-   * (`buildMarketplaceSummary`) con los mismos filtros. Marca solo filtra
-   * Pilatos (las otras tiendas no tienen marcas internas — "N/A"). Un
-   * filtro de marca o tipo deja fuera flete y empaque por sí solo (su marca
-   * es "NA - NO APLICA"/"PILA - PILATOS" y su tipo no es de producto).
+   * (`buildMarketplaceSummary`) con los mismos filtros. Los filtros se
+   * COMBINAN (tienda Y marca Y tipo); la marca es la del ERP en TODAS las
+   * tiendas (la tienda Diesel vende "DSA - DIESEL ADULTO", igual que
+   * Pilatos). Un filtro de marca o tipo deja fuera flete y empaque por sí
+   * solo (su marca es "NA - NO APLICA"/"PILA - PILATOS" y su tipo no es de
+   * producto).
    * Sin notas crédito.
    */
   async getFilteredLines(
@@ -312,7 +314,7 @@ export class ErpSalesRepository {
     }
     if (filters.marcas.length > 0) {
       params.push(filters.marcas);
-      where += ` AND (store_id <> 'pilatos' OR marca = ANY($${params.length}))`;
+      where += ` AND marca = ANY($${params.length})`;
     }
     if (filters.tipos.length > 0) {
       params.push(filters.tipos);
@@ -347,6 +349,22 @@ export class ErpSalesRepository {
       cost: Number(r.cost),
       invoices: Number(r.invoices),
     }));
+  }
+
+  /**
+   * Combinaciones (tienda, marca, tipo) con venta en el rango — solo
+   * producto, sin notas crédito. Insumo de las opciones COMBINADAS de los
+   * filtros (`buildResumenFilterOptions`).
+   */
+  async getFilterCombos(startDay: string, endDay: string, channel: ErpChannel): Promise<{ storeId: string; marca: string; tipo: string; sales: number }[]> {
+    const result = await this.pool.query<{ store_id: string; marca: string | null; tipo: string | null; sales: string }>(
+      `SELECT store_id, marca, tipo, COALESCE(SUM(valor_neto), 0) AS sales
+       FROM erp_sales
+       WHERE fecha BETWEEN $1 AND $2 AND channel = $3 AND NOT is_credit_note AND line_kind = 'product'
+       GROUP BY 1, 2, 3`,
+      [startDay, endDay, channel],
+    );
+    return result.rows.map((r) => ({ storeId: r.store_id, marca: r.marca ?? 'SIN MARCA', tipo: r.tipo ?? 'SIN TIPO', sales: Number(r.sales) }));
   }
 
   /** Venta VTEX contabilizada por marca de una tienda (`sales_daily_by_brand`) — para el filtro de marca de Pilatos. */

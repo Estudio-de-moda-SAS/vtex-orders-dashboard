@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { normalizeEndDate, normalizeStartDate, toDayBucketColombia, todayColombia } from '../../common/utils/date-range.util';
 import { buildMarginSummary, MarginSummary } from '../../common/utils/erp-margin.util';
 import { buildMarketplaceSummary, MarketplaceSummary } from '../../common/utils/erp-marketplace.util';
-import { ErpResumenFilters, vtexSalesForErpMarcas } from '../../common/utils/erp-resumen-filter.util';
+import { buildResumenFilterOptions, ErpResumenFilters, vtexSalesForErpMarcas } from '../../common/utils/erp-resumen-filter.util';
 import { erpSmartSaleSellerName, mergeSalesWithCreditNotes } from '../../common/utils/erp-sales.util';
 import { getStoresConfig } from '../../config/stores.config';
 import { ErpCreditNotesRow, ErpSalesBreakdownRow, ErpSalesGroupedRow, ErpSalesRepository } from '../database/repositories/erp-sales.repository';
@@ -95,15 +95,20 @@ export class ErpSalesQueryService {
   async getFilteredResumen(rawStartDate: string, rawEndDate: string, filters: ErpResumenFilters): Promise<ErpResumenFilteredResponse> {
     const { startDay, endDay } = dayRange(rawStartDate, rawEndDate);
     const allStoreIds = getStoresConfig().map((s) => s.id);
-    const storeIds = filters.storeIds.length > 0 ? allStoreIds.filter((id) => filters.storeIds.includes(id)) : allStoreIds;
+    const selectedStoreIds = filters.storeIds.length > 0 ? allStoreIds.filter((id) => filters.storeIds.includes(id)) : allStoreIds;
     const brandOrTipo = filters.marcas.length > 0 || filters.tipos.length > 0;
-    const wantsPilatosBrands = filters.marcas.length > 0 && storeIds.includes(PILATOS_STORE_ID);
+    const wantsPilatosBrands = filters.marcas.length > 0 && selectedStoreIds.includes(PILATOS_STORE_ID);
 
-    const [lines, vtexByMarketplace, vtexPilatosBrands] = await Promise.all([
+    const [lines, combos, vtexByMarketplace, vtexPilatosBrands] = await Promise.all([
       this.repository.getFilteredLines(startDay, endDay, 'ecommerce', filters),
+      this.repository.getFilterCombos(startDay, endDay, 'ecommerce'),
       brandOrTipo ? Promise.resolve({} as Record<string, number>) : this.repository.getVtexSalesByMarketplace(startDay, endDay),
       wantsPilatosBrands ? this.repository.getVtexSalesByBrand(startDay, endDay, PILATOS_STORE_ID) : Promise.resolve(null),
     ]);
+    // Con filtro de marca o tipo, solo se muestran las tiendas con venta en esa combinación (ej. Diesel Adulto + camiseta
+    // → Pilatos y Diesel, nunca Superdry). Solo con filtro de tienda, se muestran las elegidas aunque no tengan venta.
+    const storesWithLines = new Set(lines.map((l) => l.storeId));
+    const storeIds = brandOrTipo ? selectedStoreIds.filter((id) => storesWithLines.has(id)) : selectedStoreIds;
 
     const margin = buildMarginSummary(lines, storeIds);
     const erpSalesByStore = new Map<string, number>();
@@ -130,8 +135,9 @@ export class ErpSalesQueryService {
       marketplaces: buildMarketplaceSummary(Array.from(prefixRows.values()), vtexByMarketplace),
       vtex: {
         tipoFilterActive: filters.tipos.length > 0,
-        pilatosBrands: vtexPilatosBrands ? vtexSalesForErpMarcas(filters.marcas, vtexPilatosBrands) : null,
+        pilatosBrands: vtexPilatosBrands && storeIds.includes(PILATOS_STORE_ID) ? vtexSalesForErpMarcas(filters.marcas, vtexPilatosBrands) : null,
       },
+      options: buildResumenFilterOptions(combos, filters),
     };
   }
 

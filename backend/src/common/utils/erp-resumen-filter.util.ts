@@ -85,3 +85,67 @@ export function vtexSalesForErpMarcas(
   }
   return { sales, matched, unmatched };
 }
+
+/** Una combinación (tienda, marca, tipo) con su venta — insumo de las opciones de los filtros. */
+export interface FilterComboRow {
+  storeId: string;
+  marca: string;
+  tipo: string;
+  sales: number;
+}
+
+export interface ResumenFilterOptions {
+  /** Tiendas con venta que cumplen los filtros de marca y tipo. */
+  storeIds: string[];
+  /** Marcas con venta que cumplen los filtros de tienda y tipo — ordenadas por venta. */
+  marcas: string[];
+  /** Tipos con venta que cumplen los filtros de tienda y marca — ordenados por venta. */
+  tipos: string[];
+  /** Marcas ERP que vende cada tienda en el rango (sin filtros) — para decidir si la venta VTEX de la tienda aplica. */
+  storeMarcas: Record<string, string[]>;
+}
+
+/**
+ * Opciones COMBINADAS de los filtros: cada lista se arma con los OTROS
+ * dos filtros aplicados (ej. con marca "DSA - DIESEL ADULTO", tipo solo
+ * lista los tipos que vende Diesel Adulto). Así nunca se ofrece una
+ * opción que deje el resumen vacío. Solo líneas de producto (las da el
+ * repositorio ya filtradas).
+ */
+export function buildResumenFilterOptions(rows: FilterComboRow[], filters: ErpResumenFilters): ResumenFilterOptions {
+  const inStores = (r: FilterComboRow) => filters.storeIds.length === 0 || filters.storeIds.includes(r.storeId);
+  const inMarcas = (r: FilterComboRow) => filters.marcas.length === 0 || filters.marcas.includes(r.marca);
+  const inTipos = (r: FilterComboRow) => filters.tipos.length === 0 || filters.tipos.includes(r.tipo);
+
+  const ranked = (filtered: FilterComboRow[], key: (r: FilterComboRow) => string) => {
+    const totals = new Map<string, number>();
+    for (const r of filtered) totals.set(key(r), (totals.get(key(r)) ?? 0) + r.sales);
+    return Array.from(totals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([k]) => k);
+  };
+
+  const storeMarcas: Record<string, string[]> = {};
+  for (const r of rows) {
+    const list = (storeMarcas[r.storeId] ??= []);
+    if (!list.includes(r.marca)) list.push(r.marca);
+  }
+
+  return {
+    storeIds: ranked(rows.filter((r) => inMarcas(r) && inTipos(r)), (r) => r.storeId),
+    marcas: ranked(rows.filter((r) => inStores(r) && inTipos(r)), (r) => r.marca),
+    tipos: ranked(rows.filter((r) => inStores(r) && inMarcas(r)), (r) => r.tipo),
+    storeMarcas,
+  };
+}
+
+/**
+ * Venta VTEX de una tienda de una sola marca con filtro de marca: aplica
+ * (la venta VTEX completa de la tienda) solo si TODAS las marcas ERP que
+ * vende esa tienda en el rango están seleccionadas — si vende otra que no
+ * se eligió (ej. Girbaud también vende Converse), VTEX no separa esa venta
+ * → `false` (se muestra "N/A").
+ */
+export function singleBrandStoreVtexApplies(storeMarcas: string[], selectedMarcas: string[]): boolean {
+  return storeMarcas.length > 0 && storeMarcas.every((m) => selectedMarcas.includes(m));
+}

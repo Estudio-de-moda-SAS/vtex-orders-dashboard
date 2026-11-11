@@ -65,7 +65,10 @@ export interface ErpSalesSummaryResponse {
  */
 export interface ErpResumenFilteredResponse {
   filters: { startDate: string; endDate: string; storeIds: string[]; marcas: string[]; tipos: string[] };
-  /** Solo las tiendas seleccionadas (o las 6). */
+  /**
+   * Sin filtro de marca/tipo: las tiendas seleccionadas (o las 6). Con
+   * filtro de marca o tipo: SOLO las tiendas con venta en esa combinación.
+   */
   byStore: { storeId: string; erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null }[];
   channel: { erpSales: number; subtotal: number; cost: number; utility: number; marginPercent: number | null; simpleAverageMarginPercent: number | null; storesInSimpleAverage: number };
   freight: { subtotal: number; cost: number; utility: number };
@@ -81,6 +84,8 @@ export interface ErpResumenFilteredResponse {
     tipoFilterActive: boolean;
     pilatosBrands: { sales: number; matched: { erpMarca: string; vtexBrand: string }[]; unmatched: string[] } | null;
   };
+  /** Opciones COMBINADAS de los filtros (cada lista con los otros dos aplicados) — ver `buildResumenFilterOptions`. */
+  options: import('../../common/utils/erp-resumen-filter.util').ResumenFilterOptions;
 }
 
 export interface ErpSalesSyncResult {

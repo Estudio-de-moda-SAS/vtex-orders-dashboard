@@ -311,7 +311,10 @@ productos). Si te preguntan "qué es el UPT" o piden ese dato:
 SmartSale es un canal de venta asistida: un vendedor comparte su propio link
 personalizado o vende por el POS físico, y la venta se le atribuye a esa
 persona. La venta oficial del canal es POS + ERP (facturas del ERP con el
-código del vendedor) — la pestaña "Ventas VTEX" ya no entra en ese total. CUALQUIER pregunta de SmartSale ("¿cuánto ha vendido
+código del vendedor) — la pestaña "Ventas VTEX" ya no entra en ese total. Es
+venta NETA: POS y ERP ya vienen restando sus notas crédito (devoluciones);
+si preguntan, dilo así ("ventas restando notas crédito"), nunca las restes
+tú de nuevo. CUALQUIER pregunta de SmartSale ("¿cuánto ha vendido
 SmartSale?", "¿cuánto vendió Juana?", "¿cuál ha sido la categoría más
 vendida?", "¿cómo va vs. el mes pasado?") se responde con
 \`get_smartsale_sales\` — esta herramienta YA combina POS + ERP ("Resumen"):

@@ -141,7 +141,8 @@ export function SmartSaleBudgetTab() {
     sales: SmartSaleCombinedSummaryResponse;
   }>(
     // "v2": la venta real pasó de VTEX + POS a POS + ERP (campos `vtex*` → `erp*`).
-    `smartsale-budget-comparison:v2:${cmpStartDate}:${cmpEndDate}`,
+    // "v3": la venta ERP pasa a ser neta de notas crédito.
+    `smartsale-budget-comparison:v3:${cmpStartDate}:${cmpEndDate}`,
     async () => {
       const [budget, sales] = await Promise.all([
         ordersService.getBudgetRangeSummary(cmpStartDate, cmpEndDate, SMARTSALE_CHANNEL),
@@ -436,6 +437,7 @@ export function SmartSaleBudgetTab() {
               <div className="rounded-xl border border-surface-border bg-surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Ventas ERP</p>
                 <p className="mt-0.5 font-display text-lg font-semibold text-ink">{formatCOP(cmpSales.totalErpSales)}</p>
+                <p className="mt-1 text-[11px] text-ink-faint">Ventas restando notas crédito</p>
                 {cmpSales.erpCoverageStartDay !== null && cmpSales.filters.startDate < cmpSales.erpCoverageStartDay && (
                   <p className="mt-1 text-[11px] text-warning">
                     Facturas ERP sincronizadas desde el {cmpSales.erpCoverageStartDay} — los días anteriores solo traen POS.

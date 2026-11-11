@@ -68,11 +68,13 @@ export class SmartSaleCombinedService {
   ) {}
 
   async getCombinedSummary(startDate: string, endDate: string): Promise<SmartSaleCombinedSummaryResponse> {
-    const [erpSummary, posSummary, erpCoverageStartDay, marginInput] = await Promise.all([
-      this.erpSalesQueryService.getSmartSaleSummary(startDate, endDate),
+    const [erpSummary, posSummary, erpCoverageStartDay, marginInput, posCreditNotesByStore] = await Promise.all([
+      // NETO de notas crédito (decisión del usuario): POS ya llega neto, ERP se pide neto para que el total cuadre.
+      this.erpSalesQueryService.getSmartSaleSummary(startDate, endDate, { net: true }),
       this.posSalesQueryService.getSummary(startDate, endDate),
       this.erpSalesQueryService.getCoverageStartDay(),
       this.erpSalesQueryService.getSmartSaleMarginInput(startDate, endDate),
+      this.posSalesQueryService.getCreditNotesByStore(startDate, endDate),
     ]);
     const posByStoreId = new Map(posSummary.byStore.map((s) => [s.storeId, s]));
     const erpByStoreId = new Map(erpSummary.byStore.map((s) => [s.storeId, s]));
@@ -166,6 +168,7 @@ export class SmartSaleCombinedService {
       margin: buildMarginSummary(marginInput.rows, this.storeIds),
       posMarginCoverage: { posDocuments: totalPosOrders, posDocumentsWithMargin: marginInput.posDocumentsWithMargin },
       byTipo: mergeCombinedTipos(posSummary.byTipo, erpSummary.byTipo),
+      creditNotes: this.buildCreditNotes(erpSummary, posCreditNotesByStore),
       byStoreTipo: this.storeIds.map((storeId) => ({
         storeId,
         byTipo: mergeCombinedTipos(
@@ -173,6 +176,34 @@ export class SmartSaleCombinedService {
           erpSummary.byStoreTipo.find((s) => s.storeId === storeId)?.byTipo ?? [],
         ),
       })),
+    };
+  }
+
+  /**
+   * Cuadro "Notas crédito" del Resumen: POS (NPE, ya restadas en la venta
+   * POS) + ERP (NVF de SmartSale, restadas en la venta ERP neta), por
+   * tienda y total. Valores negativos, tal cual el ERP.
+   */
+  private buildCreditNotes(
+    erpSummary: { byStore: { storeId: string; creditNotes: { count: number; value: number } }[] },
+    posByStore: { storeId: string; count: number; value: number }[],
+  ): SmartSaleCombinedSummaryResponse['creditNotes'] {
+    const byStore = this.storeIds.map((storeId) => {
+      const erp = erpSummary.byStore.find((s) => s.storeId === storeId)?.creditNotes ?? { count: 0, value: 0 };
+      const pos = posByStore.find((s) => s.storeId === storeId) ?? { count: 0, value: 0 };
+      return { storeId, posCount: pos.count, posValue: pos.value, erpCount: erp.count, erpValue: erp.value, totalCount: pos.count + erp.count, totalValue: pos.value + erp.value };
+    });
+    const sum = (k: keyof (typeof byStore)[number]) => byStore.reduce((a, s) => a + (s[k] as number), 0);
+    return {
+      byStore,
+      total: {
+        posCount: sum('posCount'),
+        posValue: sum('posValue'),
+        erpCount: sum('erpCount'),
+        erpValue: sum('erpValue'),
+        totalCount: sum('totalCount'),
+        totalValue: sum('totalValue'),
+      },
     };
   }
 

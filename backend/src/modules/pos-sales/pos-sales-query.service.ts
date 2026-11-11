@@ -98,6 +98,13 @@ export class PosSalesQueryService {
     };
   }
 
+  /** Notas crédito POS por tienda en el rango (cuadro "Notas crédito" del Resumen de SmartSale). */
+  async getCreditNotesByStore(rawStartDate: string, rawEndDate: string): Promise<{ storeId: string; count: number; value: number }[]> {
+    const startDay = toDayBucketColombia(normalizeStartDate(rawStartDate));
+    const endDay = toDayBucketColombia(normalizeEndDate(rawEndDate));
+    return this.repository.getCreditNotesByStore(startDay, endDay);
+  }
+
   /**
    * Venta mensual del canal POS, combinando las 6 tiendas — mismo rango
    * (año en curso completo) que `SmartSaleService.getMonthlyTrend`, para

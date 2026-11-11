@@ -82,6 +82,11 @@ export interface SmartSaleCombinedSummaryResponse {
   posMarginCoverage: { posDocuments: number; posDocumentsWithMargin: number };
   byTipo: SmartSaleCombinedTipo[];
   byStoreTipo: { storeId: string; byTipo: SmartSaleCombinedTipo[] }[];
+  /** Notas crédito POS (NPE) + ERP (NVF), YA RESTADAS en las ventas — por tienda y total (valores negativos). */
+  creditNotes: {
+    byStore: { storeId: string; posCount: number; posValue: number; erpCount: number; erpValue: number; totalCount: number; totalValue: number }[];
+    total: { posCount: number; posValue: number; erpCount: number; erpValue: number; totalCount: number; totalValue: number };
+  };
 }
 
 export interface SmartSaleCombinedMonthlyTrendPoint {
